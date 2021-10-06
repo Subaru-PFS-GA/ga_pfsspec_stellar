@@ -1,10 +1,10 @@
 import os
 import numpy as np
 
-from pfsspec.data.arraygrid import ArrayGrid
-from pfsspec.data.rbfgrid import RbfGrid
-from pfsspec.data.gridbuilder import GridBuilder
-from pfsspec.stellarmod.modelgrid import ModelGrid
+from pfsspec.core.grid import ArrayGrid
+from pfsspec.core.grid import RbfGrid
+from pfsspec.core.grid import GridBuilder
+from pfsspec.stellar.grid import ModelGrid
 
 class ModelGridBuilder():
     # Mixin class for spectrum model specific grid building operations

@@ -1,6 +1,6 @@
 import numpy as np
 
-from pfsspec.common.stellarspectrum import StellarSpectrum
+from .stellarspectrum import StellarSpectrum
 
 class ModelSpectrum(StellarSpectrum):
     # TODO: Make StellarSpectrum a mixin

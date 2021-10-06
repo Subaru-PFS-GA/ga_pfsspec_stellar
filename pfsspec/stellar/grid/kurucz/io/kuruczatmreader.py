@@ -2,8 +2,8 @@ import os
 import logging
 import numpy as numpy
 
-from pfsspec.data.atmreader import AtmReader
-from pfsspec.stellarmod.kuruczatm import KuruczAtm
+from pfsspec.stellar.io import AtmReader
+from pfsspec.stellar.grid.kurucz import KuruczAtm
 
 class KuruczAtmReader(AtmReader):
     def __init__(self):

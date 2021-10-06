@@ -1,6 +1,6 @@
 import numpy as np
 
-from pfsspec.common.pfsobject import PfsObject
+from pfsspec.core import PfsObject
 
 class ContinuumModel(PfsObject):
     def __init__(self, orig=None):

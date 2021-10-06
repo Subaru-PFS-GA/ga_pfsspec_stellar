@@ -1,7 +1,7 @@
 import numpy as np
 
-from pfsspec.stellarmod.modelgridconfig import ModelGridConfig
-from pfsspec.stellarmod.boszspectrum import BoszSpectrum
+from pfsspec.stellar.grid import ModelGridConfig
+from .boszspectrum import BoszSpectrum
 
 class Bosz(ModelGridConfig):
     def __init__(self, orig=None, normalized=False, pca=None):

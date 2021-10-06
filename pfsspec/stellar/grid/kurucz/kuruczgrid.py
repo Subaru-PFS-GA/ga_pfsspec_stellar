@@ -1,8 +1,8 @@
 import numpy as np
 
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.data.gridaxis import GridAxis
-from pfsspec.stellarmod.kuruczspectrum import KuruczSpectrum
+from pfsspec.core.grid import GridAxis
+from pfsspec.stellar.grid import ModelGrid
+from .kuruczspectrum import KuruczSpectrum
 
 class KuruczGrid(ModelGrid):
     def __init__(self, model='kurucz'):

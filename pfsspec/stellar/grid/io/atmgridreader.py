@@ -1,6 +1,6 @@
 import logging
 
-from pfsspec.data.gridreader import GridReader
+from pfsspec.core.grid.io import GridReader
 
 class AtmGridReader(GridReader):
     pass

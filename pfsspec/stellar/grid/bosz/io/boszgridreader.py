@@ -2,11 +2,11 @@ import os
 import glob
 import logging
 
-from pfsspec.data.arraygrid import ArrayGrid
-from pfsspec.stellarmod.modelgridreader import ModelGridReader
-from pfsspec.stellarmod.boszspectrumreader import BoszSpectrumReader
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.stellarmod.bosz import Bosz
+from pfsspec.core.grid import ArrayGrid
+from pfsspec.stellar.grid import ModelGrid
+from pfsspec.stellar.grid.io import ModelGridReader
+from pfsspec.stellar.grid.bosz import Bosz
+from .boszspectrumreader import BoszSpectrumReader
 
 class BoszGridReader(ModelGridReader):
     def __init__(self, grid=None, orig=None):

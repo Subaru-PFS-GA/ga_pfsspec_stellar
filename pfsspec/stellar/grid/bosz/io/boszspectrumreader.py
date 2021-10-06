@@ -7,8 +7,8 @@ import re
 import multiprocessing
 import time
 
-from pfsspec.data.spectrumreader import SpectrumReader
-from pfsspec.stellarmod.boszspectrum import BoszSpectrum
+from pfsspec.core.io import SpectrumReader
+from pfsspec.stellar.grid.bosz import BoszSpectrum
 
 class BoszSpectrumReader(SpectrumReader):
     MAP_FE_H = {

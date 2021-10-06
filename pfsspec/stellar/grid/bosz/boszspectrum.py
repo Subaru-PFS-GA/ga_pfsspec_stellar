@@ -5,7 +5,7 @@ import pysynphot.spectrum
 import pysynphot.reddening
 from scipy.integrate import simps
 
-from pfsspec.stellarmod.kuruczspectrum import KuruczSpectrum
+from pfsspec.stellar.grid.kurucz import KuruczSpectrum
 
 class BoszSpectrum(KuruczSpectrum):
     def __init__(self, orig=None):

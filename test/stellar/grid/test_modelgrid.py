@@ -1,4 +1,4 @@
-from test.test_base import TestBase
+from test.core import TestBase
 
 class TestModelGrid(TestBase):
     def get_test_grid(self, args):

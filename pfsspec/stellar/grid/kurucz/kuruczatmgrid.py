@@ -1,8 +1,8 @@
 import numpy as np
 
-from pfsspec.data.arraygrid import ArrayGrid
-from pfsspec.data.gridaxis import GridAxis
-from pfsspec.stellarmod.kuruczatm import KuruczAtm
+from pfsspec.core.grid import ArrayGrid
+from pfsspec.core.grid import GridAxis
+from pfsspec.stellar.grid.kurucz import KuruczAtm
 
 class KuruczAtmGrid(ArrayGrid):
     def __init__(self):

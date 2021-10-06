@@ -3,12 +3,12 @@ import numpy as np
 import time
 from tqdm import tqdm
 
-from pfsspec.util.physics import Physics
-from pfsspec.data.arraygrid import ArrayGrid
-from pfsspec.data.rbfgrid import RbfGrid
-from pfsspec.data.pcagridbuilder import PcaGridBuilder
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.stellarmod.modelgridbuilder import ModelGridBuilder
+from pfsspec.core import Physics
+from pfsspec.core.grid import ArrayGrid
+from pfsspec.core.grid import RbfGrid
+from pfsspec.core.grid import PcaGridBuilder
+from pfsspec.stellar.grid import ModelGrid
+from pfsspec.stellar.grid import ModelGridBuilder
 
 class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
     def __init__(self, config, orig=None):

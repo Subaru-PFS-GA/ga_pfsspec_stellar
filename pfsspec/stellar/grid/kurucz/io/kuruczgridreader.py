@@ -1,8 +1,8 @@
 import os
 import logging
 
-from pfsspec.stellarmod.modelgridreader import ModelGridReader
-from pfsspec.stellarmod.kuruczspectrumreader import KuruczSpectrumReader
+from pfsspec.stellar.grid.io import ModelGridReader
+from .kuruczspectrumreader import KuruczSpectrumReader
 
 class KuruczGridReader(ModelGridReader):
     # Implements a grid reader that reads Kurucz model spectra from files

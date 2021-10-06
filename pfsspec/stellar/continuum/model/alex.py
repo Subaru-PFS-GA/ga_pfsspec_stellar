@@ -3,13 +3,12 @@ import numpy as np
 import scipy as sp
 import logging
 
-from pfsspec.util.physics import Physics
-from pfsspec.stellarmod.continuummodels.continuummodel import ContinuumModel
-from pfsspec.stellarmod.continuummodels.modelparameter import ModelParameter
-from pfsspec.util.array_filters import *
-
-from pfsspec.fit.legendre import Legendre
-from pfsspec.fit.alexsigmoid import AlexSigmoid
+from pfsspec.core import Physics
+from pfsspec.core.util.array_filters import *
+from pfsspec.stellar.continuum import ContinuumModel
+from pfsspec.stellar.continuum import ModelParameter
+from pfsspec.stellar.continuum.function import Legendre
+from pfsspec.stellar.continuum.function import AlexSigmoid
 
 class AlexContinuumModelTrace():
     def __init__(self):

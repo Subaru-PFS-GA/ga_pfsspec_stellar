@@ -3,13 +3,13 @@ import numpy as np
 import time
 from tqdm import tqdm
 
-from pfsspec.data.arraygrid import ArrayGrid
-from pfsspec.data.rbfgrid import RbfGrid
-from pfsspec.data.pcagrid import PcaGrid
-from pfsspec.data.rbfgridbuilder import RbfGridBuilder
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.stellarmod.modelgridbuilder import ModelGridBuilder
-from pfsspec.util.array_filters import *
+from pfsspec.core.util.array_filters import *
+from pfsspec.core.grid import ArrayGrid
+from pfsspec.core.grid import RbfGrid
+from pfsspec.core.grid import PcaGrid
+from pfsspec.core.grid import RbfGridBuilder
+from pfsspec.stellar.grid import ModelGrid
+from pfsspec.stellar.grid import ModelGridBuilder
 
 class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
 

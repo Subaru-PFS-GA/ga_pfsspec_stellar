@@ -3,10 +3,10 @@ import numpy as np
 import scipy as sp
 import logging
 
-from pfsspec.util.physics import Physics
-from pfsspec.stellarmod.continuummodels.continuummodel import ContinuumModel
-from pfsspec.stellarmod.continuummodels.modelparameter import ModelParameter
-from pfsspec.util.array_filters import *
+from pfsspec.core import Physics
+from pfsspec.core.util.array_filters import *
+from pfsspec.stellar.continuum import ContinuumModel
+from pfsspec.stellar.continuum import ModelParameter
 
 class Planck(ContinuumModel):
     # Normalize stellar models with the Planck curve associated with

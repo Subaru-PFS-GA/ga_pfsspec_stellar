@@ -1,8 +1,8 @@
 import os
 import numpy as np
 
-from test.test_base import TestBase
-from pfsspec.stellarmod.modelgrid import ModelGrid
+from test.core import TestBase
+from pfsspec.stellar.grid import ModelGrid
 
 class TestBoszModelGrid(TestBase):
     def get_grid(self):

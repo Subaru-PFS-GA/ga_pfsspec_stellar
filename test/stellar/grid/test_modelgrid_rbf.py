@@ -2,11 +2,11 @@ import os
 import logging
 from tqdm import tqdm
 import numpy as np
-from test.test_base import TestBase
 
-from pfsspec.data.rbfgrid import RbfGrid
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.stellarmod.bosz import Bosz
+from test.core import TestBase
+from pfsspec.core.grid import RbfGrid
+from pfsspec.stellar.grid import ModelGrid
+from pfsspec.stellar.grid.bosz import Bosz
 
 class TestModelGrid_Rbf(TestBase):
     def get_test_grid(self, args):

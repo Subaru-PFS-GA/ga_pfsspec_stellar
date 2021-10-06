@@ -1,7 +1,7 @@
-from test.test_base import TestBase
 import os
 
-from pfsspec.stellarmod.kuruczatmreader import KuruczAtmReader
+from test.core import TestBase
+from pfsspec.stellar.grid.kurucz.io import KuruczAtmReader
 
 class TestKuruczAtmReader(TestBase):
     def test_read(self):

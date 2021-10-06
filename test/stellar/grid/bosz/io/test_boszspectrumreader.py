@@ -1,8 +1,8 @@
-from test.test_base import TestBase
 import os
 
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.stellarmod.boszspectrumreader import BoszSpectrumReader
+from test.core import TestBase
+from pfsspec.stellar.grid import ModelGrid
+from pfsspec.stellar.grid.bosz.io import BoszSpectrumReader
 
 class TestBoszSpectrumReader(TestBase):
     def test_read(self):

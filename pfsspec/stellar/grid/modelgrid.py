@@ -6,10 +6,10 @@ from random import choice
 from scipy.interpolate import RegularGridInterpolator, CubicSpline
 from scipy.interpolate import interp1d, interpn
 
-from pfsspec.common.pfsobject import PfsObject
-from pfsspec.data.arraygrid import ArrayGrid
-from pfsspec.data.rbfgrid import RbfGrid
-from pfsspec.data.pcagrid import PcaGrid
+from pfsspec.core import PfsObject
+from pfsspec.core.grid import ArrayGrid
+from pfsspec.core.grid import RbfGrid
+from pfsspec.core.grid import PcaGrid
 
 class ModelGrid(PfsObject):
     """Wraps an array or RBF grid, optionally PCA-compressed, and implements logic

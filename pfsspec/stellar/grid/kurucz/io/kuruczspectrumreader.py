@@ -3,10 +3,10 @@ import logging
 import math
 import numpy as np
 
-from pfsspec.data.spectrumreader import SpectrumReader
-from pfsspec.util.physics import Physics
-from pfsspec.stellarmod.kuruczspectrum import KuruczSpectrum
-from pfsspec.stellarmod.kuruczgrid import KuruczGrid
+from pfsspec.core import Physics
+from pfsspec.core.io import SpectrumReader
+from pfsspec.stellar.grid.kurucz import KuruczSpectrum
+from pfsspec.stellar.grid.kurucz import KuruczGrid
 
 class KuruczSpectrumReader(SpectrumReader):
     HEADER_LINES = 22

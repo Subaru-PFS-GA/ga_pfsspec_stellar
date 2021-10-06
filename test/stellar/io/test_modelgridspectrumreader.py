@@ -1,9 +1,9 @@
 import numpy as np
-from test.test_base import TestBase
 
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.data.gridaxis import GridAxis
-from pfsspec.stellarmod.modelgridreader import ModelGridReader
+from test.core import TestBase
+from pfsspec.core.grid import GridAxis
+from pfsspec.stellar.grid import ModelGrid
+from pfsspec.stellar.grid.io import ModelGridReader
 
 # TODO: rewrite this to use customized configuration instead of an overloaded
 #       grid class.
