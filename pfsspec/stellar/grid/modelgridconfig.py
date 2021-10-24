@@ -1,12 +1,13 @@
 import numpy as np
 
+from pfsspec.core.grid import GridConfig
 from pfsspec.stellar import ModelSpectrum
 from pfsspec.stellar.continuum.model import Chebyshev
 from pfsspec.stellar.continuum.model import Planck
 from pfsspec.stellar.continuum.model import Alex
 from pfsspec.stellar.continuum.model import Log
 
-class ModelGridConfig():
+class ModelGridConfig(GridConfig):
     # Implements functions to initialize a model grid. Inherited classes should
     # implement grid-specific functionality in overridden functions.
 
@@ -18,6 +19,8 @@ class ModelGridConfig():
     }
 
     def __init__(self, normalized=False, pca=False, orig=None):
+        super(ModelGridConfig, self).__init__(orig=orig)
+
         if isinstance(orig, ModelGridConfig):
             self.continuum_model_type = orig.continuum_model_type
             self.normalized = normalized if normalized is not None else orig.normalized
@@ -64,7 +67,7 @@ class ModelGridConfig():
     def is_value_valid(self, grid, name, value):
         return np.logical_not(np.any(np.isnan(value), axis=-1)) & ((value.max(axis=-1) != 0) | (value.min(axis=-1) != 0))
 
-    def get_chunks(self, grid, name, shape, s=None):
+    def get_chunk_shape(self, grid, name, shape, s=None):
         # The chunking strategy for spectrum grids should observe the following
         # - we often need only parts of the wavelength coverage
         # - interpolation algorithms iterate over the wavelengths in the outer loop
