@@ -6,9 +6,8 @@ import re
 from scipy.interpolate import interp1d
 from astropy.io import fits
 
-from pfsspec.data.spectrumreader import SpectrumReader
-from pfsspec.stellarmod.phoenixspectrum import PhoenixSpectrum
-from pfsspec.stellarmod.continuummodels.chebyshev import Chebyshev
+from pfsspec.core.io import SpectrumReader
+from pfsspec.stellar.grid.phoenix import PhoenixSpectrum
 
 #lte12000-6.00+1.0.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits
 class PhoenixSpectrumReader(SpectrumReader):

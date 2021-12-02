@@ -19,7 +19,7 @@ class TestBoszSpectrumReader(TestBase):
     def test_read_grid(self):
         path = os.path.join(self.PFSSPEC_DATA_PATH, 'stellar/bosz')
         grid = BoszModelGrid()
-        r = BoszSpectrumReader(grid, wave_lim=(3600, 12560))
+        r = BoszSpectrumReader(grid, wave=(3600, 12560))
         r.read_grid(path)
         self.assertEqual((14, 7, 6, 6, 4, 12496), grid.flux.shape)
 
@@ -39,7 +39,7 @@ class TestBoszSpectrumReader(TestBase):
         grid = BoszModelGrid()
         r = BoszSpectrumReader(grid)
 
-        g = BoszSpectrumReader.EnumAxesGenerator(grid)
+        g = GridEnumerator(grid)
         k = 0
         for i in g:
             k += 1

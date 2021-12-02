@@ -4,11 +4,11 @@ import logging
 import multiprocessing
 import time
 
-from pfsspec.data.arraygrid import ArrayGrid
-from pfsspec.stellarmod.modelgridreader import ModelGridReader
-from pfsspec.stellarmod.phoenixspectrumreader import PhoenixSpectrumReader
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.stellarmod.phoenix import Phoenix
+from pfsspec.core.grid import ArrayGrid
+from pfsspec.stellar.grid import ModelGrid
+from pfsspec.stellar.grid.io import ModelGridReader
+from pfsspec.stellar.grid.phoenix import Phoenix
+from .phoenixspectrumreader import PhoenixSpectrumReader
 
 class PhoenixGridReader(ModelGridReader):
     def __init__(self, grid=None, orig=None):

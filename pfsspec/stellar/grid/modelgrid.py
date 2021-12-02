@@ -1,3 +1,4 @@
+import os
 import logging
 import itertools
 import types
@@ -15,21 +16,33 @@ class ModelGrid(PfsObject):
     """Wraps an array or RBF grid, optionally PCA-compressed, and implements logic
     to interpolate spectra."""
 
+    PREFIX_MODELGRID = 'modelgrid'
+
     def __init__(self, config, grid_type, orig=None):
         super(ModelGrid, self).__init__(orig=orig)
 
-        if isinstance(orig, ModelGrid):
-            self.config = config if config is not None else orig.config
-            self.grid = self.create_grid(grid_type) if grid_type is not None else orig.grid
-            self.continuum_model = orig.continuum_model
-            self.wave = orig.wave
-            self.wave_slice = orig.wave_slice
-        else:
+        if not isinstance(orig, ModelGrid):
             self.config = config
             self.grid = self.create_grid(grid_type)
             self.continuum_model = None
             self.wave = None
-            self.wave_slice = None
+            self.is_wave_regular = None
+            self.is_wave_lin = None
+            self.is_wave_log = None
+            self.resolution = None
+
+            self.wave_slice = None      # Limits wavelength range when reading the grid
+        else:
+            self.config = config if config is not None else orig.config
+            self.grid = self.create_grid(grid_type) if grid_type is not None else orig.grid
+            self.continuum_model = orig.continuum_model
+            self.wave = orig.wave
+            self.is_wave_regular = orig.is_wave_regular
+            self.is_wave_lin = orig.is_wave_lin
+            self.is_wave_log = orig.is_wave_log
+            self.resolution = orig.resolution
+
+            self.wave_slice = orig.wave_slice
 
     @property
     def preload_arrays(self):
@@ -123,9 +136,17 @@ class ModelGrid(PfsObject):
         self.grid.fileformat = self.fileformat
         self.grid.save_items()
 
-        self.save_item('wave', self.wave)
+        self.save_params()
+        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'wave'), self.wave)
+
+    def save_params(self):
+        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'type'), type(self).__name__)
+        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'config'), type(self.config).__name__)
         if self.continuum_model is not None:
-            self.save_item('continuum_model', self.continuum_model.name)
+            self.save_item(os.path.join(self.PREFIX_MODELGRID, 'continuum_model'), self.continuum_model.name)
+        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'is_wave_regular'), self.is_wave_regular)
+        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'is_wave_lin'), self.is_wave_lin)
+        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'is_wave_log'), self.is_wave_log)
 
     def load_items(self, s=None):
         self.wave = self.load_item('wave', np.ndarray)

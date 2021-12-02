@@ -25,7 +25,7 @@ class TestModelGridSpectrumReader(TestBase):
         grid = TestGrid()
         r = ModelGridSpectrumReader(grid)
 
-        g = ModelGridSpectrumReader.EnumAxesGenerator(grid)
+        g = GridEnumerator(grid)
         k = 0
         for i in g:
             print(k, i)

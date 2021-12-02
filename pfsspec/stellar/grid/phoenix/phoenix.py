@@ -1,9 +1,7 @@
 import numpy as np
 
-from pfsspec.stellarmod.continuummodels.chebyshev import Chebyshev #LogChebyshevContinuumModel
-from pfsspec.stellarmod.modelgridconfig import ModelGridConfig
-from pfsspec.stellarmod.phoenixspectrum import PhoenixSpectrum
-
+from pfsspec.stellar.grid import ModelGridConfig
+from .phoenixspectrum import PhoenixSpectrum
     
 class Phoenix(ModelGridConfig):
     def __init__(self, orig=None, normalized=False, pca=None):

@@ -3,9 +3,9 @@ import logging
 import multiprocessing
 import time
 
-from pfsspec.stellarmod.atmgridreader import AtmGridReader
-from pfsspec.stellarmod.phoenixspectrumreader import PhoenixSpectrumReader
-from pfsspec.stellarmod.phoenixatmreader import PhoenixAtmReader
+from pfsspec.stellar.grid.io import AtmGridReader
+from .phoenixspectrumreader import PhoenixSpectrumReader
+from .phoenixatmreader import PhoenixAtmReader
 
 class PhoenixAtmGridReader(AtmGridReader):
     def __init__(self, grid, reader, max=None, parallel=True):
