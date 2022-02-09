@@ -1,3 +1,4 @@
+from pfsspec.core import Pipeline
 from pfsspec.core.grid import ArrayGrid, RbfGrid
 from pfsspec.stellar.grid.bosz.io import BoszGridReader
 from pfsspec.stellar.grid.bosz.io import BoszGridDownloader
@@ -7,6 +8,9 @@ DOWNLOAD_CONFIGURATIONS = {
     'stellar-grid': {
         'bosz': {
             'type': BoszGridDownloader
+        },
+        'phoenix': {
+            'type': PhoenixGridDownloader
         }
     }
 }
@@ -16,13 +20,13 @@ IMPORT_CONFIGURATIONS = {
         'bosz': {
             'type': BoszGridReader,
             'pipelines': {
-                'basic': None
+                'basic': Pipeline
             },
         },
         'phoenix': {
             'type': PhoenixGridReader,
             'pipelines': {
-                'basic': None
+                'basic': Pipeline
             }
         }
     }

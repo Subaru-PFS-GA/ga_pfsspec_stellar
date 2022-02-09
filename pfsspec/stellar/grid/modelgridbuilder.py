@@ -14,14 +14,14 @@ class ModelGridBuilder():
     # - params_grid_index keeps track of the model grid locations that hold
     #   valid data. This index is combined with the index on input_grid
 
-    def __init__(self, config, orig=None):
+    def __init__(self, grid_config, orig=None):
         if isinstance(orig, ModelGridBuilder):
             self.params_grid = orig.params_grid
             self.params_grid_index = None
 
             self.pca = orig.pca
             self.rbf = orig.rbf
-            self.config = config if config is not None else orig.config
+            self.grid_config = grid_config if grid_config is not None else orig.grid_config
             self.continuum_model = orig.continuum_model
         else:
             self.params_grid = None
@@ -29,19 +29,19 @@ class ModelGridBuilder():
 
             self.pca = None
             self.rbf = None
-            self.config = config
+            self.grid_config = grid_config
             self.continuum_model = None
 
     def add_args(self, parser):
-        self.config.add_args(parser)
+        self.grid_config.add_args(parser)
         parser.add_argument('--pca', action='store_true', help='Run on a PCA input grid.')
         parser.add_argument('--rbf', action='store_true', help='Run on an RBF params grid.')
 
     def parse_args(self):
         self.pca = self.get_arg('pca', self.pca)
         self.rbf = self.get_arg('rbf', self.rbf)
-        self.config.init_from_args(self.args)
-        self.continuum_model = self.config.create_continuum_model()
+        self.grid_config.init_from_args(self.args)
+        self.continuum_model = self.grid_config.create_continuum_model()
         if self.continuum_model is not None:
             self.continuum_model.init_from_args(self.args)
 
@@ -50,20 +50,20 @@ class ModelGridBuilder():
             t = RbfGrid
         else:
             t = ArrayGrid
-        grid = ModelGrid(type(self.config)(orig=self.config, normalized=True), t)
+        grid = ModelGrid(type(self.grid_config)(orig=self.grid_config, normalized=True), t)
         return grid
 
     def create_input_grid(self):
         # TODO: add support for RBF grid
 
-        config = self.config
+        config = self.grid_config
         if self.pca is not None and self.pca:
             config = type(config)(pca=True)
         grid = ModelGrid(config, ArrayGrid)
         return grid
 
     def create_output_grid(self):
-        return ModelGrid(self.config, ArrayGrid)
+        return ModelGrid(self.grid_config, ArrayGrid)
 
     def open_params_grid(self, params_path):
         fn = os.path.join(params_path, 'spectra') + '.h5'

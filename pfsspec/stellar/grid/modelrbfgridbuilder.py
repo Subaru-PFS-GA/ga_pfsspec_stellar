@@ -53,7 +53,7 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         return ModelGridBuilder.open_input_grid(self, input_path)
 
     def create_output_grid(self):
-        config = self.config
+        config = self.grid_config
         if self.step == 'pca':
             config = type(config)(pca=True)
         grid = ModelGrid(config, RbfGrid)

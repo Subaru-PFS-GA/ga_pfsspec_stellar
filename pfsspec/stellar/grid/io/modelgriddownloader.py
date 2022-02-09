@@ -45,8 +45,8 @@ class ModelGridDownloader(Downloader):
         reader = self.create_reader(None, None)
         reader.add_args(parser)
 
-    def init_from_args(self, args):
-        super(ModelGridDownloader, self).init_from_args(args)
+    def init_from_args(self, config, args):
+        super(ModelGridDownloader, self).init_from_args(config, args)
         
         self.args = args
 

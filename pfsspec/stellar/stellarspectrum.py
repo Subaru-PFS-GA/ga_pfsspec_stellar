@@ -13,26 +13,16 @@ class StellarSpectrum(Spectrum):
             self.T_eff_err = orig.T_eff_err
             self.log_g = orig.log_g
             self.log_g_err = orig.log_g_err
-            self.Fe_H = orig.Fe_H
-            self.Fe_H_err = orig.Fe_H_err
-            self.a_Fe = orig.a_Fe
-            self.a_Fe_err = orig.a_Fe_err
         else:
             self.T_eff = np.nan
             self.T_eff_err = np.nan
             self.log_g = np.nan
             self.log_g_err = np.nan
-            self.Fe_H = np.nan
-            self.Fe_H_err = np.nan
-            self.a_Fe = np.nan
-            self.a_Fe_err = np.nan
 
     def get_param_names(self):
         params = super(StellarSpectrum, self).get_param_names()
         params = params + ['T_eff', 'T_eff_err',
-                           'log_g', 'log_g_err',
-                           'Fe_H', 'Fe_H_err',
-                           'a_Fe', 'a_Fe_err']
+                           'log_g', 'log_g_err']
         return params
 
     def normalize_by_T_eff(self, T_eff=None):
@@ -52,5 +42,3 @@ class StellarSpectrum(Spectrum):
 
         print('T_eff=', self.T_eff)
         print('log g=', self.log_g)
-        print('[Fe/H]=', self.Fe_H)
-        print('[a/Fe]=', self.a_Fe)

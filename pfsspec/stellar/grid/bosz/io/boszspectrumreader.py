@@ -6,11 +6,19 @@ import pandas as pd
 import re
 import multiprocessing
 import time
+from astropy.io import fits
 
 from pfsspec.core.io import SpectrumReader
 from pfsspec.stellar.grid.bosz import BoszSpectrum
 
 class BoszSpectrumReader(SpectrumReader):
+
+    # NOTE: wavelength values in the files have serious round-off errors,
+    #       `correct_wave_grid` is used to calculate bins from scratch at 
+    #       R = 300000, then the grid is downsampled to the required resolution
+    #       by taking each kth element. Not that BOSZ spectra have two bins
+    #       for each resolution element.
+
     MAP_FE_H = {
         'm03': -0.25,
         'm05': -0.5,
@@ -79,47 +87,91 @@ class BoszSpectrumReader(SpectrumReader):
         self.wave = self.get_arg('lambda', self.wave, args)
         self.resolution = self.get_arg('resolution', self.resolution, args)
         
-    def correct_wave_grid(self, wlim):
+    def correct_wave_grid(self, wlim, resolution):
         # BOSZ spectra are written to the disk with 3 decimals which aren't
         # enough to represent wavelength at high resolutions. This code is
         # from the original Kurucz SYNTHE to recalculate the wavelength grid.
 
-        RESOLU = self.resolution
+        RESOLU = resolution
         WLBEG = wlim[0]  # nm
         WLEND = wlim[1]  # nm
         RATIO = 1. + 1. / RESOLU
         RATIOLG = np.log10(RATIO)
-        IXWLBEG = int(np.log10(WLBEG) / RATIOLG)
+        
+        IXWLBEG = int(np.round(np.log10(WLBEG) / RATIOLG))
         WBEGIN = 10 ** (IXWLBEG * RATIOLG)
-
         if WBEGIN < WLBEG:
             IXWLBEG = IXWLBEG + 1
             WBEGIN = 10 ** (IXWLBEG * RATIOLG)
-        IXWLEND = int(np.log10(WLEND) / RATIOLG)
+            
+        IXWLEND = int(np.round(np.log10(WLEND) / RATIOLG))
         WLLAST = 10 ** (IXWLEND * RATIOLG)
-        if WLLAST > WLEND:
+        if WLLAST >= WLEND:
             IXWLEND = IXWLEND - 1
             WLLAST = 10 ** (IXWLEND * RATIOLG)
         LENGTH = IXWLEND - IXWLBEG + 1
         DWLBEG = WBEGIN * RATIO - WBEGIN
         DWLLAST = WLLAST - WLLAST / RATIO
-
-        a = np.linspace(np.log10(10 * WBEGIN), np.log10(10 * WLLAST), LENGTH)
+        
+        a = np.linspace(np.log10(WBEGIN), np.log10(WLLAST), LENGTH)
         cwave = 10 ** a
-
+        
         return cwave
 
     def read(self, file=None):
+        if self.format == 'ascii':
+            spec = self.read_ascii(file)
+        elif self.format == 'fits':
+            spec = self.read_fits(file)
+        else:
+            raise NotImplementedError()
+
+        log_wave = np.log(spec.wave)
+        wave_edges = np.empty((2, spec.wave.shape[0]), dtype=spec.wave.dtype)        
+        wave_edges[0, 1:] = wave_edges[1, :-1] = np.exp((log_wave[1:] + log_wave[:-1]) / 2)
+        wave_edges[0, 0] = np.exp(log_wave[0] - (log_wave[1] - log_wave[0]) / 2)
+        wave_edges[1, -1] = np.exp(log_wave[-1] + (log_wave[-1] - log_wave[-2]) / 2)
+        spec.wave_edges = wave_edges
+
+        spec.resolution = self.resolution
+        spec.is_wave_regular = True
+        spec.is_wave_lin = False
+        spec.is_wave_log = True
+
+        return spec
+
+    def read_fits(self, file=None):
+        hdus = fits.open(file, memmap=False)
+        
+        # Use original wavelengths from the file
+        # wave = hdus[1].data['Wavelength']
+
+        # Use corrected wavelengths
+        d = int(300000 // self.resolution // 2)
+        wave = 10 * self.correct_wave_grid(wlim=(100, 32000), resolution=300000)[::d]
+
+        if self.wave is not None:
+            filt = (self.wave[0] <= wave) & (wave <= self.wave[1])
+        else:
+            filt = slice(None)
+
+        spec = BoszSpectrum()
+        spec.wave = np.array(wave[filt])
+        spec.cont = np.array(hdus[1].data['SpecificIntensity'][filt])
+        spec.flux = np.array(hdus[1].data['Continuum'][filt])
+
+        return spec
+
+    def read_ascii(self, file):
         compression = None
+        
         if file is None:
             file = self.path
+
         if type(file) is str:
             fn, ext = os.path.splitext(file)
             if ext == '.bz2':
                 compression = 'bz2'
-
-        # TODO: implement FITS format
-        raise NotImplementedError()
 
         # for some reason the C implementation of read_csv throws intermittent errors
         # when forking using multiprocessing
@@ -131,18 +183,20 @@ class BoszSpectrumReader(SpectrumReader):
             raise Exception("Unable to read file {}".format(file)) from ex
         df.columns = ['wave', 'flux', 'cont']
 
-        # NOTE: wavelength values in the files have serious round-off errors
-        # Correct wavelength grid here
-        #spec.wave = np.array(df['wave'][filt])
-        # cwave = self.correct_wave_grid((100, 32000))
+        # Use original wavelengths from the file
+        # wave = np.array(df['wave'])
+
+        # Use corrected wavelengths
+        d = int(300000 // self.resolution // 2)
+        wave = 10 * self.correct_wave_grid(wlim=(100, 32000), resolution=300000)[::d]
 
         if self.wave is not None:
-            filt = (self.wave[0] <= df['wave']) & (df['wave'] <= self.wave[1])
+            filt = (self.wave[0] <= wave) & (wave <= self.wave[1])
         else:
             filt = slice(None)
 
         spec = BoszSpectrum()
-        spec.wave = np.array(df['wave'][filt])
+        spec.wave = np.array(wave[filt])
         spec.cont = np.array(df['cont'][filt])
         spec.flux = np.array(df['flux'][filt])
 

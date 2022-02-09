@@ -14,29 +14,17 @@ class ModelGridReader(GridReader):
         super(ModelGridReader, self).__init__(grid=grid, orig=orig)
 
         if not isinstance(orig, ModelGridReader):
-            self.wave = None
-            self.resolution = 5000          # Nominal resolution of input models
-
             self.reader = None
+            self.pipeline = None
             self.path = None
             self.preload_arrays = False
             self.files = None
-
-            self.is_wave_regular = None
-            self.is_wave_lin = None
-            self.is_wave_log = None
         else:
-            self.wave = orig.wave
-            self.resolution = orig.resolution
-
             self.reader = orig.reader
+            self.pipeline = orig.pipeline
             self.path = orig.path
             self.preload_arrays = orig.preload_arrays
             self.files = None
-
-            self.is_wave_regular = orig.is_wave_regular
-            self.is_wave_lin = orig.is_wave_lin
-            self.is_wave_log = orig.is_wave_log
 
     def add_subparsers(self, configurations, parser):
         # Register pipeline subparsers
@@ -61,8 +49,14 @@ class ModelGridReader(GridReader):
     def add_args(self, parser):
         super(ModelGridReader, self).add_args(parser)
 
-    def init_from_args(self, args):
-        super(ModelGridReader, self).init_from_args(args)
+        reader = self.create_reader(None, None)
+        reader.add_args(parser)
+
+    def init_from_args(self, config, args):
+        super(ModelGridReader, self).init_from_args(config, args)
+
+        self.pipeline = config['pipelines'][args[self.CONFIG_PIPELINE]]()
+        self.pipeline.init_from_args(args)
 
     def process_item(self, i):
         # Called when processing the grid point by point
@@ -78,6 +72,9 @@ class ModelGridReader(GridReader):
             while True:
                 try:
                     spec = self.reader.read(fn)
+                    spec.set_params(params)
+                    self.pipeline.run(spec, **params)
+                    params = spec.get_params()
                     return index, params, spec
                 except Exception as e:
                     logger.error('Error parsing {}'.format(fn))
@@ -104,12 +101,6 @@ class ModelGridReader(GridReader):
     def store_item(self, res):
         if res is not None:
             index, params, spec = res
-
-            if self.grid.get_wave() is None:
-                self.grid.set_wave(spec.wave)
-                self.grid.is_wave_regular = self.is_wave_regular
-                self.grid.is_wave_lin = self.is_wave_lin
-                self.grid.is_wave_log = self.is_wave_log
 
             self.grid.set_flux_at(index, spec.flux, spec.cont)
 
@@ -145,6 +136,10 @@ class ModelGridReader(GridReader):
             # Load the first spectrum to get wavelength grid
             spec = self.reader.read(self.files[0])
 
+        # Run through the import pipeline to make sure the wavelength grid
+        # matches the output
+        self.pipeline.run(spec)
+
         self.logger.info('Found spectrum with {} wavelength elements.'.format(spec.wave.shape))
 
         # Initialize output
@@ -162,6 +157,13 @@ class ModelGridReader(GridReader):
         else:
             # Initialize the wavelength grid based on the first spectrum read
             self.grid.set_wave(spec.wave)
+
+            # TODO: Here we assume that all spectra of the grid have the
+            #       same binning
+            self.grid.is_wave_regular = spec.is_wave_regular
+            self.grid.is_wave_lin = spec.is_wave_lin
+            self.grid.is_wave_log = spec.is_wave_log
+
             self.grid.build_axis_indexes()
            
             # Force creating output file for direct hdf5 writing

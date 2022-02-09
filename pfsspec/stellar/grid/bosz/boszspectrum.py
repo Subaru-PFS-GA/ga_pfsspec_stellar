@@ -11,6 +11,25 @@ class BoszSpectrum(KuruczSpectrum):
     def __init__(self, orig=None):
         super(BoszSpectrum, self).__init__(orig=orig)
 
+        if not isinstance(orig, BoszSpectrum):
+            self.M_H = np.nan
+            self.M_H_err = np.nan
+            self.a_Fe = np.nan
+            self.a_Fe_err = np.nan
+        else:
+            self.M_H = orig.M_H
+            self.M_H_err = orig.M_H_err
+            self.a_Fe = orig.a_Fe
+            self.a_Fe_err = orig.a_Fe_err
+
+    def get_param_names(self):
+        params = super(BoszSpectrum, self).get_param_names()
+        params = params + [
+            'M_H', 'M_H_err',
+            'a_Fe', 'a_Fe_err'
+        ]
+        return params
+
     def synthmag_bosz_carrie(self, filte,lum,temp):
         spec = pysynphot.spectrum.ArraySourceSpectrum(wave=self.wave, flux=self.flux, keepneg=True, fluxunits='flam')
         filt = pysynphot.spectrum.ArraySpectralElement(filte.wave, filte.thru, waveunits='angstrom')
@@ -29,3 +48,9 @@ class BoszSpectrum(KuruczSpectrum):
         a = -2.5*np.log10((simps(s*T*lam,lam)/(stzp*simps(T*lam,lam))))
         b = -2.5*np.log10((simps(T*lam,lam)/simps(T/lam,lam)))
         return a+b+18.6921
+
+    def print_info(self):
+        super(BoszSpectrum, self).print_info()
+
+        print('[M/H]=', self.M_H)
+        print('[a/Fe]=', self.a_Fe)
