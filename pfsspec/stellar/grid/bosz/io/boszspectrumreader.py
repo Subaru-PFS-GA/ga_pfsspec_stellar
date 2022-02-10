@@ -137,6 +137,10 @@ class BoszSpectrumReader(SpectrumReader):
         return spec
 
     def read_fits(self, file=None):
+
+        if file is None:
+            file = self.path
+
         hdus = fits.open(file, memmap=False)
         
         # Use original wavelengths from the file
@@ -175,7 +179,8 @@ class BoszSpectrumReader(SpectrumReader):
         try:
             df = pd.read_csv(file, delimiter=r'\s+', header=None, compression=compression)
         except Exception as ex:
-            os.rename(file, file + '.error')
+            with open(file + '.error', 'w') as f:
+                f.write(str(ex))
             raise Exception("Unable to read file {}".format(file)) from ex
         df.columns = ['wave', 'flux', 'cont']
 
@@ -278,9 +283,9 @@ class BoszSpectrumReader(SpectrumReader):
         m = re.search(p, filename)
 
         return{
-            'Fe_H': BoszSpectrumReader.MAP_FE_H[m.group(1)],
+            'M_H': BoszSpectrumReader.MAP_FE_H[m.group(1)],
             'C_M': BoszSpectrumReader.MAP_C_M[m.group(2)],
-            'O_M': BoszSpectrumReader.MAP_O_M[m.group(3)],
+            'a_M': BoszSpectrumReader.MAP_O_M[m.group(3)],
             'T_eff': float(m.group(4)),
             'log_g': float(m.group(5)) / 10
         }

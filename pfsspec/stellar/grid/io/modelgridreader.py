@@ -87,7 +87,8 @@ class ModelGridReader(GridReader):
                 try:
                     spec = self.reader.read(fn)
                     spec.set_params(params)
-                    self.pipeline.run(spec, **params)
+                    if self.pipeline is not None:
+                        self.pipeline.run(spec, **params)
                     params = spec.get_params()
                     return index, params, spec
                 except Exception as e:
@@ -151,7 +152,8 @@ class ModelGridReader(GridReader):
 
         # Run through the import pipeline to make sure the wavelength grid
         # matches the output
-        self.pipeline.run(spec)
+        if self.pipeline is not None:
+            self.pipeline.run(spec)
 
         self.logger.info('Found spectrum with {} wavelength elements.'.format(spec.wave.shape))
 

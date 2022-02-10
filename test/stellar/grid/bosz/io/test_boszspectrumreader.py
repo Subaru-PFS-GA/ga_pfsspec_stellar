@@ -1,51 +1,41 @@
 import os
 
 from test.core import TestBase
+from pfsspec.core.grid import ArrayGrid
 from pfsspec.stellar.grid import ModelGrid
 from pfsspec.stellar.grid.bosz.io import BoszSpectrumReader
 
 class TestBoszSpectrumReader(TestBase):
-    def test_read(self):
-        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'stellar/bosz/amm03cm03om03t3500g25v20modrt0b5000rs.asc')
-        with open(filename) as f:
-            r = BoszSpectrumReader(f)
-            spec = r.read()
-
-    def test_read_bz2(self):
-        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'stellar/bosz/amm03cm03om03t3500g25v20modrt0b5000rs.asc.bz2')
-        r = BoszSpectrumReader(filename)
-        spec = r.read()
-
-    def test_read_grid(self):
-        path = os.path.join(self.PFSSPEC_DATA_PATH, 'stellar/bosz')
-        grid = BoszModelGrid()
-        r = BoszSpectrumReader(grid, wave_lim=(3600, 12560))
-        r.read_grid(path)
-        self.assertEqual((14, 7, 6, 6, 4, 12496), grid.flux.shape)
-
     def test_get_filename(self):
-        self.fail()
+        reader = BoszSpectrumReader(format='fits', resolution=5000)
+        fn = reader.get_filename(M_H=-0.5, T_eff=4000, log_g=3, a_M=0, C_M=0)
+        self.assertEqual("amm05cp00op00t4000g30v20modrt0b5000rs.fits", fn)
+
+    def test_get_url(self):
+        reader = BoszSpectrumReader(format='fits', resolution=5000)
+        url = reader.get_url(M_H=-0.5, T_eff=4000, log_g=3, a_M=0, C_M=0)
+        self.assertEqual("https://archive.stsci.edu/missions/hlsp/bosz/fits/insbroad_005000/metal_-0.50/carbon_+0.00/alpha_+0.00/amm05cp00op00t4000g30v20modrt0b5000rs.fits", url)
 
     def test_parse_filename(self):
         fn = 'amm03cm03om03t3500g25v20modrt0b5000rs.asc.bz2'
         p = BoszSpectrumReader.parse_filename(fn)
-        self.assertEqual(-0.25, p['Fe_H'])
+        self.assertEqual(-0.25, p['M_H'])
         self.assertEqual(-0.25, p['C_M'])
-        self.assertEqual(-0.25, p['O_M'])
+        self.assertEqual(-0.25, p['a_M'])
         self.assertEqual(3500, p['T_eff'])
         self.assertEqual(2.5, p['log_g'])
 
-    def test_enum_axes(self):
-        grid = BoszModelGrid()
-        r = BoszSpectrumReader(grid)
+    def test_read(self):
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/stellar/grid/bosz/bosz_5000/amm03cm03om03t3500g25v20modrt0b5000rs.asc')
+        r = BoszSpectrumReader(filename, format='ascii', resolution=5000)
+        spec = r.read()
 
-        g = GridEnumerator(grid)
-        k = 0
-        for i in g:
-            k += 1
+    def test_read_bz2(self):
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/stellar/grid/bosz/bosz_5000/amm03cm03om03t3500g25v20modrt0b5000rs.asc.bz2')
+        r = BoszSpectrumReader(filename, format='ascii', resolution=5000)
+        spec = r.read()
 
-        s = 1
-        for p in grid.axes:
-            s *= grid.axes[p].values.shape[0]
-
-        self.assertEqual(s, k)
+    def test_read_fits(self):
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/stellar/grid/bosz/bosz_50000_fits/amm03cm03om03t3500g25v20modrt0b50000rs.fits')
+        r = BoszSpectrumReader(filename, format='fits', resolution=50000)
+        spec = r.read()
