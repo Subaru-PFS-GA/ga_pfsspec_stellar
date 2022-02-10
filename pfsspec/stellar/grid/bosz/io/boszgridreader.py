@@ -21,10 +21,7 @@ class BoszGridReader(ModelGridReader):
         return ModelGrid(Bosz(), ArrayGrid)
 
     def create_reader(self, input_path, output_path):
-        reader = BoszSpectrumReader(input_path)
-        if self.args is not None:
-            reader.init_from_args(self.args)
-        return reader
+        return BoszSpectrumReader(input_path)
 
     def get_example_filename(self):
         # Here we use constants because this particular model must exist in every grid.

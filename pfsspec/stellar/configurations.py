@@ -3,6 +3,7 @@ from pfsspec.core.grid import ArrayGrid, RbfGrid
 from pfsspec.stellar.grid.bosz.io import BoszGridReader
 from pfsspec.stellar.grid.bosz.io import BoszGridDownloader
 from pfsspec.stellar.grid.phoenix.io import PhoenixGridReader
+from pfsspec.stellar.grid.phoenix.io import PhoenixGridDownloader
 
 DOWNLOAD_CONFIGURATIONS = {
     'stellar-grid': {

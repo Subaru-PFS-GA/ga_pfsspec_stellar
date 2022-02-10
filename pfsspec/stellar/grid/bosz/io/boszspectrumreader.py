@@ -59,32 +59,28 @@ class BoszSpectrumReader(SpectrumReader):
         'p05': 0.5,
     }
 
-    def __init__(self, path=None, format=None, wave=None, resolution=None, orig=None):
-        super(BoszSpectrumReader, self).__init__()
+    def __init__(self, path=None, format=None, wave_lim=None, resolution=None, orig=None):
+        super(BoszSpectrumReader, self).__init__(wave_lim=wave_lim, orig=orig)
 
         if not isinstance(orig, BoszSpectrumReader):
             self.path = path
             self.format = format
-            self.wave = wave
             self.resolution = resolution
         else:
             self.path = path or orig.path
             self.format = format or orig.format
-            self.wave = wave or orig.wave
             self.resolution = resolution or orig.resolution
 
     def add_args(self, parser):
         super(BoszSpectrumReader, self).add_args(parser)
 
         parser.add_argument("--format", type=str, default='ascii', choices=['ascii', 'fits'], help="Data format.\n")
-        parser.add_argument("--lambda", type=float, nargs=2, default=None, help="Wavelength limits.\n")
         parser.add_argument("--resolution", type=int, default=None, help="Resolution.\n")
 
     def init_from_args(self, args):
         super(BoszSpectrumReader, self).init_from_args(args)
 
         self.format = self.get_arg('format', self.format, args)
-        self.wave = self.get_arg('lambda', self.wave, args)
         self.resolution = self.get_arg('resolution', self.resolution, args)
         
     def correct_wave_grid(self, wlim, resolution):
@@ -150,8 +146,8 @@ class BoszSpectrumReader(SpectrumReader):
         d = int(300000 // self.resolution // 2)
         wave = 10 * self.correct_wave_grid(wlim=(100, 32000), resolution=300000)[::d]
 
-        if self.wave is not None:
-            filt = (self.wave[0] <= wave) & (wave <= self.wave[1])
+        if self.wave_lim is not None:
+            filt = (self.wave_lim[0] <= wave) & (wave <= self.wave_lim[1])
         else:
             filt = slice(None)
 
@@ -190,8 +186,8 @@ class BoszSpectrumReader(SpectrumReader):
         d = int(300000 // self.resolution // 2)
         wave = 10 * self.correct_wave_grid(wlim=(100, 32000), resolution=300000)[::d]
 
-        if self.wave is not None:
-            filt = (self.wave[0] <= wave) & (wave <= self.wave[1])
+        if self.wave_lim is not None:
+            filt = (self.wave_lim[0] <= wave) & (wave <= self.wave_lim[1])
         else:
             filt = slice(None)
 

@@ -9,18 +9,22 @@ from astropy.io import fits
 from pfsspec.core.io import SpectrumReader
 from pfsspec.stellar.grid.phoenix import PhoenixSpectrum
 
-#lte12000-6.00+1.0.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits
 class PhoenixSpectrumReader(SpectrumReader):
+    # Implements function to read PHOENIX stellar spectrum models
+
     INPUT_RESOLUTION = 500000
     WL_START_OPTICAL = 3000
     WL_END_OPTICAL = 25000
 
-    def __init__(self, path=None, wave_lim=None, resolution=None):
-        super(PhoenixSpectrumReader, self).__init__()
+    def __init__(self, path=None, wave_lim=None, resolution=None, orig=None):
+        super(PhoenixSpectrumReader, self).__init__(wave_lim=wave_lim, orig=orig)
 
-        self.path = path
-        self.wave_lim = wave_lim
-        self.resolution = resolution
+        if not isinstance(orig, PhoenixSpectrumReader):
+            self.path = path
+            self.resolution = resolution
+        else:
+            self.path = path or orig.path
+            self.resolution = resolution or orig.resolution
         
         self.wave = None
         self.wave_mask = None
@@ -28,6 +32,15 @@ class PhoenixSpectrumReader(SpectrumReader):
         self.wave_log_mask = None
         self.kernel = None
         
+    def add_args(self, parser):
+        super(PhoenixSpectrumReader, self).add_args(parser)
+
+        parser.add_argument("--resolution", type=int, default=None, help="Resolution.\n")
+
+    def init_from_args(self, args):
+        super(PhoenixSpectrumReader, self).init_from_args(args)
+
+        self.resolution = self.get_arg('resolution', self.resolution, args)
 
     def read(self, file=None):
         if file is None:
@@ -47,6 +60,8 @@ class PhoenixSpectrumReader(SpectrumReader):
 
         if self.wave_lim is None:
             self.wave_lim = (self.wave[0], self.wave[-1])
+
+        # TODO: move the convolution to the pipeline
 
         # If target resolution is specified, spectrum needs to be convolved down
         # first. Phoenix uses a linear wavelength grid, so first resample it to
@@ -119,15 +134,25 @@ class PhoenixSpectrumReader(SpectrumReader):
     
         return spec
 
-    @staticmethod
-    def get_filename(**kwargs):
+    def get_filename(self, **kwargs):
         # lte12000-6.00+1.0.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits
 
+        a_M = kwargs.pop('a_M')
         Fe_H = kwargs.pop('Fe_H')
         T_eff = kwargs.pop('T_eff')
         log_g = kwargs.pop('log_g')
 
-        fn = 'lte'
+        fn = ''
+
+        if Fe_H != 0:
+            fn += 'Z{:+.1f}'.format(Fe_H)
+        else:
+            fn += 'Z-0.0'
+            
+        if a_M is not None and a_M != 0:
+            fn += '.Alpha={:+0.2f}'.format(a_M)
+
+        fn += '/lte'
         fn += "{:05d}".format(int(T_eff))
         
         fn += '-'
@@ -139,6 +164,15 @@ class PhoenixSpectrumReader(SpectrumReader):
         fn += '.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits'
 
         return fn
+
+    def get_url(self, **kwargs):
+        # ftp://phoenix.astro.physik.uni-goettingen.de/HiResFITS//WAVE_PHOENIX-ACES-AGSS-COND-2011.fits
+        # ftp://phoenix.astro.physik.uni-goettingen.de/HiResFITS/PHOENIX-ACES-AGSS-COND-2011/Z-1.5.Alpha=+0.60/lte06000-4.50-1.5.Alpha=+0.60.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits
+        
+        url = 'ftp://phoenix.astro.physik.uni-goettingen.de/HiResFITS/PHOENIX-ACES-AGSS-COND-2011/'
+        url += self.get_filename(**kwargs)
+
+        return url
 
     @staticmethod
     def parse_filename(filename):

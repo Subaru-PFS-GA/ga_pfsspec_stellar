@@ -73,7 +73,9 @@ class ModelGrid(PfsObject):
         return grid
 
     def add_args(self, parser):
-        parser.add_argument('--lambda', type=float, nargs='*', default=None, help='Limit on lambda.')
+        # TODO: it collides with --lambda from the spectrum reader classes
+        #       make sure this parameter is registered when building datasets
+        # parser.add_argument('--lambda', type=float, nargs='*', default=None, help='Limit on lambda.')
         self.grid.add_args(parser)
 
     def init_from_args(self, args):
@@ -82,7 +84,7 @@ class ModelGrid(PfsObject):
 
     def get_slice_from_args(self, args):
         # Slice along the wave axis only, other parameters are handled in ArrayGrid
-        if 'lambda' in args and args['lambda'] is not None:
+        if 'lambda' in args and args['lambda'] is not None and self.wave is not None:
             if len(args['lambda']) == 2:
                 idx = np.digitize([args['lambda'][0], args['lambda'][1]], self.wave)
                 s = slice(max(0, idx[0] - 1), idx[1], None)

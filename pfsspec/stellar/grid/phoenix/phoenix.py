@@ -24,6 +24,7 @@ class Phoenix(ModelGridConfig):
         grid.init_axis('T_eff', np.hstack((np.arange(2300.0, 7000.0, 100.0),
                                            np.arange(7000.0, 12200.0, 200.0))))
         grid.init_axis('log_g', np.arange(0, 6.5, 0.5))
+        grid.init_axis('a_M', np.arange(-0.2, 1.4, 0.2))
 
         grid.build_axis_indexes()
 

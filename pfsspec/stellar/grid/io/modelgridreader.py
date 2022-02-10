@@ -49,14 +49,28 @@ class ModelGridReader(GridReader):
     def add_args(self, parser):
         super(ModelGridReader, self).add_args(parser)
 
+        # Add spectrum reader parameters
         reader = self.create_reader(None, None)
         reader.add_args(parser)
+
+        # Add grid parameters to allow defining ranges
+        grid = self.create_grid()
+        grid.add_args(parser)
 
     def init_from_args(self, config, args):
         super(ModelGridReader, self).init_from_args(config, args)
 
         self.pipeline = config['pipelines'][args[self.CONFIG_PIPELINE]]()
         self.pipeline.init_from_args(args)
+
+        if self.reader is None:
+            self.reader = self.create_reader(None, None)
+        self.reader.init_from_args(args)
+
+        if self.grid is None:
+            self.grid = self.create_grid()
+            self.grid.preload_arrays = self.preload_arrays
+        self.grid.init_from_args(args)
 
     def process_item(self, i):
         # Called when processing the grid point by point
@@ -110,14 +124,13 @@ class ModelGridReader(GridReader):
     def get_array_grid(self):
         return self.grid.array_grid
 
-    def create_reader(self, input_path, output_path, wave=None, resolution=None):
+    def create_reader(self, input_path, output_path):
         raise NotImplementedError()
 
     def open_data(self, input_path, output_path):
         # Initialize input
 
-        if self.reader is None:
-            self.reader = self.create_reader(input_path, output_path)
+        self.reader.path = input_path
 
         if os.path.isdir(input_path):
             self.logger.info('Running in grid mode')
@@ -145,10 +158,6 @@ class ModelGridReader(GridReader):
         # Initialize output
 
         fn = os.path.join(output_path, 'spectra.h5')
-
-        if self.grid is None:
-            self.grid = self.create_grid()
-            self.grid.preload_arrays = self.preload_arrays
 
         if self.resume:
             if self.grid.preload_arrays:

@@ -42,15 +42,24 @@ class ModelGridDownloader(Downloader):
 
         parser.add_argument('--top', type=int, default=None, help='Limit number of results')
 
+        # Add spectrum reader parameters
         reader = self.create_reader(None, None)
         reader.add_args(parser)
+
+        # Add grid parameters to allow defining ranges
+        grid = self.create_grid()
+        grid.add_args(parser)
 
     def init_from_args(self, config, args):
         super(ModelGridDownloader, self).init_from_args(config, args)
         
-        self.args = args
-
         self.top = self.get_arg('top', self.top, args)
+
+        self.grid = self.create_grid()
+        self.grid.init_from_args(args)
+
+        self.reader = self.create_reader(None, None)
+        self.reader.init_from_args(args)
 
     def process_item(self, i):
         # Called when processing the grid point by point
@@ -63,6 +72,9 @@ class ModelGridDownloader(Downloader):
 
         # Download file with wget
         outfile = os.path.join(self.outdir, fn)
+        outdir, _ = os.path.split(outfile)
+        if not os.path.isdir(outdir):
+            os.mkdir(outdir)
 
         cmd = [ 'wget', url ]
         cmd.extend(['--tries=3', '--timeout=1', '--wait=1'])
@@ -85,9 +97,6 @@ class ModelGridDownloader(Downloader):
         self.logger.info("Downloading grid {}.".format(type(self.grid).__name__))
         if self.top is not None:
             self.logger.info("Downloading grid will stop after {} items.".format(self.top))
-
-        self.grid = self.create_grid()
-        self.reader = self.create_reader(None, None)
 
         g = GridEnumerator(self.grid, top=self.top)
         t = tqdm(total=len(g))
