@@ -157,8 +157,8 @@ class BoszSpectrumReader(SpectrumReader):
 
         spec = BoszSpectrum()
         spec.wave = np.array(wave[filt])
-        spec.cont = np.array(hdus[1].data['SpecificIntensity'][filt])
-        spec.flux = np.array(hdus[1].data['Continuum'][filt])
+        spec.flux = np.array(hdus[1].data['SpecificIntensity'][filt])
+        spec.cont = np.array(hdus[1].data['Continuum'][filt])
 
         return spec
 
