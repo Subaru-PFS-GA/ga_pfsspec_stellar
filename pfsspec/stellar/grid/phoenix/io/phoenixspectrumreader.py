@@ -54,7 +54,7 @@ class PhoenixSpectrumReader(SpectrumReader):
         # the current one, in the same directory
         if self.wave is None:
             dir, _ = os.path.split(file)
-            fn = os.path.join(dir, 'WAVE_PHOENIX-ACES-AGSS-COND-2011.fits')
+            fn = os.path.join(dir, '../WAVE_PHOENIX-ACES-AGSS-COND-2011.fits')
             with fits.open(fn, memmap=False) as f:
                 self.wave = f[0].data
 
