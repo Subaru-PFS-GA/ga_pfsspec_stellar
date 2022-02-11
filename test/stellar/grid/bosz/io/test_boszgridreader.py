@@ -9,7 +9,7 @@ from pfsspec.stellar.grid.bosz.io import BoszGridReader, BoszSpectrumReader
 
 class TestBoszGridReader(TestBase):
     def create_grid_reader(self):
-        path = os.path.join(self.PFSSPEC_DATA_PATH, 'download/stellar/grid/bosz/bosz_5000/')
+        path = os.path.join(self.PFSSPEC_DATA_PATH, 'download/models/stellar/grid/bosz/bosz_5000/')
 
         gridreader = BoszGridReader()
         gridreader.top = 10

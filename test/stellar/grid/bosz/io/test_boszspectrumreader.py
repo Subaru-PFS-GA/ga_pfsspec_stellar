@@ -26,16 +26,16 @@ class TestBoszSpectrumReader(TestBase):
         self.assertEqual(2.5, p['log_g'])
 
     def test_read(self):
-        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/stellar/grid/bosz/bosz_5000/amm03cm03om03t3500g25v20modrt0b5000rs.asc')
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/models/stellar/grid/bosz/bosz_5000/amm03cm03om03t3500g25v20modrt0b5000rs.asc')
         r = BoszSpectrumReader(filename, format='ascii', resolution=5000)
         spec = r.read()
 
     def test_read_bz2(self):
-        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/stellar/grid/bosz/bosz_5000/amm03cm03om03t3500g25v20modrt0b5000rs.asc.bz2')
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/models/stellar/grid/bosz/bosz_5000/amm03cm03om03t3500g25v20modrt0b5000rs.asc.bz2')
         r = BoszSpectrumReader(filename, format='ascii', resolution=5000)
         spec = r.read()
 
     def test_read_fits(self):
-        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/stellar/grid/bosz/bosz_50000_fits/amm03cm03om03t3500g25v20modrt0b50000rs.fits')
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'download/models/stellar/grid/bosz/bosz_50000_fits/amm03cm03om03t3500g25v20modrt0b50000rs.fits')
         r = BoszSpectrumReader(filename, format='fits', resolution=50000)
         spec = r.read()
