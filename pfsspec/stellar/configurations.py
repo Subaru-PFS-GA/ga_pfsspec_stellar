@@ -1,9 +1,12 @@
 from pfsspec.core import Pipeline
 from pfsspec.core.grid import ArrayGrid, RbfGrid
+from pfsspec.stellar.grid.bosz import Bosz
+from pfsspec.stellar.grid.phoenix import Phoenix
 from pfsspec.stellar.grid.bosz.io import BoszGridReader
 from pfsspec.stellar.grid.bosz.io import BoszGridDownloader
 from pfsspec.stellar.grid.phoenix.io import PhoenixGridReader
 from pfsspec.stellar.grid.phoenix.io import PhoenixGridDownloader
+from pfsspec.stellar.grid import ModelGridFit, ModelPcaGridBuilder, ModelRbfGridBuilder
 
 DOWNLOAD_CONFIGURATIONS = {
     'stellar-grid': {
@@ -33,41 +36,41 @@ IMPORT_CONFIGURATIONS = {
     }
 }
 
-# FIT_CONFIGURATIONS = {
-#     'grid': {
-#         'bosz': {
-#             'class': ModelGridFit,
-#             'config': Bosz()
-#         },
-#         'phoenix': {
-#             'class': ModelGridFit,
-#             'config': Phoenix()
-#         }
-#     }
-# }
+FIT_CONFIGURATIONS = {
+    'stellar-grid': {
+        'bosz': {
+            'type': ModelGridFit,
+            'config': Bosz()
+        },
+        'phoenix': {
+            'type': ModelGridFit,
+            'config': Phoenix()
+        }
+    }
+}
 
-# PCA_CONFIGURATIONS = {
-#     'grid': {
-#         'bosz': {
-#             'class': ModelPcaGridBuilder,
-#             'config': Bosz()
-#         },
-#         'phoenix': {
-#             'class': ModelPcaGridBuilder,
-#             'config': Phoenix()
-#         }
-#     }
-# }
+PCA_CONFIGURATIONS = {
+    'grid': {
+        'bosz': {
+            'class': ModelPcaGridBuilder,
+            'config': Bosz()
+        },
+        'phoenix': {
+            'class': ModelPcaGridBuilder,
+            'config': Phoenix()
+        }
+    }
+}
 
-# RBF_CONFIGURATIONS = {
-#     'grid': {
-#         'bosz': {
-#             'class': ModelRbfGridBuilder,
-#             'config': Bosz()
-#         },
-#         'phoenix': {
-#             'class': ModelRbfGridBuilder,
-#             'config': Phoenix()
-#         }
-#     }
-# }
+RBF_CONFIGURATIONS = {
+    'grid': {
+        'bosz': {
+            'class': ModelRbfGridBuilder,
+            'config': Bosz()
+        },
+        'phoenix': {
+            'class': ModelRbfGridBuilder,
+            'config': Phoenix()
+        }
+    }
+}

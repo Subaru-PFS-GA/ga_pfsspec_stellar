@@ -153,12 +153,27 @@ class ModelGrid(PfsObject):
     def load_items(self, s=None):
         self.wave = self.load_item('/'.join((self.PREFIX_MODELGRID, 'wave')), np.ndarray)
 
+        self.load_params()
+
         name = self.load_item('continuum_model', str)
         if name is not None:
             self.config.continuum_model_type = self.config.CONTINUUM_MODEL_TYPES[name]
             self.continuum_model = self.config.create_continuum_model()
             self.continuum_model.init_wave(self.wave)
             self.continuum_model.init_values(self.grid)
+
+    def load_params(self):
+        t = self.load_item('/'.join((self.PREFIX_MODELGRID, 'type')), str)
+        if t != type(self).__name__:
+            raise Exception("Grid type `{}` doesn't match type `{}` in data file.".format(type(self).__name__, t))
+
+        t = self.load_item('/'.join((self.PREFIX_MODELGRID, 'config')), str)
+        if t != type(self.config).__name__:
+            raise Exception("Grid config type `{}` doesn't match config type `{}` in data file.".format(type(self.config).__name__, t))
+
+        self.is_wave_regular = self.load_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_regular')), bool)
+        self.is_wave_lin = self.load_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_lin')), bool)
+        self.is_wave_log = self.load_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_log')), bool)
 
     def get_nearest_index(self, **kwargs):
         return self.grid.get_nearest_index(**kwargs)

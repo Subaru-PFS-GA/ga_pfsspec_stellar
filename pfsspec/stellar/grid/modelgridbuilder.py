@@ -37,13 +37,13 @@ class ModelGridBuilder():
         parser.add_argument('--pca', action='store_true', help='Run on a PCA input grid.')
         parser.add_argument('--rbf', action='store_true', help='Run on an RBF params grid.')
 
-    def parse_args(self):
-        self.pca = self.get_arg('pca', self.pca)
-        self.rbf = self.get_arg('rbf', self.rbf)
-        self.grid_config.init_from_args(self.args)
+    def init_from_args(self, config, args):
+        self.pca = self.get_arg('pca', self.pca, args)
+        self.rbf = self.get_arg('rbf', self.rbf, args)
+        self.grid_config.init_from_args(args)
         self.continuum_model = self.grid_config.create_continuum_model()
         if self.continuum_model is not None:
-            self.continuum_model.init_from_args(self.args)
+            self.continuum_model.init_from_args(args)
 
     def create_params_grid(self):
         if self.rbf is not None and self.rbf:
@@ -72,12 +72,9 @@ class ModelGridBuilder():
 
     def open_input_grid(self, input_path):
         fn = os.path.join(input_path, 'spectra') + '.h5'
-        self.input_grid = self.create_input_grid()
         self.input_grid.load(fn)
 
     def open_output_grid(self, output_path):
-        self.output_grid = self.create_output_grid()
-
         # Copy data from the input grid
         g = self.input_grid or self.params_grid
 

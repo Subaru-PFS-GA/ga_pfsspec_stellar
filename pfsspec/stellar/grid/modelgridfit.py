@@ -14,27 +14,31 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
 
     STEPS = ['fit', 'fill', 'smooth', 'norm']
 
-    def __init__(self, config, orig=None):
+    def __init__(self, grid_config, orig=None):
         GridBuilder.__init__(self, orig=orig)
-        ModelGridBuilder.__init__(self, config, orig=orig)
+        ModelGridBuilder.__init__(self, grid_config, orig=orig)
 
         if isinstance(orig, ModelGridFit):
             self.step = orig.step
         else:
             self.step = None
 
+    def add_subparsers(self, configurations, parser):
+        return None
+
     def add_args(self, parser):
         GridBuilder.add_args(self, parser)
         ModelGridBuilder.add_args(self, parser)
 
-        parser.add_argument('--step', type=str, choices=ModelGridFit.STEPS, help='Fitting step to perform.\n')
+        parser.add_argument('--step', type=str, choices=ModelGridFit.STEPS, required=True, help='Fitting step to perform.\n')
 
-    def parse_args(self):
-        GridBuilder.parse_args(self)
-        ModelGridBuilder.parse_args(self)
+        # TODO: add continuum model parameters
 
-        if 'step' in self.args and self.args['step'] is not None:
-            self.step = self.args['step']
+    def init_from_args(self, config, args):
+        GridBuilder.init_from_args(self, config, args)
+        ModelGridBuilder.init_from_args(self, config, args)
+
+        self.step = self.get_arg('step', self.step, args)
 
     def create_input_grid(self):
         return ModelGridBuilder.create_input_grid(self)
@@ -196,3 +200,5 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
             self.run_step_normalize()
         else:
             raise NotImplementedError()
+
+    
