@@ -34,9 +34,6 @@ class ModelGridReader(GridReader):
             for p in configurations['pipelines']:
                 pp = pps.add_parser(p)
 
-                # Add grid reader args
-                self.add_args(pp)
-
                 # Instantiate pipeline and add pipeline args
                 pipeline = configurations['pipelines'][p]()
                 pipeline.add_args(pp)
