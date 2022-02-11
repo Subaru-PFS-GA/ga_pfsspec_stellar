@@ -139,19 +139,19 @@ class ModelGrid(PfsObject):
         self.grid.save_items()
 
         self.save_params()
-        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'wave'), self.wave)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'wave')), self.wave)
 
     def save_params(self):
-        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'type'), type(self).__name__)
-        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'config'), type(self.config).__name__)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'type')), type(self).__name__)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'config')), type(self.config).__name__)
         if self.continuum_model is not None:
-            self.save_item(os.path.join(self.PREFIX_MODELGRID, 'continuum_model'), self.continuum_model.name)
-        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'is_wave_regular'), self.is_wave_regular)
-        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'is_wave_lin'), self.is_wave_lin)
-        self.save_item(os.path.join(self.PREFIX_MODELGRID, 'is_wave_log'), self.is_wave_log)
+            self.save_item('/'.join((self.PREFIX_MODELGRID, 'continuum_model')), self.continuum_model.name)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_regular')), self.is_wave_regular)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_lin')), self.is_wave_lin)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_log')), self.is_wave_log)
 
     def load_items(self, s=None):
-        self.wave = self.load_item(os.path.join(self.PREFIX_MODELGRID, 'wave'), np.ndarray)
+        self.wave = self.load_item('/'.join((self.PREFIX_MODELGRID, 'wave')), np.ndarray)
 
         name = self.load_item('continuum_model', str)
         if name is not None:
