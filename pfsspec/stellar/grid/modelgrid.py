@@ -151,7 +151,7 @@ class ModelGrid(PfsObject):
         self.save_item(os.path.join(self.PREFIX_MODELGRID, 'is_wave_log'), self.is_wave_log)
 
     def load_items(self, s=None):
-        self.wave = self.load_item('wave', np.ndarray)
+        self.wave = self.load_item(os.path.join(self.PREFIX_MODELGRID, 'wave'), np.ndarray)
 
         name = self.load_item('continuum_model', str)
         if name is not None:
