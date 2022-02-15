@@ -7,10 +7,13 @@ from pfsspec.stellar.grid import ModelGrid
 from pfsspec.stellar.grid.bosz import Bosz
 
 class TestBoszModelGrid(TestBase):
-    def get_grid(self):
-        fn = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/bosz/bosz_50000/spectra.h5')
+    def get_grid(self, normalized=False):
+        if not normalized:
+            fn = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/bosz/bosz_50000/spectra.h5')
+        else:
+            fn = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/bosz/bosz_50000_rbf/fit/spectra.h5')
 
-        grid = ModelGrid(Bosz(), ArrayGrid)
+        grid = ModelGrid(Bosz(normalized=normalized), ArrayGrid)
         grid.preload_arrays = False
         grid.load(fn, format='h5')
 
@@ -19,6 +22,12 @@ class TestBoszModelGrid(TestBase):
     def test_get_nearest_model(self):
         grid = self.get_grid()
         spec = grid.get_nearest_model(M_H=-1.5, T_eff=5000, log_g=1.5, a_M=0.0, C_M=0.0)
+        self.assertIsNotNone(spec)
+
+    def test_load_normalized(self):
+        grid = self.get_grid(True)
+        spec = grid.get_nearest_model(M_H=0, T_eff=4500, log_g=1, a_M=0, C_M=0)
+        self.assertIsNotNone(spec)
 
     def test_get_slice_rbf(self):
         grid = self.get_grid()

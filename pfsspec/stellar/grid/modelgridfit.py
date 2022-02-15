@@ -26,13 +26,13 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
     def add_subparsers(self, configurations, parser):
         return None
 
+        # TODO: add continuum model parameters
+
     def add_args(self, parser):
         GridBuilder.add_args(self, parser)
         ModelGridBuilder.add_args(self, parser)
 
         parser.add_argument('--step', type=str, choices=ModelGridFit.STEPS, required=True, help='Fitting step to perform.\n')
-
-        # TODO: add continuum model parameters
 
     def init_from_args(self, config, args):
         GridBuilder.init_from_args(self, config, args)

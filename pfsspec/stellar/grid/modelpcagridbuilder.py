@@ -11,22 +11,28 @@ from pfsspec.stellar.grid import ModelGrid
 from pfsspec.stellar.grid import ModelGridBuilder
 
 class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
-    def __init__(self, config, orig=None):
+
+    def __init__(self, grid_config, orig=None):
         PcaGridBuilder.__init__(self, orig=orig)
-        ModelGridBuilder.__init__(self, config, orig=orig)
+        ModelGridBuilder.__init__(self, grid_config, orig=orig)
 
         if isinstance(orig, ModelPcaGridBuilder):
-            self.config = config if config is not None else orig.config
+            self.grid_config = grid_config if grid_config is not None else orig.grid_config
         else:
-            self.config = config
+            self.grid_config = grid_config
+
+    def add_subparsers(self, configurations, parser):
+        return None
+
+        # TODO: add continuum model parameters
 
     def add_args(self, parser):
         PcaGridBuilder.add_args(self, parser)
         ModelGridBuilder.add_args(self, parser)
 
-    def parse_args(self):
-        PcaGridBuilder.parse_args(self)
-        ModelGridBuilder.parse_args(self)
+    def init_from_args(self, config, args):
+        PcaGridBuilder.init_from_args(self, config, args)
+        ModelGridBuilder.init_from_args(self, config, args)
     
     def create_input_grid(self):
         # Input should not be a PCA grid
@@ -34,7 +40,7 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
 
     def create_output_grid(self):
         # Output is always a PCA grid
-        config = type(self.config)(orig=self.config, pca=True)
+        config = type(self.grid_config)(orig=self.grid_config, pca=True)
         return ModelGrid(config, ArrayGrid)
 
     def open_input_grid(self, input_path):

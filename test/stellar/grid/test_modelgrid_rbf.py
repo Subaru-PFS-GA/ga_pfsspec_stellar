@@ -21,7 +21,7 @@ class TestModelGrid_Rbf(TestBase):
     def test_init_from_args(self):
         args = {}
         grid = self.get_test_grid(args)
-        self.assertEqual(slice(None), grid.wave_slice)
+        self.assertEqual(slice(None), grid.get_wave_slice())
 
     def test_get_axes(self):
         args = {}

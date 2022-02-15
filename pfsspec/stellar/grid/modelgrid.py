@@ -1,7 +1,6 @@
 import os
 import logging
 import itertools
-import types
 import numpy as np
 from random import choice
 from scipy.interpolate import RegularGridInterpolator, CubicSpline
@@ -31,6 +30,7 @@ class ModelGrid(PfsObject):
             self.is_wave_log = None
             self.resolution = None
 
+            self.wave_lim = None
             self.wave_slice = None      # Limits wavelength range when reading the grid
         else:
             self.config = config if config is not None else orig.config
@@ -42,6 +42,7 @@ class ModelGrid(PfsObject):
             self.is_wave_log = orig.is_wave_log
             self.resolution = orig.resolution
 
+            self.wave_lim = orig.wave_lim
             self.wave_slice = orig.wave_slice
 
     @property
@@ -75,28 +76,31 @@ class ModelGrid(PfsObject):
     def add_args(self, parser):
         # TODO: it collides with --lambda from the spectrum reader classes
         #       make sure this parameter is registered when building datasets
-        # parser.add_argument('--lambda', type=float, nargs='*', default=None, help='Limit on lambda.')
+        
+        parser.add_argument('--lambda', type=float, nargs='*', default=None, help='Limit on lambda.')
         self.grid.add_args(parser)
 
     def init_from_args(self, args):
-        self.wave_slice = self.get_slice_from_args(args)
+        self.wave_lim = self.get_arg('lambda', self.wave_lim, args)
         self.grid.init_from_args(args)
 
-    def get_slice_from_args(self, args):
-        # Slice along the wave axis only, other parameters are handled in ArrayGrid
-        if 'lambda' in args and args['lambda'] is not None and self.wave is not None:
-            if len(args['lambda']) == 2:
-                idx = np.digitize([args['lambda'][0], args['lambda'][1]], self.wave)
-                s = slice(max(0, idx[0] - 1), idx[1], None)
-            elif len(args['lambda']) == 1:
-                idx = np.digitize([args['lambda'][0]], self.wave)
-                s = max(0, idx[0] - 1)
+    def get_wave_slice(self):
+        if self.wave is None:
+            raise Exception("Cannot determine slice without an initialized wave vector.")
+
+        if self.wave_lim is None:
+            return slice(None)
+        elif self.wave_slice is None:
+            if len(self.wave_lim) == 2:
+                idx = np.digitize([self.wave_lim[0], self.wave_lim[1]], self.wave)
+                self.wave_slice = slice(max(0, idx[0] - 1), idx[1], None)
+            elif len(self.wave_lim) == 1:
+                idx = np.digitize([self.wave_lim[0]], self.wave)
+                self.wave_slice = max(0, idx[0] - 1)
             else:
                 raise Exception('Only two or one values are allowed for parameter lambda.')
-        else:
-            s = slice(None)
 
-        return s
+        return self.wave_slice
 
     def get_constants(self):
         return self.grid.get_constants()
@@ -155,7 +159,7 @@ class ModelGrid(PfsObject):
 
         self.load_params()
 
-        name = self.load_item('continuum_model', str)
+        name = self.load_item('/'.join((self.PREFIX_MODELGRID, 'continuum_model')), str)
         if name is not None:
             self.config.continuum_model_type = self.config.CONTINUUM_MODEL_TYPES[name]
             self.continuum_model = self.config.create_continuum_model()
@@ -182,7 +186,7 @@ class ModelGrid(PfsObject):
         return self.grid.get_index(**kwargs)
 
     def get_wave(self):
-        return self.wave[self.wave_slice or slice(None)]
+        return self.wave[self.get_wave_slice() or slice(None)]
 
     def set_wave(self, wave):
         self.wave = wave
@@ -202,7 +206,7 @@ class ModelGrid(PfsObject):
             if self.grid.slice is not None:
                 if name in ['flux', 'cont']:
                     # Slice in the wavelength direction as well
-                    return self.grid.get_value_at(name, idx=self.grid.slice, s=self.wave_slice)
+                    return self.grid.get_value_at(name, idx=self.grid.slice, s=self.get_wave_slice())
                 else:
                     # Slice only in the stellar parameter directions
                     return self.grid.get_value_at(name, idx=self.grid.slice)
@@ -215,7 +219,7 @@ class ModelGrid(PfsObject):
         return self.grid.get_valid_value_count('flux')
 
     def get_flux_shape(self):
-        return self.get_shape() + self.wave[self.wave_slice or slice(None)].shape
+        return self.get_shape() + self.wave[self.get_wave_slice() or slice(None)].shape
 
     def set_flux(self, flux, cont=None, **kwargs):
         """
@@ -249,10 +253,10 @@ class ModelGrid(PfsObject):
         return params
 
     def get_model(self, denormalize=False, **kwargs):
-        spec = self.get_parameterized_spectrum(s=self.wave_slice, **kwargs)
-        spec.flux = np.array(self.grid.get_value('flux', s=self.wave_slice, **kwargs), copy=True)
+        spec = self.get_parameterized_spectrum(s=self.get_wave_slice(), **kwargs)
+        spec.flux = np.array(self.grid.get_value('flux', s=self.get_wave_slice(), **kwargs), copy=True)
         if self.grid.has_value('cont'):
-            spec.cont = np.array(self.grid.get_value('cont', s=self.wave_slice, **kwargs), copy=True)
+            spec.cont = np.array(self.grid.get_value('cont', s=self.get_wave_slice(), **kwargs), copy=True)
 
         if denormalize and self.continuum_model is not None:
             # Get the continuum parameters. This means interpolation,
@@ -266,10 +270,10 @@ class ModelGrid(PfsObject):
 
     def get_model_at(self, idx, denormalize=False):
         if self.grid.has_value_at('flux', idx):
-            spec = self.get_parameterized_spectrum(idx, s=self.wave_slice)
-            spec.flux = np.array(self.grid.get_value_at('flux', idx, s=self.wave_slice), copy=True)
+            spec = self.get_parameterized_spectrum(idx, s=self.get_wave_slice())
+            spec.flux = np.array(self.grid.get_value_at('flux', idx, s=self.get_wave_slice()), copy=True)
             if self.grid.has_value('cont'):
-                spec.cont = np.array(self.grid.get_value_at('cont', idx, s=self.wave_slice), copy=True)
+                spec.cont = np.array(self.grid.get_value_at('cont', idx, s=self.get_wave_slice()), copy=True)
 
             if denormalize and self.continuum_model is not None:
                 params = self.get_continuum_parameters_at(idx)

@@ -9,7 +9,7 @@ class TestModelGrid(TestBase):
     def test_init_from_args(self):
         args = {}
         grid = self.get_test_grid(args)
-        self.assertEqual(slice(None), grid.wave_slice)
+        self.assertEqual(slice(None), grid.get_wave_slice())
 
         args = { 'T_eff': [3800, 5000] }
         grid = self.get_test_grid(args)

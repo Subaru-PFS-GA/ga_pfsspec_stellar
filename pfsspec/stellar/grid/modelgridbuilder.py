@@ -40,10 +40,15 @@ class ModelGridBuilder():
     def init_from_args(self, config, args):
         self.pca = self.get_arg('pca', self.pca, args)
         self.rbf = self.get_arg('rbf', self.rbf, args)
+        
         self.grid_config.init_from_args(args)
+        
         self.continuum_model = self.grid_config.create_continuum_model()
         if self.continuum_model is not None:
             self.continuum_model.init_from_args(args)
+
+        self.params_grid = self.create_params_grid()
+        self.params_grid.init_from_args(args)
 
     def create_params_grid(self):
         if self.rbf is not None and self.rbf:
@@ -67,7 +72,6 @@ class ModelGridBuilder():
 
     def open_params_grid(self, params_path):
         fn = os.path.join(params_path, 'spectra') + '.h5'
-        self.params_grid = self.create_params_grid()
         self.params_grid.load(fn)
 
     def open_input_grid(self, input_path):
@@ -89,7 +93,6 @@ class ModelGridBuilder():
     def open_data(self, input_path, output_path, params_path=None):
         if params_path is not None:
             self.open_params_grid(params_path)
-            self.params_grid.init_from_args(self.args)
             self.params_grid.build_axis_indexes()
             self.grid_shape = self.params_grid.get_shape()
 
@@ -99,11 +102,9 @@ class ModelGridBuilder():
 
             if self.continuum_model.wave is None:
                 self.continuum_model.init_wave(self.params_grid.get_wave())
+        else:
+            self.params_grid = None
             
-            # TODO: do we need this here? This should come from the grid config
-            #       when normalized=True
-            # self.params_grid.set_continuum_model(self.continuum_model)
-
         GridBuilder.open_data(self, input_path, output_path)
 
         if self.continuum_model is None:
