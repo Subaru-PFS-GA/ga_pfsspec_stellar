@@ -37,6 +37,14 @@ class StellarSpectrum(Spectrum):
         n = 1e-7 * Physics.planck(self.wave*1e-10, T_eff)
         self.multiply(n)
 
+    def get_radius(self, log_L, log_T_eff):
+        sb = 5.67e-5                            # grams s^-3 kelvin^-4
+        lsun = 3.8e33                           # erg/s 
+        l = lsun * (10 ** log_L)                # luminosity from isochrone is in log(L/lsun)
+        t = np.round(10 ** log_T_eff)           # T_eff from isochrone is in log(teff)
+        radius = np.sqrt(l / (4 * np.pi * sb * t**4))
+        return radius
+
     def print_info(self):
         super(StellarSpectrum, self).print_info()
 
