@@ -8,11 +8,10 @@ from pfsspec.core.grid import RbfGrid
 from pfsspec.stellar.grid import ModelGrid
 from pfsspec.stellar.grid.bosz import Bosz
 
-class TestModelGrid_Rbf(TestBase):
+class TestModelGrid_Pca_Rbf(TestBase):
     def get_test_grid(self, args):
-        #file = os.path.join(self.PFSSPEC_DATA_PATH, '/scratch/ceph/dobos/temp/test072/spectra.h5')
-        #file = '/scratch/ceph/dobos/data/pfsspec/import/stellar/rbf/bosz_5000_full/fitrbf_3/spectra.h5'
-        grid = ModelGrid(Bosz(), RbfGrid)
+        file = '/datascope/subaru/data/pfsspec/models/stellar/grid/bosz/bosz_5000_aM0_CM0_rbf_02/pca-rbf/spectra.h5'
+        grid = ModelGrid(Bosz(pca=True), RbfGrid)
         grid.load(file, format='h5')
         grid.init_from_args(args)
 
@@ -27,12 +26,18 @@ class TestModelGrid_Rbf(TestBase):
         args = {}
         grid = self.get_test_grid(args)
         axes = grid.get_axes()
-        self.assertEqual(3, len(axes))
+        self.assertEqual(5, len(axes))
 
     def test_get_nearest_model(self):
         args = {}
         grid = self.get_test_grid(args)
-        spec = grid.get_nearest_model(Fe_H=0., T_eff=4500, log_g=4, C_M=0, O_M=0)
+        spec = grid.get_nearest_model(M_H=0., T_eff=4500, log_g=4, C_M=0, O_M=0)
+        self.assertIsNotNone(spec)
+
+    def test_get_model(self):
+        args = {}
+        grid = self.get_test_grid(args)
+        spec = grid.get_model(M_H=0., T_eff=4500, log_g=4, C_M=0, O_M=0)
         self.assertIsNotNone(spec)
         
     def test_interpolate_model_rbf(self):

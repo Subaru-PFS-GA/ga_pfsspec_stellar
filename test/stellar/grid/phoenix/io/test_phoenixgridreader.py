@@ -1,8 +1,9 @@
-from test.test_base import TestBase
 import os
 
-from pfsspec.stellarmod.modelgrid import ModelGrid
-from pfsspec.stellarmod.phoenixgridreader import PhoenixGridReader
+from test.core import TestBase
+
+from pfsspec.stellar.grid import ModelGrid
+from pfsspec.stellar.grid.phoenix.io import PhoenixGridReader
 
 class TestPhoenixGridReader(TestBase):
     pass
