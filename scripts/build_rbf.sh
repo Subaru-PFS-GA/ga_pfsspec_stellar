@@ -1,0 +1,126 @@
+#!/bin/bash
+
+# Fit the upper envelope of synthetic stellar spectra and fit with RBF
+# It needs to be run with a bunch of config files in a single config directory
+# or with command line arguments passed in.
+
+# Examples:
+#   ./stellar/scripts/build_rbf.sh stellar-grid bosz
+#   ./scripts/stellar/build_rbf.sh stellar-grid bosz --config ./configs/import/stellar/grid/bosz/rbf --in /.../grid/bosz_5000/ --out /.../rbf/bosz_5000
+
+set -e
+
+# Process command-line arguments
+
+PYTHON_DEBUG=0
+
+BINDIR="./bin"
+CONFIGDIR="./configs/import/stellar/grid/bosz/rbf"
+INDIR="${PFSSPEC_DATA}/models/stellar/grid/bosz/bosz_5000"
+OUTDIR="${PFSSPEC_DATA}/models/stellar/grid/bosz/bosz_5000"
+PARAMS=""
+
+TYPE="$1"
+SOURCE="$2"
+shift 2
+
+while (( "$#" )); do
+    case "$1" in
+        --debug)
+            PYTHON_DEBUG=1
+            PARAMS="$PARAMS --debug"
+            shift
+            ;;
+        --config)
+            CONFIGDIR="$2"
+            shift 2
+            ;;
+        --in)
+            INDIR="$2"
+            shift 2
+            ;;
+        --out)
+            OUTDIR="$2"
+            shift 2
+            ;;
+        --) # end argument parsing
+            shift
+            break
+            ;;
+        #-*|--*=) # unsupported flags
+            #  echo "Error: Unsupported flag $1" >&2
+            #  exit 1
+            #  ;;
+        *) # preserve all other arguments
+            PARAMS="$PARAMS $1"
+            shift
+            ;;
+    esac
+done
+
+echo "Using configuration directory $CONFIGDIR"
+echo "Using output directory $OUTDIR"
+
+if [[ -d "$OUTDIR/fit" ]]; then
+    echo "Skipping fitting upper envelope."
+else
+    echo "Fitting upper envelope..."
+    $BINDIR/fit $TYPE $SOURCE \
+        --config "$CONFIGDIR/common.json" "$CONFIGDIR/fit.json" \
+        --in "$INDIR" --out "$OUTDIR/fit" \
+        --step fit $PARAMS
+fi
+
+# if [[ -d "$OUTDIR/fill" ]]; then
+#     echo "Skipping filling in holes / smoothing."
+# else
+#     echo "Filling in holes / smoothing..."
+#     $BINDIR/fit $TYPE $SOURCE \
+#         --config "$CONFIGDIR/common.json" \
+#         --in "$INDIR" --out "$OUTDIR/fill" \
+#         --params "$OUTDIR/fit" \
+#         --step fill $PARAMS
+# fi
+
+if [[ -d "$OUTDIR/fit-rbf" ]]; then
+    echo "Skipping RBF on continuum parameters."
+else
+    echo "Running RBF on continuum parameters..."
+    $BINDIR/rbf $TYPE $SOURCE \
+        --config "$CONFIGDIR/common.json" "$CONFIGDIR/rbf.json" \
+        --in "$INDIR" --out "$OUTDIR/fit-rbf" \
+        --params "$OUTDIR/fit" \
+        --step fit $PARAMS
+fi
+
+if [[ -d "$OUTDIR/norm" ]]; then
+    echo "Skipping normalizing spectra."
+else
+    echo "Normalizing spectra..."
+    $BINDIR/fit $TYPE $SOURCE \
+        --config "$CONFIGDIR/common.json" \
+        --in "$INDIR" --out "$OUTDIR/norm" \
+        --params "$OUTDIR/fit-rbf" --rbf \
+        --step norm $PARAMS
+fi
+
+if [[ -d "$OUTDIR/pca" ]]; then
+    echo "Skipping PCA."
+else
+    echo "Running PCA..."
+    $BINDIR/pca $TYPE $SOURCE \
+        --config "$CONFIGDIR/common.json" "$CONFIGDIR/pca.json" \
+        --in "$OUTDIR/norm" --out "$OUTDIR/pca" \
+        --params "$OUTDIR/fit-rbf" --rbf $PARAMS
+fi
+
+if [[ -d "$OUTDIR/pca-rbf" ]]; then
+    echo "Skipping RBF on principal components."
+else
+    echo "Running RBF on principal components..."
+    $BINDIR/rbf $TYPE $SOURCE \
+        --config "$CONFIGDIR/common.json" "$CONFIGDIR/rbf.json" \
+        --in "$OUTDIR/pca" --out "$OUTDIR/pca-rbf" \
+        --params "$OUTDIR/fit-rbf" --rbf --pca \
+        --step pca $PARAMS
+fi
