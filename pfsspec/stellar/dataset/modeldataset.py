@@ -1,9 +1,9 @@
-from pfsspec.core.dataset import Dataset
+from pfsspec.core.dataset import SpectrumDataset
 from pfsspec.stellar import ModelSpectrum
 
-class ModelDataset(Dataset):
-    def __init__(self, orig=None, preload_arrays=False):
-        super(ModelDataset, self).__init__(orig=orig, preload_arrays=preload_arrays)
+class ModelDataset(SpectrumDataset):
+    def __init__(self, constant_wave=True, preload_arrays=False, orig=None):
+        super(ModelDataset, self).__init__(constant_wave=constant_wave, preload_arrays=preload_arrays, orig=orig)
 
     def create_spectrum(self):
         return ModelSpectrum()
