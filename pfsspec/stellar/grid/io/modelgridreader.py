@@ -177,7 +177,7 @@ class ModelGridReader(GridReader):
             # Force creating output file for direct hdf5 writing
             self.grid.save(fn, format='h5')
 
-    def save_data(self):
+    def save_data(self, output_path):
         self.grid.save(self.grid.filename, self.grid.fileformat)
 
     def run(self):

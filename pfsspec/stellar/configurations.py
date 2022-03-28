@@ -49,27 +49,27 @@ FIT_CONFIGURATIONS = {
     }
 }
 
-PCA_CONFIGURATIONS = {
-    'grid': {
+RBF_CONFIGURATIONS = {
+    'stellar-grid': {
         'bosz': {
-            'class': ModelPcaGridBuilder,
+            'type': ModelRbfGridBuilder,
             'config': Bosz()
         },
         'phoenix': {
-            'class': ModelPcaGridBuilder,
+            'type': ModelRbfGridBuilder,
             'config': Phoenix()
         }
     }
 }
 
-RBF_CONFIGURATIONS = {
-    'grid': {
+PCA_CONFIGURATIONS = {
+    'stellar-grid': {
         'bosz': {
-            'class': ModelRbfGridBuilder,
+            'type': ModelPcaGridBuilder,
             'config': Bosz()
         },
         'phoenix': {
-            'class': ModelRbfGridBuilder,
+            'type': ModelPcaGridBuilder,
             'config': Phoenix()
         }
     }

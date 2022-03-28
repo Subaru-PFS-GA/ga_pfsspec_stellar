@@ -74,14 +74,11 @@ class ModelGrid(PfsObject):
         return grid
 
     def add_args(self, parser):
-        # TODO: it collides with --lambda from the spectrum reader classes
-        #       make sure this parameter is registered when building datasets
-        
-        parser.add_argument('--lambda', type=float, nargs='*', default=None, help='Limit on lambda.')
+        parser.add_argument('--wave-lim', type=float, nargs='*', default=None, help='Limit on lambda.')
         self.grid.add_args(parser)
 
     def init_from_args(self, args):
-        self.wave_lim = self.get_arg('lambda', self.wave_lim, args)
+        self.wave_lim = self.get_arg('wave_lim', self.wave_lim, args)
         self.grid.init_from_args(args)
 
     def get_wave_slice(self):
@@ -254,9 +251,15 @@ class ModelGrid(PfsObject):
 
     def get_model(self, denormalize=False, **kwargs):
         spec = self.get_parameterized_spectrum(s=self.get_wave_slice(), **kwargs)
-        spec.flux = np.array(self.grid.get_value('flux', s=self.get_wave_slice(), **kwargs), copy=True)
+        flux = self.grid.get_value('flux', s=self.get_wave_slice(), **kwargs)
+        # In case the interpolation didn't work
+        if flux is None:
+            return None
+        spec.flux = np.array(flux, copy=True)
+        
         if self.grid.has_value('cont'):
-            spec.cont = np.array(self.grid.get_value('cont', s=self.get_wave_slice(), **kwargs), copy=True)
+            cont = self.grid.get_value('cont', s=self.get_wave_slice(), **kwargs)
+            spec.cont = np.array(cont, copy=True)
 
         if denormalize and self.continuum_model is not None:
             # Get the continuum parameters. This means interpolation,
