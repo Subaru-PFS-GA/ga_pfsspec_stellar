@@ -20,6 +20,8 @@ INDIR="${PFSSPEC_DATA}/models/stellar/grid/bosz/bosz_5000"
 OUTDIR="${PFSSPEC_DATA}/models/stellar/grid/bosz/bosz_5000"
 PARAMS=""
 
+RUNMODE="run"
+LASTJOBID=""
 TYPE="$1"
 SOURCE="$2"
 shift 2
@@ -29,6 +31,16 @@ while (( "$#" )); do
         --debug)
             PYTHON_DEBUG=1
             PARAMS="$PARAMS --debug"
+            shift
+            ;;
+        --sbatch)
+            RUNMODE="sbatch"
+            PARAMS="--sbatch $PARAMS"
+            shift
+            ;;
+        --srun)
+            RUNMODE="srun"
+            PARAMS="--srun $PARAMS"
             shift
             ;;
         --config)
@@ -58,6 +70,21 @@ while (( "$#" )); do
     esac
 done
 
+function run_cmd() {
+    local cmd="$@"
+    # echo "$cmd"
+    if [[ $RUNMODE == "sbatch" ]]; then
+        if [ -n "$LASTJOBID" ]; then
+            LASTJOBID=$(eval "$cmd --dependency afterok:$LASTJOBID")
+        else
+            LASTJOBID=$(eval "$cmd")
+        fi    
+        echo "Submitted slurm job with id $LASTJOBID"
+    else
+        eval "$cmd"
+    fi
+}
+
 echo "Using configuration directory $CONFIGDIR"
 echo "Using output directory $OUTDIR"
 
@@ -65,62 +92,68 @@ if [[ -d "$OUTDIR/fit" ]]; then
     echo "Skipping fitting upper envelope."
 else
     echo "Fitting upper envelope..."
-    $BINDIR/fit $TYPE $SOURCE \
+    cmd="$BINDIR/fit $TYPE $SOURCE \
         --config "$CONFIGDIR/common.json" "$CONFIGDIR/fit.json" \
         --in "$INDIR" --out "$OUTDIR/fit" \
-        --step fit $PARAMS
+        --step fit $PARAMS"
+        run_cmd "$cmd"
 fi
 
 # if [[ -d "$OUTDIR/fill" ]]; then
 #     echo "Skipping filling in holes / smoothing."
 # else
 #     echo "Filling in holes / smoothing..."
-#     $BINDIR/fit $TYPE $SOURCE \
+#     cmd="$BINDIR/fit $TYPE $SOURCE \
 #         --config "$CONFIGDIR/common.json" \
 #         --in "$INDIR" --out "$OUTDIR/fill" \
 #         --params "$OUTDIR/fit" \
-#         --step fill $PARAMS
+#         --step fill $PARAMS"
+#     run_cmd "$cmd"
 # fi
 
 if [[ -d "$OUTDIR/fit-rbf" ]]; then
     echo "Skipping RBF on continuum parameters."
 else
     echo "Running RBF on continuum parameters..."
-    $BINDIR/rbf $TYPE $SOURCE \
+    $cmd="$BINDIR/rbf $TYPE $SOURCE \
         --config "$CONFIGDIR/common.json" "$CONFIGDIR/rbf.json" \
         --in "$INDIR" --out "$OUTDIR/fit-rbf" \
         --params "$OUTDIR/fit" \
-        --step fit $PARAMS
+        --step fit $PARAMS"
+    run_cmd "$cmd"
 fi
 
 if [[ -d "$OUTDIR/norm" ]]; then
     echo "Skipping normalizing spectra."
 else
     echo "Normalizing spectra..."
-    $BINDIR/fit $TYPE $SOURCE \
+    cmd="$BINDIR/fit $TYPE $SOURCE \
         --config "$CONFIGDIR/common.json" \
         --in "$INDIR" --out "$OUTDIR/norm" \
         --params "$OUTDIR/fit-rbf" --rbf \
-        --step norm $PARAMS
+        --step norm $PARAMS"
+    run_cmd "$cmd"
 fi
 
 if [[ -d "$OUTDIR/pca" ]]; then
     echo "Skipping PCA."
 else
     echo "Running PCA..."
-    $BINDIR/pca $TYPE $SOURCE \
+    cmd="$BINDIR/pca $TYPE $SOURCE \
         --config "$CONFIGDIR/common.json" "$CONFIGDIR/pca.json" \
         --in "$OUTDIR/norm" --out "$OUTDIR/pca" \
-        --params "$OUTDIR/fit-rbf" --rbf $PARAMS
+        --params "$OUTDIR/fit-rbf" --rbf $PARAMS"
+    run_cmd "$cmd"
 fi
 
 if [[ -d "$OUTDIR/pca-rbf" ]]; then
     echo "Skipping RBF on principal components."
 else
     echo "Running RBF on principal components..."
-    $BINDIR/rbf $TYPE $SOURCE \
+    cmd="$BINDIR/rbf $TYPE $SOURCE \
         --config "$CONFIGDIR/common.json" "$CONFIGDIR/rbf.json" \
         --in "$OUTDIR/pca" --out "$OUTDIR/pca-rbf" \
         --params "$OUTDIR/fit-rbf" --rbf --pca \
-        --step pca $PARAMS
+        --step pca $PARAMS"
+    run_cmd "$cmd"
 fi
