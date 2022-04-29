@@ -1,5 +1,6 @@
 import logging
 import os
+import gc
 import numpy as np
 import time
 from tqdm import tqdm
@@ -103,10 +104,16 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
                 value, axes, mask = pad_array(axes, value, mask=mask)
                 self.logger.info('Array `{}` padded to shape {}'.format(name, value.shape))
 
-            self.logger.info('Fitting RBF to array `{}` using {} with {} and eps={}'.format(name, method, function, epsilon))
+            self.logger.info('Fitting RBF to array `{}` of size {} using {} with {} and eps={}'.format(name, value.shape, method, function, epsilon))
             rbf = self.fit_rbf(value, axes, mask=mask, 
                 method=method, function=function, epsilon=epsilon)
             output_grid.set_value(name, rbf)
+
+            # Do explicit garbage collection
+            del value
+            del mask
+            gc.collect()
+
 
     def fit_params(self, params_grid, output_grid):
         # Calculate RBF interpolation of continuum fit parameters
@@ -186,7 +193,8 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         for name in ['flux', 'cont']:
             if self.input_grid.grid.has_value(name):
                 # Dig down to the innermost grid (Array/RBF within PcaGrid within ModelGrid)
-                self.build_rbf(self.input_grid.grid.grid, self.output_grid.grid.grid, name)
+                self.build_rbf(self.input_grid.grid.grid, self.output_grid.grid.grid, name,
+                    method='sparse', function='gaussian', epsilon=1.0)
 
         # Copy wave vector, eigenvalues and eigenvectors
         self.copy_wave(self.input_grid, self.output_grid)
