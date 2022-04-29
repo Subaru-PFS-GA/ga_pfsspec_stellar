@@ -14,19 +14,19 @@ class BoszSpectrum(KuruczSpectrum):
         if not isinstance(orig, BoszSpectrum):
             self.M_H = np.nan
             self.M_H_err = np.nan
-            self.a_Fe = np.nan
-            self.a_Fe_err = np.nan
+            self.a_M = np.nan
+            self.a_M_err = np.nan
         else:
             self.M_H = orig.M_H
             self.M_H_err = orig.M_H_err
-            self.a_Fe = orig.a_Fe
-            self.a_Fe_err = orig.a_Fe_err
+            self.a_M = orig.a_M
+            self.a_M_err = orig.a_M_err
 
     def get_param_names(self):
         params = super(BoszSpectrum, self).get_param_names()
         params = params + [
             'M_H', 'M_H_err',
-            'a_Fe', 'a_Fe_err'
+            'a_M', 'a_M_err'
         ]
         return params
 
@@ -66,4 +66,4 @@ class BoszSpectrum(KuruczSpectrum):
         super(BoszSpectrum, self).print_info()
 
         print('[M/H]=', self.M_H)
-        print('[a/Fe]=', self.a_Fe)
+        print('[a/M]=', self.a_M)
