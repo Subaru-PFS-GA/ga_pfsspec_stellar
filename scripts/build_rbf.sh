@@ -115,7 +115,7 @@ if [[ -d "$OUTDIR/fit-rbf" ]]; then
     echo "Skipping RBF on continuum parameters."
 else
     echo "Running RBF on continuum parameters..."
-    $cmd="$BINDIR/rbf $TYPE $SOURCE \
+    cmd="$BINDIR/rbf $TYPE $SOURCE \
         --config "$CONFIGDIR/common.json" "$CONFIGDIR/rbf.json" \
         --in "$INDIR" --out "$OUTDIR/fit-rbf" \
         --params "$OUTDIR/fit" \
