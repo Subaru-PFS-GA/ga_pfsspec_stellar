@@ -3,6 +3,7 @@ import os
 import gc
 import numpy as np
 import time
+import h5py
 from tqdm import tqdm
 
 from pfsspec.core.util.array_filters import *
@@ -92,8 +93,10 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
     def build_rbf(self, input_grid, output_grid, name,
         method=None, function=None, epsilon=None, s=None):
 
-        value = input_grid.get_value(name, s=s)
+        # Override solver algorithm if specified so on the command-line
+        method = self.method or method
 
+        value = input_grid.get_value(name, s=s)
         if value is None:
             self.logger.warning('Skipping RBF fit to array `{}` since it is empty.'.format(name))
         else:
@@ -106,7 +109,8 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
 
             self.logger.info('Fitting RBF to array `{}` of size {} using {} with {} and eps={}'.format(name, value.shape, method, function, epsilon))
             rbf = self.fit_rbf(value, axes, mask=mask, 
-                method=method, function=function, epsilon=epsilon)
+                method=method, function=function, epsilon=epsilon,
+                callback=lambda A, di: self.weight_matrix_callback(name, A, di))
             output_grid.set_value(name, rbf)
 
             # Do explicit garbage collection
@@ -114,6 +118,14 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
             del mask
             gc.collect()
 
+    def weight_matrix_callback(self, name, A, di):
+        fn = os.path.join(os.path.dirname(self.output_grid.filename), 'rbf_debug.h5')
+        with h5py.File(fn, 'a') as f:
+            if name in f:
+                del f[name]
+            g = f.create_group(name)
+            g.create_dataset('A', data=A)
+            g.create_dataset('di', data=di)
 
     def fit_params(self, params_grid, output_grid):
         # Calculate RBF interpolation of continuum fit parameters
