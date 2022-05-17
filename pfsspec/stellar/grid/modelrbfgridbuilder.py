@@ -95,6 +95,8 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
 
         # Override solver algorithm if specified so on the command-line
         method = self.method or method
+        function = self.function or function
+        epsilon = self.epsilon or epsilon
 
         value = input_grid.get_value(name, s=s)
         if value is None:
@@ -206,7 +208,7 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
             if self.input_grid.grid.has_value(name):
                 # Dig down to the innermost grid (Array/RBF within PcaGrid within ModelGrid)
                 self.build_rbf(self.input_grid.grid.grid, self.output_grid.grid.grid, name,
-                    method='sparse', function='gaussian', epsilon=1.0)
+                    method='solve', function='gaussian', epsilon=1.0)
 
         # Copy wave vector, eigenvalues and eigenvectors
         self.copy_wave(self.input_grid, self.output_grid)
