@@ -39,8 +39,8 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         parser.add_argument('--step', type=str, choices=ModelRbfGridBuilder.STEPS, help='RBF step to perform.\n')
 
     def init_from_args(self, config, args):
+        self.debug = self.get_arg('debug', False, args)
         self.step = self.get_arg('step', self.step, args)
-
         self.pca = (self.step == 'pca')
 
         RbfGridBuilder.init_from_args(self, config, args)
@@ -64,8 +64,8 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         grid = ModelGrid(config, RbfGrid)
         return grid
 
-    def open_data(self, input_path, output_path, params_path=None):
-        return ModelGridBuilder.open_data(self, input_path, output_path, params_path=params_path)
+    def open_data(self, args, input_path, output_path, params_path=None):
+        return ModelGridBuilder.open_data(self, args, input_path, output_path, params_path=params_path)
 
     def build_data_index(self):
         return ModelGridBuilder.build_data_index(self)
@@ -121,13 +121,14 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
             gc.collect()
 
     def weight_matrix_callback(self, name, A, di):
-        fn = os.path.join(os.path.dirname(self.output_grid.filename), 'rbf_debug.h5')
-        with h5py.File(fn, 'a') as f:
-            if name in f:
-                del f[name]
-            g = f.create_group(name)
-            g.create_dataset('A', data=A)
-            g.create_dataset('di', data=di)
+        if self.debug:
+            fn = os.path.join(os.path.dirname(self.output_grid.filename), 'rbf_debug.h5')
+            with h5py.File(fn, 'a') as f:
+                if name in f:
+                    del f[name]
+                g = f.create_group(name)
+                g.create_dataset('A', data=A)
+                g.create_dataset('di', data=di)
 
     def fit_params(self, params_grid, output_grid):
         # Calculate RBF interpolation of continuum fit parameters

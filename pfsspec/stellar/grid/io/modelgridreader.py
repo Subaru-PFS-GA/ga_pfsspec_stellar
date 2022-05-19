@@ -125,7 +125,7 @@ class ModelGridReader(GridReader):
     def create_reader(self, input_path, output_path):
         raise NotImplementedError()
 
-    def open_data(self, input_path, output_path):
+    def open_data(self, args, input_path, output_path):
         # Initialize input
 
         self.reader.path = input_path
@@ -177,7 +177,7 @@ class ModelGridReader(GridReader):
             # Force creating output file for direct hdf5 writing
             self.grid.save(fn, format='h5')
 
-    def save_data(self, output_path):
+    def save_data(self, args, output_path):
         self.grid.save(self.grid.filename, self.grid.fileformat)
 
     def run(self):

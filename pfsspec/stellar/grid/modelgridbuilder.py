@@ -47,9 +47,6 @@ class ModelGridBuilder():
         if self.continuum_model is not None:
             self.continuum_model.init_from_args(args)
 
-        self.params_grid = self.create_params_grid()
-        self.params_grid.init_from_args(args)
-
     def create_params_grid(self):
         if self.rbf is not None and self.rbf:
             t = RbfGrid
@@ -90,9 +87,11 @@ class ModelGridBuilder():
         # self.output_grid.preload_arrays = True
         # END DEGUB
 
-    def open_data(self, input_path, output_path, params_path=None):
+    def open_data(self, args, input_path, output_path, params_path):
         if params_path is not None:
+            self.params_grid = self.create_params_grid()
             self.open_params_grid(params_path)
+            self.params_grid.init_from_args(args)
             self.params_grid.build_axis_indexes()
             self.grid_shape = self.params_grid.get_shape()
 
@@ -105,7 +104,7 @@ class ModelGridBuilder():
         else:
             self.params_grid = None
             
-        GridBuilder.open_data(self, input_path, output_path)
+        GridBuilder.open_data(self, args, input_path, output_path)
 
         if self.continuum_model is None:
             self.continuum_model = self.input_grid.continuum_model
@@ -127,11 +126,15 @@ class ModelGridBuilder():
         self.output_grid.save(fn, format='h5')
 
     def build_data_index(self):
-        # Source indexes
+        # Source indexes that are used to get the input values
+        # The shape matches the shape of the input array before slicing with
+        # axis bounds.
         index = self.input_grid.array_grid.get_value_index_unsliced('flux')
         self.input_grid_index = np.array(np.where(index))
 
-        # Target indexes
+        # Target indexes that are used to set the output values
+        # The shape matches the shape out the output array which is the same
+        # as the shape of the input array after slicing with axis bounds.
         index = self.input_grid.array_grid.get_value_index('flux')
         self.output_grid_index = np.array(np.where(index))
 
@@ -152,8 +155,12 @@ class ModelGridBuilder():
             self.params_grid_index = None
 
     def get_params_index(self, params_name):
-        # Source indexes, make sure that the params grid index and the input grid
+        # Whan we have to combine data from an input grid and a params grid it might
+        # happen that the param grid is sliced down to a smaller shape than the input grid.
+        
+        # Make sure that the params grid index and the input grid
         # index are combined to avoid all holes in the grid.
+        
         # We have to do a bit of trickery here since params index and input index 
         # can have different shapes, although they must slice down to the same
         # shape.

@@ -52,8 +52,8 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
     def open_output_grid(self, output_path):
         return ModelGridBuilder.open_output_grid(self, output_path)
 
-    def open_data(self, input_path, output_path, params_path=None):
-        return ModelGridBuilder.open_data(self, input_path, output_path, params_path=params_path)
+    def open_data(self, args, input_path, output_path, params_path=None):
+        return ModelGridBuilder.open_data(self, args, input_path, output_path, params_path=params_path)
 
     def build_data_index(self):
         return ModelGridBuilder.build_data_index(self)
