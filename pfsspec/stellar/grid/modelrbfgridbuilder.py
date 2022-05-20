@@ -160,6 +160,7 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         for name in ['flux', 'cont']:
             if input_grid.grid.has_value(name):
                 self.build_rbf(input_grid.array_grid, output_grid.rbf_grid, name,
+                    method='solve', function='multiquadric',
                     s=input_grid.get_wave_slice())
 
     def run_step_fit(self):
