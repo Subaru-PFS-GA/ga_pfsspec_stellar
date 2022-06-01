@@ -161,6 +161,9 @@ class PhoenixSpectrumReader(SpectrumReader):
         fn += '-' if Fe_H <= 0.0 else '+'
         fn += '{:.01f}'.format(np.abs(float(Fe_H)))
 
+        if a_M is not None and a_M != 0:
+            fn += '.Alpha={:+0.2f}'.format(a_M)
+
         fn += '.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits'
 
         return fn
