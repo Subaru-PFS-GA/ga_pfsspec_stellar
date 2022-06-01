@@ -88,6 +88,11 @@ function run_cmd() {
 echo "Using configuration directory $CONFIGDIR"
 echo "Using output directory $OUTDIR"
 
+# Save command line to output directory
+mkdir -p "$OUTDIR"
+echo "\n" >> "$OUTDIR/command.sh"
+echo "$@" >> "$OUTDIR/command.sh"
+
 if [[ -d "$OUTDIR/fit" ]]; then
     echo "Skipping fitting upper envelope."
 else
