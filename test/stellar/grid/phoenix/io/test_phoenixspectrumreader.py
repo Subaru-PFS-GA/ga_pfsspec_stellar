@@ -18,12 +18,12 @@ class TestPhoenixSpectrumReader(TestBase):
         self.assertEqual(spec.wave.shape, spec.flux.shape)
 
     def test_get_filename(self):
-        fn = PhoenixSpectrumReader.get_filename(Fe_H=-2, T_eff=9600, log_g=4)
+        fn = PhoenixSpectrumReader.get_filename(M_H=-2, T_eff=9600, log_g=4)
         self.assertEqual('lte09600-4.00-2.0.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits', fn)
 
     def test_parse_filename(self):
         fn = 'lte09600-4.00-2.0.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits'
         p = PhoenixSpectrumReader.parse_filename(fn)
-        self.assertEqual(-2.0, p['Fe_H'])
+        self.assertEqual(-2.0, p['M_H'])
         self.assertEqual(9600, p['T_eff'])
         self.assertEqual(4.0, p['log_g'])

@@ -19,8 +19,8 @@ class TestPhoenixSpectrum(TestBase):
         phoenix.preload_arrays = False
         phoenix.load(fn, format='h5')
 
-        #spec = phoenix.get_model(Fe_H=-0.5, T_eff=3289.274329992684, log_g=5.307799816131592)
-        spec = phoenix.get_model(Fe_H=-0.5, T_eff=4870.274329992684, log_g=5.307799816131592)
+        #spec = phoenix.get_model(M_H=-0.5, T_eff=3289.274329992684, log_g=5.307799816131592)
+        spec = phoenix.get_model(M_H=-0.5, T_eff=4870.274329992684, log_g=5.307799816131592)
         mag_hsc_i_pho = spec.synthmag_carrie(filter_hsc_i, -2.808000087738037)
 
         self.assertNotEqual(0, mag_hsc_i_pho)
@@ -31,6 +31,6 @@ class TestPhoenixSpectrum(TestBase):
         phoenix.preload_arrays = False
         phoenix.load(fn, format='h5')
 
-        spec = phoenix.interpolate_model_linear(Fe_H=-0.5, T_eff=3289.274329992684, log_g=5.307799816131592, a_M=0)
+        spec = phoenix.interpolate_model_linear(M_H=-0.5, T_eff=3289.274329992684, log_g=5.307799816131592, a_M=0)
 
         pass
