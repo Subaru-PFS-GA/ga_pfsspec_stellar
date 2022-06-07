@@ -30,7 +30,7 @@ class BoszSpectrum(KuruczSpectrum):
         params = super().get_param_names()
         params = params + [
             'M_H', 'M_H_err',
-            'a_M', 'a_M_err'
+            'a_M', 'a_M_err',
             'C_M', 'C_M_err'
         ]
         return params
