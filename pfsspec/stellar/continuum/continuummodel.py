@@ -3,8 +3,11 @@ import numpy as np
 from pfsspec.core import PfsObject
 
 class ContinuumModel(PfsObject):
+
+    PREFIX_CONTINUUM_MODEL = 'continumm_model'
+
     def __init__(self, orig=None):
-        super(ContinuumModel, self).__init__()
+        super().__init__()
 
         if isinstance(orig, ContinuumModel):
             self.wave = orig.wave
@@ -23,14 +26,26 @@ class ContinuumModel(PfsObject):
     def init_from_args(self, parser):
         pass
 
+    def save_items(self):
+        pass
+
+    def load_items(self):
+        pass
+
     def get_model_parameters(self):
         return []
 
-    def get_constants(self):
+    def get_constants(self, wave):
         return {}
 
-    def set_constants(self, constants):
+    def set_constants(self, wave, constants):
         pass
+
+    def set_constant(self, name, constants, default):
+        if name in constants and constants[name] is not None:
+            return constants[name]
+        else:
+            return default
 
     def init_wave(self, wave):
         # Initialize the wave vector cache and masks, if necessary
@@ -42,6 +57,8 @@ class ContinuumModel(PfsObject):
 
     def init_values(self, grid):
         # Initialize the values in a grid necessary to store the fitted parameters
+        # These are the parameters that we store for each spectrum and not the grid-wide
+        # constants that are the same for each spectrum.
         for p in self.get_model_parameters():
             grid.init_value(p.name)
 
@@ -67,9 +84,9 @@ class ContinuumModel(PfsObject):
     def smooth_params(self, name, params):
         raise NotImplementedError()
 
-    def fit_model_simple(self, model, x, y, w=None, p0=None):
+    def fit_model_simple(self, model, x, y, w=None, p0=None, max_deg=None):
         # Simple chi2 fit to x and y with optional weights
-        params = model.fit(x, y, w=w, p0=p0)
+        params = model.fit(x, y, w=w, p0=p0, max_deg=max_deg)
         return params
 
     def fit_model_sigmaclip(self, model, x, y, w=None, p0=None, sigma_low=1, sigma_high=1):

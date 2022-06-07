@@ -1,6 +1,9 @@
 import copy
 import numpy as np
-import scipy as sp
+from scipy.signal import find_peaks
+from scipy.spatial import ConvexHull
+from scipy.interpolate import interp1d
+import alphashape
 import logging
 
 from pfsspec.core import Physics
@@ -17,6 +20,7 @@ class AlexContinuumModelTrace():
         self.norm_flux = None
         self.norm_cont = None
 
+        self.legendre_control_points = {}
         self.blended_control_points = {}
         self.blended_p0 = {}
         self.blended_params = {}
@@ -32,7 +36,7 @@ class Alex(ContinuumModel):
     # from the continuum.
 
     def __init__(self, orig=None, trace=None):
-        super(Alex, self).__init__(orig=orig)
+        super().__init__(orig=orig)
 
         # Trace certain variables for debugging purposes
         self.trace = trace
@@ -56,6 +60,9 @@ class Alex(ContinuumModel):
 
             # Parameters of continuum Legendre fits
             self.legendre_deg = 6
+            self.legendre_slope_cutoff = 25  # Cutoff to filter out very steep intial part of continuum regions
+            self.legendre_dx_multiplier = np.array([1, 1, 1])
+            self.legendre_dx = None
 
             # Bounds and masks of blended regions near photoionization limits
 
@@ -64,7 +71,8 @@ class Alex(ContinuumModel):
             
             # Blended region upper limits
             # self.blended_bounds = np.array([3200.0, 5000, 12000])
-            self.blended_bounds = np.array([3400.0, 8000, 13000])
+            # self.blended_bounds = np.array([3400.0, 8000, 13000])
+            self.blended_bounds = np.array([3200.0, 4500, 9200])
             self.blended_count = self.blended_bounds.size
             
             self.blended_fit_masks = None                 # Masks where limits are fitted
@@ -76,7 +84,8 @@ class Alex(ContinuumModel):
 
             self.blended_slope_cutoff = 25  # Cutoff to filter out very steep intial part of blended regions
 
-            # Parameters of blended region upper envelope fits
+            # Smoothing parameters of blended region upper envelope fits
+            # TODO: these should go to a superclass
             self.smoothing_iter = 5
             self.smoothing_option = 1
             self.smoothing_kappa = 50
@@ -89,6 +98,7 @@ class Alex(ContinuumModel):
     def add_args(self, parser):
         super(Alex, self).add_args(parser)
 
+        # TODO: these should go to a superclass
         parser.add_argument('--smoothing-iter', type=int, help='Smoothing iterations.\n')
         parser.add_argument('--smoothing-option', type=int, help='Smoothing kernel function.\n')
         parser.add_argument('--smoothing-kappa', type=float, help='Smoothing kappa.\n')
@@ -97,6 +107,7 @@ class Alex(ContinuumModel):
     def init_from_args(self, args):
         super(Alex, self).init_from_args(args)
 
+        # TODO: these should go to a superclass
         if 'smoothing_iter' in args and args['smoothing_iter'] is not None:
             self.smoothing_iter = args['smoothing_iter']
         if 'smoothing_option' in args and args['smoothing_option'] is not None:
@@ -105,6 +116,34 @@ class Alex(ContinuumModel):
             self.smoothing_kappa = args['smoothing_kappa']
         if 'smoothing_gamma' in args and args['smoothing_gamma'] is not None:
             self.smoothing_gamma = args['smoothing_gamma']
+
+    def get_constants(self, wave):
+        self.find_limits(wave)
+
+        constants = {}
+
+        constants['legendre_deg'] = self.legendre_deg
+        constants['blended_bounds'] = self.blended_bounds
+        constants['limit_wave'] = self.limit_wave
+
+        return constants
+
+    def set_constants(self, wave, constants):
+        self.find_limits(wave)
+
+        self.legendre_deg = self.set_constant('legendre_deg', constants, self.legendre_deg)
+        self.blended_bounds = self.set_constant('blended_bounds', constants, self.blended_bounds)
+        self.limit_wave = self.set_constant('limit_wave', constants, self.limit_wave)
+
+    def save_items(self):
+        self.save_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'legendre_deg')), self.legendre_deg)
+        self.save_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'blended_bounds')), self.blended_bounds)
+        self.save_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'limit_wave')), self.limit_wave)
+
+    def load_items(self):
+        self.legendre_deg = self.load_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'legendre_deg')), int, default=self.legendre_deg)
+        self.blended_bounds = self.load_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'blended_bounds')), np.ndarray, default=self.blended_bounds)
+        self.limit_wave = self.load_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'limit_wave')), np.ndarray, default=self.limit_wave)
 
     def get_model_parameters(self):
         params = super(Alex, self).get_model_parameters()
@@ -307,13 +346,13 @@ class Alex(ContinuumModel):
             self.blended_models.append(m)
 
         # Determine the step size quantum for certain operations
+        # TODO: what is this exactly?
         wl = max(3000.0, self.wave.min())
         dwl = 6.0
         mask = (self.wave > wl) & (self.wave < wl + dwl) 
-        dx = int(len(self.wave[mask]))
-
-        # TODO: what is this exactly?
+        dx = int(mask.sum())
         self.blended_dx = self.blended_dx_multiplier * dx
+        self.legendre_dx = self.legendre_dx_multiplier * dx
         
         # Downsampling of the wavelength grid for fitting the continuum
         self.cont_fit_rate = self.cont_fit_rate_multiplier * dx
@@ -435,7 +474,7 @@ class Alex(ContinuumModel):
         x, y = self.log_wave[mask], norm_flux[mask]
 
         # Find the maximum in intervals of dx and determine the maximum hull
-        x, y = self.get_max_interval(x, y, dx=dx)
+        #x, y = self.get_max_interval(x, y, dx=dx)
         x, y = self.get_max_hull(x, y)
           
         # Calculate the differential and drop the very steep part at the
@@ -446,10 +485,16 @@ class Alex(ContinuumModel):
         return x, y
 
     def get_slope_filtered(self, x, y, cutoff=0):
-        def get_min_max_norm(x):
-            xmin, xmax = np.min(x), np.max(x)
-            return (x - xmin) / (xmax - xmin)
+        """
+        Filter the points of the (x, y) curve so that the numerical differential
+        is never larger than cutoff.
+        """
 
+        def get_min_max_norm(v):
+            vmin, vmax = np.min(v), np.max(v)
+            return (v - vmin) / (vmax - vmin)
+
+        # Normalize both vectors to be between 0 and 1
         xx = get_min_max_norm(x)
         yy = get_min_max_norm(y)
 
@@ -465,6 +510,52 @@ class Alex(ContinuumModel):
         # Get the maximum hull
         y_accumulated = np.maximum.accumulate(y)
         mask = (y >= y_accumulated)
+        return x[mask], y[mask]
+
+    def get_convex_hull(self, x, y):
+        # Determine the upper envelope from the convex hull of points
+
+        # Normalize data and make sure there's enough curvature so that
+        # the uppen envelope of the spectrum is convex
+        x_min, x_max = x.min(), x.max()
+        cx = (x - x_min) / (x_max - x_min)
+        
+        cy = y * np.sqrt(1 - (0.75 * cx)**2)      # make convex
+        y_min, y_max = cy.min(), cy.max()
+        cy = (cy - y_min) / (y_max - y_min)
+
+        # Append two extreme low points at the beginning and the end
+        # to be able to determine the points of the upper envelope
+        points = np.stack([cx, cy], axis=-1)
+        points = np.concatenate([np.array([[cx[0], -0.1]]), points, np.array([[cx[-1], -0.1]])])
+        
+        h = ConvexHull(points)
+
+        # Filter out extra points        
+        mask = (h.vertices > 0) & (h.vertices < points.shape[0] - 1)
+        ix = h.vertices[mask] - 1
+
+        # Sort by wavelength
+        sorting = np.argsort(x[ix])
+        ix = ix[sorting]
+
+        return x[ix], y[ix]
+
+    def get_alpha_shape(self, x, y):
+        # Determine the upper envelope from the alpha shape of points
+        
+        # Append two extreme low points at the beginning and the end
+        # to be able to determine the points of the upper envelope
+        y_min = np.floor(y.min() - 1)
+        points = np.stack([x, y], axis=-1)
+        points = np.concatenate([np.array([[x[0], y_min]]), points, np.array([[x[-1], y_min]])])
+
+        a = alphashape.alphashape(points, 0.2)
+
+        x = np.array(a.boundary.coords.xy[0])
+        y = np.array(a.boundary.coords.xy[1])
+        mask = y > y_min
+
         return x[mask], y[mask]
 
     def get_max_interval(self, x, y, dx=500):
@@ -509,18 +600,92 @@ class Alex(ContinuumModel):
             params.append(p)
         return { 'legendre': np.concatenate(params)}
 
+    def get_continuum_contol_points(self):
+        pass
+
     def fit_continuum(self, log_flux, log_cont, i):
+        # Fit the smooth part (continuum) of the upper envelope. Use the
+        # theoretical model, if available, or fit Legendre polynomials to
+        # the uppen part of the convex hull of the log-flux.
+
         mask = self.cont_fit_masks[i]
-        x = self.log_wave[mask]
-        y = log_cont[mask]
         model = self.cont_models[i]
-        params = self.fit_model_simple(model, x, y)
+
+        # TODO: use get_continuum_contol_points
+
+        if log_cont is not None:
+            x = self.log_wave[mask]
+            y = log_cont[mask]
+            w = None
+            max_deg = None
+        else:
+            x = self.log_wave[mask]
+            y = log_flux[mask]
+
+            # Find peaks
+            ix, _ = find_peaks(y, distance=100)
+            x, y = x[ix], y[ix]
+
+            # Find convex hull of peaks
+            x, y = self.get_convex_hull(x, y)
+
+            # - find maximum in intervals,
+            # - filter for extreme values of the slope to avoid steep edges
+            # - determine convex hull of upper envelope
+
+            #x, y = self.get_max_interval(x, y, dx=self.legendre_dx[i])
+            
+            x, y = self.get_slope_filtered(x, y, cutoff=self.legendre_slope_cutoff)
+            
+            # x, y = self.get_alpha_shape(x, y)
+            # x, y = self.get_slope_filtered(x, y, cutoff=self.legendre_slope_cutoff)
+
+            # Continuum control points must be within the interval of the Hydrogen ionization limits
+            x_min = np.log(self.blended_bounds[i])
+            # x_min = np.log(self.limit_wave[i])
+            x_max = np.log(self.limit_wave[i + 1])
+
+            cpmask = (x >= x_min) & (x <= x_max)
+            cpx = x[cpmask]
+            cpy = y[cpmask]
+
+            ip = interp1d(cpx, cpy, fill_value='extrapolate')
+
+            max_deg = cpx.shape[0]
+            x, y, w = x, ip(x), None
+
+            if False:
+                # Add endpoints interpolated to the convex hull of the upper envelope
+                cpx = np.concatenate([[x_min], cpx, [x_max]])
+                cpy = np.concatenate([[ip(x_min)], cpy, [ip(x_max)]])
+                
+            if True:
+                # The convex hull has too few points so generate more by interpolating
+                # the straight lines between vertices
+                x_min = np.log(self.limit_wave[i])
+
+                mask &= (x_min <= self.log_wave) & (self.log_wave <= x_max)
+
+                cpx = self.log_wave[mask][::int(self.legendre_dx[i])]
+                cpy = ip(cpx)
+
+                # Assign lower weights to in-between points
+                w = np.full_like(cpy, 0.1)
+                w[np.digitize(x, cpx) - 1] = 1.0
+
+                x, y = cpx, cpy
+
+        if self.trace is not None:
+            self.trace.legendre_control_points[i] = (x, y, w)
+
+        # params = self.fit_model_simple(model, x, y, w=w, max_deg=max_deg)
+        params = self.fit_model_sigmaclip(model, x, y, sigma_low=2., sigma_high=2.)
         
         # Find the minimum difference between the model fitted to the continuum
         # and the actual flux and shift the model to avoid big jumps.
         v = model.eval(x, params)
-        if np.any(v > log_flux[mask]):
-            offset = np.min((v - log_flux[mask])[v > log_flux[mask]])
+        if np.any(v > y):
+            offset = np.min((v - y)[v > y])
             if offset > 1e-2:
                 model.shift(-offset, params)
 
