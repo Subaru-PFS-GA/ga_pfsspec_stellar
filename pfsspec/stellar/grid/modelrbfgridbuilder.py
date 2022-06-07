@@ -75,7 +75,9 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         
         # Pad the output axes. This automatically takes the parameter ranges into
         # account since the grid is sliced.
-        orig_axes = self.input_grid.get_axes()
+        
+        input_slice = self.input_grid.get_slice()
+        orig_axes = { p: a for i, p, a in self.input_grid.enumerate_axes(s=input_slice, squeeze=False) }
         if self.padding:
             padded_axes = ArrayGrid.pad_axes(orig_axes)
             self.output_grid.set_axes(padded_axes)
@@ -102,15 +104,18 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         if value is None:
             self.logger.warning('Skipping RBF fit to array `{}` since it is empty.'.format(name))
         else:
-            mask = input_grid.get_value_index(name)
-            axes = input_grid.get_axes()
+            slice = input_grid.get_slice()
+            mask = input_grid.get_value_index(name, s=slice)
+
+            input_slice = input_grid.get_slice()
+            input_axes = { k: a for _, k, a in input_grid.enumerate_axes(s=input_slice, squeeze=False) }
 
             if self.padding:
-                value, axes, mask = pad_array(axes, value, mask=mask)
+                value, input_axes, mask = pad_array(input_axes, value, mask=mask)
                 self.logger.info('Array `{}` padded to shape {}'.format(name, value.shape))
 
             self.logger.info('Fitting RBF to array `{}` of size {} using {} with {} and eps={}'.format(name, value.shape, method, function, epsilon))
-            rbf = self.fit_rbf(value, axes, mask=mask, 
+            rbf = self.fit_rbf(value, input_axes, mask=mask, 
                 method=method, function=function, epsilon=epsilon,
                 callback=lambda A, di: self.weight_matrix_callback(name, A, di))
             output_grid.set_value(name, rbf)

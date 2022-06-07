@@ -7,6 +7,7 @@ from scipy.interpolate import RegularGridInterpolator, CubicSpline
 from scipy.interpolate import interp1d, interpn
 
 from pfsspec.core import PfsObject
+from pfsspec.core.util.array import *
 from pfsspec.core.grid import ArrayGrid
 from pfsspec.core.grid import RbfGrid
 from pfsspec.core.grid import PcaGrid
@@ -100,22 +101,28 @@ class ModelGrid(PfsObject):
         return self.wave_slice
 
     def get_constants(self):
-        return self.grid.get_constants()
+        constants = self.grid.get_constants()
+        if self.continuum_model is not None:
+            constants.update(self.continuum_model.get_constants(self.get_wave()))
+        return constants
 
     def set_constants(self, constants):
         self.grid.set_constants(constants)
 
-    def get_axes(self, squeeze=False):
-        return self.grid.get_axes(squeeze=squeeze)
+    def get_slice(self):
+        return self.grid.get_slice()
 
     def set_axes(self, axes):
         self.grid.set_axes(axes)
 
+    def enumerate_axes(self, s=None, squeeze=False):
+        return self.grid.enumerate_axes(s=s, squeeze=squeeze)
+
     def build_axis_indexes(self):
         self.grid.build_axis_indexes()
 
-    def get_shape(self):
-        return self.grid.get_shape()
+    def get_shape(self, s=None, squeeze=False):
+        return self.grid.get_shape(s=s, squeeze=squeeze)
 
     def allocate_values(self):
         self.config.allocate_values(self.grid, self.wave)
@@ -128,16 +135,27 @@ class ModelGrid(PfsObject):
 
     def load(self, filename, s=None, format=None):
         super(ModelGrid, self).load(filename=filename, s=s, format=format)
+
+        # We need to initialize the continuum model here because calling
+        # `init_values` will configure the underlying grid to load the fitted
+        # parameter values. We use all defauls here because the actual continuum
+        # model will be loaded at a later step.
         if self.config.normalized:
             self.continuum_model = self.config.create_continuum_model()
             self.continuum_model.init_wave(self.get_wave())
             self.continuum_model.init_values(self.grid)
+
         self.grid.load(filename, s=s, format=format)
-        
+
     def save_items(self):
         self.grid.filename = self.filename
         self.grid.fileformat = self.fileformat
         self.grid.save_items()
+
+        if self.continuum_model is not None:
+            self.continuum_model.filename = self.filename
+            self.continuum_model.fileformat = self.fileformat
+            self.continuum_model.save_items()
 
         self.save_params()
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'wave')), self.wave)
@@ -145,22 +163,36 @@ class ModelGrid(PfsObject):
     def save_params(self):
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'type')), type(self).__name__)
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'config')), type(self.config).__name__)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'config_pca')), self.config.pca)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'config_rbf')), self.rbf_grid is not None)
+        
         if self.continuum_model is not None:
             self.save_item('/'.join((self.PREFIX_MODELGRID, 'continuum_model')), self.continuum_model.name)
+        
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_regular')), self.is_wave_regular)
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_lin')), self.is_wave_lin)
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_log')), self.is_wave_log)
 
     def load_items(self, s=None):
-        self.wave = self.load_item('/'.join((self.PREFIX_MODELGRID, 'wave')), np.ndarray)
+        # We need to load the underlying grid here because continuum_model.init_values will
+        # update the list of value arrays so we need the axis values
+        self.grid.filename = self.filename
+        self.grid.fileformat = self.fileformat
+        self.grid.load_items()
 
         self.load_params()
+        self.wave = self.load_item('/'.join((self.PREFIX_MODELGRID, 'wave')), np.ndarray)
 
         name = self.load_item('/'.join((self.PREFIX_MODELGRID, 'continuum_model')), str)
         if name is not None:
             self.config.continuum_model_type = self.config.CONTINUUM_MODEL_TYPES[name]
             self.continuum_model = self.config.create_continuum_model()
-            self.continuum_model.init_wave(self.wave)
+            self.continuum_model.init_wave(self.get_wave())
+            
+            self.continuum_model.filename = self.filename
+            self.continuum_model.fileformat = self.fileformat
+            self.continuum_model.load_items()
+
             self.continuum_model.init_values(self.grid)
 
     def load_params(self):
@@ -212,11 +244,15 @@ class ModelGrid(PfsObject):
         else:
             raise NotImplementedError()
 
-    def get_model_count(self, use_limits=False):
-        return self.grid.get_valid_value_count('flux')
+    def get_model_count(self):
+        """
+        Returns the number of valid models, i.e. where the flux array
+        has a valid value bases on the value index.
+        """
+        return self.grid.get_valid_value_count('flux', s=self.grid.get_slice())
 
     def get_flux_shape(self):
-        return self.get_shape() + self.wave[self.get_wave_slice() or slice(None)].shape
+        return self.get_shape(s=self.get_slice(), squeeze=False) + self.wave[self.get_wave_slice() or slice(None)].shape
 
     def set_flux(self, flux, cont=None, **kwargs):
         """
@@ -255,11 +291,11 @@ class ModelGrid(PfsObject):
         # In case the interpolation didn't work
         if flux is None:
             return None
-        spec.flux = np.array(flux, copy=True)
+        spec.flux = copy_array(flux)
         
         if self.grid.has_value('cont'):
             cont = self.grid.get_value('cont', s=self.get_wave_slice(), **kwargs)
-            spec.cont = np.array(cont, copy=True)
+            spec.cont = copy_array(cont)
 
         if denormalize and self.continuum_model is not None:
             # Get the continuum parameters. This means interpolation,
@@ -274,9 +310,9 @@ class ModelGrid(PfsObject):
     def get_model_at(self, idx, denormalize=False):
         if self.grid.has_value_at('flux', idx):
             spec = self.get_parameterized_spectrum(idx, s=self.get_wave_slice())
-            spec.flux = np.array(self.grid.get_value_at('flux', idx, s=self.get_wave_slice()), copy=True)
+            spec.flux = copy_array(self.grid.get_value_at('flux', idx, s=self.get_wave_slice()))
             if self.grid.has_value('cont'):
-                spec.cont = np.array(self.grid.get_value_at('cont', idx, s=self.get_wave_slice()), copy=True)
+                spec.cont = copy_array(self.grid.get_value_at('cont', idx, s=self.get_wave_slice()))
 
             if denormalize and self.continuum_model is not None:
                 params = self.get_continuum_parameters_at(idx)

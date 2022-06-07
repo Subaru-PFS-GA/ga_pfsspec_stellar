@@ -64,7 +64,8 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
 
         if self.step in ['norm']:
             self.output_grid.grid.set_value_at('flux', idx, spec.flux)
-            self.output_grid.grid.set_value_at('cont', idx, spec.cont)
+            if spec.cont is not None:
+                self.output_grid.grid.set_value_at('cont', idx, spec.cont)
 
     def process_item_fit(self, i):
         input_idx, output_idx, spec = self.get_gridpoint_model(i)
@@ -102,8 +103,6 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
                 self.store_item(output_idx, spec, params)
                 t.update(1)
 
-        self.output_grid.grid.constants.update(self.continuum_model.get_constants())
-
     def run_step_fill_smooth(self, fill=True, smooth=False):
         # Initialize continuum model class and call smoothing. The class
         # can decide which parameters to smooth and which to keep intact.
@@ -128,7 +127,8 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
             params = self.params_grid.grid.get_value(p.name)
 
             if self.params_grid.grid.has_value_index(p.name):
-                mask = self.params_grid.grid.get_value_index(p.name)
+                slice = self.params_grid.get_slice()
+                mask = self.params_grid.grid.get_value_index(p.name, s=slice)
             else:
                 mask = None
 
@@ -186,8 +186,6 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
                     output_initialized = True
                 self.store_item(output_idx, spec, params)
                 t.update(1)
-
-        self.output_grid.grid.constants.update(self.continuum_model.get_constants())
 
     def run(self):
         if self.step == 'fit':

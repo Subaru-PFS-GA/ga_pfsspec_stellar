@@ -43,6 +43,7 @@ class ModelGridBuilder():
         
         self.grid_config.init_from_args(args)
         
+        # Create the default continuum model and initialize based on command-line arguments
         self.continuum_model = self.grid_config.create_continuum_model()
         if self.continuum_model is not None:
             self.continuum_model.init_from_args(args)
@@ -79,13 +80,15 @@ class ModelGridBuilder():
         # Copy data from the input grid
         g = self.input_grid or self.params_grid
 
-        self.output_grid.set_axes(g.grid.get_axes())
+        input_slice = g.get_slice()
+        output_axes = { p: axis for i, p, axis in g.enumerate_axes(s=input_slice, squeeze=False) }
+        self.output_grid.set_axes(output_axes)
         self.output_grid.set_wave(g.get_wave())
         self.output_grid.build_axis_indexes()
         
         # DEBUG
         # self.output_grid.preload_arrays = True
-        # END DEGUB
+        # END DEBUG
 
     def open_data(self, args, input_path, output_path, params_path):
         if params_path is not None:
@@ -93,7 +96,8 @@ class ModelGridBuilder():
             self.open_params_grid(params_path)
             self.params_grid.init_from_args(args)
             self.params_grid.build_axis_indexes()
-            self.grid_shape = self.params_grid.get_shape()
+
+            self.grid_shape = self.params_grid.get_shape(s=self.params_grid.get_slice(), squeeze=False)
 
             # Initialize continuum model
             if self.continuum_model is None:
@@ -119,7 +123,7 @@ class ModelGridBuilder():
 
         # Set continuum model of the output grid
         if self.continuum_model is not None:
-            self.output_grid.set_continuum_model(self.continuum_model)          
+            self.output_grid.set_continuum_model(self.continuum_model)
         
         # Force creating output file for direct hdf5 writing
         fn = os.path.join(output_path, 'spectra') + '.h5'
@@ -129,13 +133,14 @@ class ModelGridBuilder():
         # Source indexes that are used to get the input values
         # The shape matches the shape of the input array before slicing with
         # axis bounds.
-        index = self.input_grid.array_grid.get_value_index_unsliced('flux')
+        slice = self.input_grid.get_slice()
+        index = self.input_grid.array_grid.get_value_index_unsliced('flux', s=slice)
         self.input_grid_index = np.array(np.where(index))
 
         # Target indexes that are used to set the output values
         # The shape matches the shape out the output array which is the same
         # as the shape of the input array after slicing with axis bounds.
-        index = self.input_grid.array_grid.get_value_index('flux')
+        index = self.input_grid.array_grid.get_value_index('flux', s=slice)
         self.output_grid_index = np.array(np.where(index))
 
     def build_params_index(self):
@@ -165,13 +170,12 @@ class ModelGridBuilder():
         # can have different shapes, although they must slice down to the same
         # shape.
 
-        params_index = self.params_grid.array_grid.get_value_index_unsliced(params_name)
+        params_slice = self.params_grid.array_grid.slice
+        params_index = self.params_grid.array_grid.get_value_index_unsliced(params_name, s=params_slice)
 
         if self.input_grid is not None and self.input_grid.array_grid.slice is not None:
-            params_slice = self.params_grid.array_grid.slice
             input_slice = self.input_grid.array_grid.slice
-            
-            input_index = self.input_grid.array_grid.get_value_index_unsliced('flux')
+            input_index = self.input_grid.array_grid.get_value_index_unsliced('flux', s=input_slice)
             
             ii = input_index[input_slice or ()]
             pi = params_index[params_slice or ()]

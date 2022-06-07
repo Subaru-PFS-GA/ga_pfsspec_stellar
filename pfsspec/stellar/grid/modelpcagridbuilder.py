@@ -77,19 +77,21 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
             self.logger.info('Copying continuum parameters from input grid.')
             if isinstance(cmgrid.grid, ArrayGrid):
                 for p in cmgrid.continuum_model.get_model_parameters():
-                    index = cmgrid.grid.get_value_index(p.name)
-                    params = cmgrid.get_value_sliced(p.name)
+                    slice = cmgrid.get_slice()
+                    index = cmgrid.grid.get_value_index(p.name, s=slice)
+                    params = cmgrid.get_value_sliced(p.name, s=slice)
                     self.output_grid.grid.grid.allocate_value(p.name, shape=(params.shape[-1],))
                     self.output_grid.grid.grid.set_value(p.name, params)
                     self.output_grid.grid.grid.value_indexes[p.name] = index
             elif isinstance(cmgrid.grid, RbfGrid):
                 self.logger.info('Interpolating continuum parameters from input RBF grid.')
+
+                output_axes = { p: ax for _, p, ax in self.output_grid.enumerate_axes(squeeze=False) }
+                points = ArrayGrid.get_meshgrid_points(output_axes, interpolation='xyz', squeeze=False, indexing='ij')
+                
                 # Interpolate the values from the RBF grid and save them as an array grid
                 for p in cmgrid.continuum_model.get_model_parameters():
-                    points = self.output_grid.array_grid.get_grid_points(self.output_grid.get_axes(), interpolation='xyz')
-                    gridpoints = np.meshgrid(*[v for k, v in points.items()], indexing='ij')
-                    gridpoints = { k: v for k, v in zip(points.keys(), gridpoints) }
-                    params = cmgrid.rbf_grid.get_value(p.name, **gridpoints)
+                    params = cmgrid.rbf_grid.get_value(p.name, **points)
 
                     self.output_grid.grid.grid.allocate_value(p.name, shape=(params.shape[-1],))
                     self.output_grid.grid.grid.set_value(p.name, params)
@@ -102,7 +104,9 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
             self.output_grid.grid.set_constant('constants', self.input_grid.grid.get_constant('constants'))
 
         # Save principal components to a grid
-        coeffs = np.full(self.input_grid.get_shape() + (self.PC.shape[1],), np.nan)
+        input_slice = self.input_grid.get_slice()
+        input_shape = self.input_grid.get_shape(s=input_slice, squeeze=False)
+        coeffs = np.full(input_shape + (self.PC.shape[1],), np.nan)
         input_count = self.get_input_count()
         for i in range(input_count):
             idx = tuple(self.output_grid_index[:, i])
