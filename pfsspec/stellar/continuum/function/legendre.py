@@ -8,9 +8,15 @@ class Legendre():
     def get_param_count(self):
         return self.deg + 1
 
-    def fit(self, x, y, w=None, p0=None):
-        ll = np.polynomial.Legendre.fit(x, y, self.deg, w=w, domain=self.domain, full=False)
-        return ll.coef
+    def fit(self, x, y, w=None, p0=None, max_deg=None):
+        deg = min(self.deg, x.shape[0] - 2)
+        if max_deg is not None:
+            deg = min(deg, max_deg)
+
+        ll = np.polynomial.Legendre.fit(x, y, deg, w=w, domain=self.domain, full=False)
+        coef = np.zeros(self.deg + 1)
+        coef[:ll.coef.shape[0]] = ll.coef
+        return coef
 
     def shift(self, c, params):
         # Shift baseline
