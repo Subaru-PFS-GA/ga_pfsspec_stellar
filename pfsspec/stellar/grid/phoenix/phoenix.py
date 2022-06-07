@@ -4,7 +4,7 @@ from pfsspec.stellar.grid import ModelGridConfig
 from .phoenixspectrum import PhoenixSpectrum
     
 class Phoenix(ModelGridConfig):
-    def __init__(self, orig=None, normalized=False, pca=None):
+    def __init__(self, orig=None, normalized=False, pca=False):
         super(Phoenix, self).__init__(orig=orig, normalized=normalized, pca=pca)
 
         if isinstance(orig, Phoenix):
@@ -19,7 +19,7 @@ class Phoenix(ModelGridConfig):
         super(Phoenix, self).init_from_args(args)
         
     def init_axes(self, grid):
-        grid.init_axis('Fe_H', np.hstack((np.arange(-4.0, -2.0, 1),
+        grid.init_axis('M_H', np.hstack((np.arange(-4.0, -2.0, 1),
                                           np.arange(-2.0, 1.5, 0.50))))
         grid.init_axis('T_eff', np.hstack((np.arange(2300.0, 7000.0, 100.0),
                                            np.arange(7000.0, 12200.0, 200.0))))

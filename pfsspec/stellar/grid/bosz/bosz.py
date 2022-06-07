@@ -4,7 +4,7 @@ from pfsspec.stellar.grid import ModelGridConfig
 from .boszspectrum import BoszSpectrum
 
 class Bosz(ModelGridConfig):
-    def __init__(self, orig=None, normalized=False, pca=None):
+    def __init__(self, orig=None, normalized=False, pca=False):
         super(Bosz, self).__init__(orig=orig, normalized=normalized, pca=pca)
 
         if isinstance(orig, Bosz):

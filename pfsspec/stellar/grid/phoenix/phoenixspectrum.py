@@ -11,6 +11,24 @@ class PhoenixSpectrum(ModelSpectrum):
     def __init__(self, orig=None):
         super(PhoenixSpectrum, self).__init__(orig=orig)
 
+        if not isinstance(orig, PhoenixSpectrum):
+            self.M_H = np.nan
+            self.M_H_err = np.nan
+            self.a_M = np.nan
+            self.a_M_err = np.nan
+        else:
+            self.M_H = orig.M_H
+            self.M_H_err = orig.M_H_err
+            self.a_M = orig.a_M
+            self.a_M_err = orig.a_M_err
+
+    def get_param_names(self):
+        params = super().get_param_names()
+        params = params + [
+            'M_H', 'M_H_err',
+            'a_M', 'a_M_err'
+        ]
+        return params
    
     def synthmag_carrie(self, filter, log_L):
         #remember - phoenix flux needs to be multiplied by *1e-8

@@ -6,7 +6,7 @@ class PhoenixAtmGrid(KuruczAtmGrid):
 
     # TODO: merge this into bosz.py
     def init_axes(self):
-        self.init_axis('Fe_H', np.array([-4.0, -3.0, -2.,
+        self.init_axis('M_H', np.array([-4.0, -3.0, -2.,
                                           -1.5, -1.0 , -0.5, 0.0  , 0.5, 1.0]))
         self.init_axis('T_eff', np.hstack((np.arange(2300.0, 7000.0, 100.0),
                                              np.arange(7000.0, 12200.0, 200.0))))
