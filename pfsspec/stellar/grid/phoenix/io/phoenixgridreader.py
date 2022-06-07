@@ -27,4 +27,4 @@ class PhoenixGridReader(ModelGridReader):
 
     def get_example_filename(self):
         # Here we use constants because this particular model must exist in every grid.
-        return self.reader.get_filename(Fe_H=0.0, T_eff=5000.0, log_g=1.0, a_M=0.0)
+        return self.reader.get_filename(M_H=0.0, T_eff=5000.0, log_g=1.0, a_M=0.0)

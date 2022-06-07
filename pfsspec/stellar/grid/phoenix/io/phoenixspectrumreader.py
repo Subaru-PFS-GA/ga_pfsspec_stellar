@@ -138,14 +138,14 @@ class PhoenixSpectrumReader(SpectrumReader):
         # lte12000-6.00+1.0.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits
 
         a_M = kwargs.pop('a_M')
-        Fe_H = kwargs.pop('Fe_H')
+        M_H = kwargs.pop('M_H')
         T_eff = kwargs.pop('T_eff')
         log_g = kwargs.pop('log_g')
 
         fn = ''
 
-        if Fe_H != 0:
-            fn += 'Z{:+.1f}'.format(Fe_H)
+        if M_H != 0:
+            fn += 'Z{:+.1f}'.format(M_H)
         else:
             fn += 'Z-0.0'
             
@@ -158,8 +158,8 @@ class PhoenixSpectrumReader(SpectrumReader):
         fn += '-'
         fn += '{:.02f}'.format(float(log_g))
 
-        fn += '-' if Fe_H <= 0.0 else '+'
-        fn += '{:.01f}'.format(np.abs(float(Fe_H)))
+        fn += '-' if M_H <= 0.0 else '+'
+        fn += '{:.01f}'.format(np.abs(float(M_H)))
 
         if a_M is not None and a_M != 0:
             fn += '.Alpha={:+0.2f}'.format(a_M)
@@ -188,6 +188,6 @@ class PhoenixSpectrumReader(SpectrumReader):
         return{
             'T_eff': float(m.group(1)),
             'log_g': float(m.group(3) + m.group(4)) / 100,
-            'Fe_H': float(m.group(5) + m.group(6) + m.group(7)) / 10
+            'M_H': float(m.group(5) + m.group(6) + m.group(7)) / 10
         }
 

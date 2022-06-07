@@ -98,7 +98,7 @@ class ModelGridDownloader(Downloader):
         if self.top is not None:
             self.logger.info("Downloading grid will stop after {} items.".format(self.top))
 
-        g = GridEnumerator(self.grid, top=self.top)
+        g = GridEnumerator(self.grid, s=self.grid.get_slice(), top=self.top)
         t = tqdm(total=len(g))
         with SmartParallel(verbose=False, parallel=self.parallel, threads=self.threads) as p:
             for res in p.map(self.process_item, g):
