@@ -316,7 +316,7 @@ class ModelGrid(PfsObject):
 
             if denormalize and self.continuum_model is not None:
                 params = self.get_continuum_parameters_at(idx)
-                self.continuum_model.denormalize(spec, params)
+                self.continuum_model.denormalize(spec, params, s=self.get_wave_slice())
             
             return spec
         else:

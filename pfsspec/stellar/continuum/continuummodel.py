@@ -75,7 +75,7 @@ class ContinuumModel(PfsObject):
     def normalize(self, spec, params):
         raise NotImplementedError()
 
-    def denormalize(self, spec, params):
+    def denormalize(self, spec, params, s=None):
         raise NotImplementedError()
 
     def fill_params(self, name, params):

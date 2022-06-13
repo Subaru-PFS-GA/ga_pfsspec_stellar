@@ -60,7 +60,7 @@ class Planck(ContinuumModel):
         if spec.cont is not None:
             spec.cont = self.safe_log(spec.cont) - n
 
-    def denormalize(self, spec, params):
+    def denormalize(self, spec, params, s=None):
         params['planck'] = np.array([spec.T_eff])
         _, n = self.eval(params)
         spec.flux = np.exp(spec.flux + n)

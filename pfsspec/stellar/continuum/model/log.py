@@ -53,7 +53,7 @@ class Log(ContinuumModel):
         if spec.cont is not None:
             spec.cont = self.safe_log(spec.cont) - n
 
-    def denormalize(self, spec, params):
+    def denormalize(self, spec, params, s=None):
         _, n = self.eval(params)
         spec.flux = np.exp(spec.flux + n)
         if spec.cont is not None:

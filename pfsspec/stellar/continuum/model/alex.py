@@ -249,17 +249,21 @@ class Alex(ContinuumModel):
         spec.cont = norm_cont
         spec.flux = norm_flux
 
-    def denormalize(self, spec, params):
+    def denormalize(self, spec, params, s=None):
         # Denormalize the spectrum given the fit params
         # Expects normalized log flux
 
         model_cont = self.eval_continuum_all(params=params)
+        model_cont = model_cont[s or ()]
+        
         if spec.cont is not None:
             cont = self.safe_exp(spec.cont + model_cont)
         else:
             cont = self.safe_exp(model_cont)
 
         model_blended = self.eval_blended_all(params)
+        model_blended = model_blended[s or ()]
+
         flux = self.safe_exp(spec.flux + model_cont + model_blended)
 
         if self.trace is not None:

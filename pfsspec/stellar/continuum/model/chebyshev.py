@@ -141,7 +141,7 @@ class Chebyshev(ContinuumModel):
         
         return params
 
-    def denormalize(self, spec, params):
+    def denormalize(self, spec, params, s=None):
         wave = spec.wave
         norm = 4 * np.log10(spec.T_eff)
         model = self.eval(wave, params)
