@@ -235,10 +235,10 @@ class ModelGrid(PfsObject):
             if self.grid.slice is not None:
                 if name in ['flux', 'cont']:
                     # Slice in the wavelength direction as well
-                    return self.grid.get_value_at(name, idx=self.grid.slice, s=self.get_wave_slice())
+                    return self.grid.get_value_at(name, idx=self.grid.get_slice(), s=self.get_wave_slice())
                 else:
                     # Slice only in the stellar parameter directions
-                    return self.grid.get_value_at(name, idx=self.grid.slice)
+                    return self.grid.get_value_at(name, idx=self.grid.get_slice())
             else:
                 return self.get_value_at(name, idx=None)
         else:

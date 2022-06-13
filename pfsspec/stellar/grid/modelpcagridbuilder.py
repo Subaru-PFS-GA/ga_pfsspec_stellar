@@ -73,13 +73,13 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         # can be either in an ArrayGrid or an RbfGrid. Copying is only possible when the
         # input is an ArrayGrid since output is always an ArrayGrid.
         cmgrid = self.params_grid or self.input_grid
-        if cmgrid is not None:
+        if cmgrid is not None and cmgrid.continuum_model is not None:
             self.logger.info('Copying continuum parameters from input grid.')
             if isinstance(cmgrid.grid, ArrayGrid):
                 for p in cmgrid.continuum_model.get_model_parameters():
                     slice = cmgrid.get_slice()
                     index = cmgrid.grid.get_value_index(p.name, s=slice)
-                    params = cmgrid.get_value_sliced(p.name, s=slice)
+                    params = cmgrid.get_value_sliced(p.name)
                     self.output_grid.grid.grid.allocate_value(p.name, shape=(params.shape[-1],))
                     self.output_grid.grid.grid.set_value(p.name, params)
                     self.output_grid.grid.grid.value_indexes[p.name] = index
@@ -113,7 +113,7 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
             coeffs[idx] = self.PC[i, :]
 
         self.output_grid.grid.allocate_value('flux', shape=coeffs.shape, pca=True)
-        self.output_grid.grid.set_value('flux', (coeffs, self.S, self.V), pca=True)
+        self.output_grid.grid.set_value('flux', (coeffs, self.S, self.V, self.M), pca=True)
 
         
     
