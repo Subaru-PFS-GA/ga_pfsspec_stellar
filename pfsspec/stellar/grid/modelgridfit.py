@@ -8,6 +8,7 @@ from pfsspec.core.grid import GridBuilder
 from pfsspec.core.grid import ArrayGrid
 from pfsspec.stellar.grid import ModelGrid
 from pfsspec.stellar.grid import ModelGridBuilder
+from pfsspec.stellar.grid import ModelGridConfig
 
 class ModelGridFit(GridBuilder, ModelGridBuilder):
     # Fit continuum models to stellar model spectra
@@ -23,10 +24,17 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         else:
             self.step = None
 
-    def add_subparsers(self, configurations, parser):
-        return None
+    def add_subparsers(self, configuration, parser):
+        # Add continuum model parameters
+        pp = []
 
-        # TODO: add continuum model parameters
+        cps = parser.add_subparsers(dest='continuum_model')
+        for cm in ModelGridConfig.CONTINUUM_MODEL_TYPES:
+            cp = cps.add_parser(cm)
+            pp.append(cp)
+            ModelGridConfig.CONTINUUM_MODEL_TYPES[cm]().add_args(cp)
+        
+        return pp
 
     def add_args(self, parser):
         GridBuilder.add_args(self, parser)

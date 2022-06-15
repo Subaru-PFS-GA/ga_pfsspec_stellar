@@ -6,9 +6,10 @@ from pfsspec.stellar.grid import ModelGrid
 from pfsspec.stellar.grid.bosz import Bosz
 
 class TestModelGrid_Pca(TestBase):
-    def get_test_grid(self, args):
+    def get_test_grid(self, args, preload_arrays=False):
         file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/bosz/bosz_5000_GF/pca/spectra.h5')
         grid = ModelGrid(Bosz(pca=True), ArrayGrid)
+        grid.preload_arrays = preload_arrays
         grid.load(file, format='h5')
         grid.init_from_args(args)
 
@@ -18,6 +19,10 @@ class TestModelGrid_Pca(TestBase):
         args = {}
         grid = self.get_test_grid(args)
         self.assertEqual(slice(None), grid.get_wave_slice())
+
+    def test_preload_arrays(self):
+        args = {}
+        grid = self.get_test_grid(args, preload_arrays=True)
 
     def test_enumerate_axes(self):
         args = {}

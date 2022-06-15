@@ -42,13 +42,15 @@ class Alex(ContinuumModel):
         self.trace = trace
 
         if isinstance(orig, Alex):
-            pass
+            raise NotImplementedError()
         else:
             # Global wavelength limits that we can fit
             self.wave_min = 3000
             self.wave_max = 14000
 
             # The wave vector is assumed to be constant for all spectra and cached
+            # TODO: this is not always the case, sometimes the spectra that need to be
+            #       denormalized are sliced along the wavelength axis.
             self.log_wave = None
 
             # Masks of continuum intervals
@@ -104,6 +106,8 @@ class Alex(ContinuumModel):
         parser.add_argument('--smoothing-kappa', type=float, help='Smoothing kappa.\n')
         parser.add_argument('--smoothing-gamma', type=float, help='Smoothing gamma.\n')
 
+        parser.add_argument('--alex-legendre-deg', type=int, help='Max degree of Legendre polynomials.\n')
+
     def init_from_args(self, args):
         super(Alex, self).init_from_args(args)
 
@@ -116,6 +120,8 @@ class Alex(ContinuumModel):
             self.smoothing_kappa = args['smoothing_kappa']
         if 'smoothing_gamma' in args and args['smoothing_gamma'] is not None:
             self.smoothing_gamma = args['smoothing_gamma']
+
+        self.legendre_deg = self.get_arg('alex_legendre_deg', self.legendre_deg, args)
 
     def get_constants(self, wave):
         self.find_limits(wave)
@@ -146,6 +152,10 @@ class Alex(ContinuumModel):
         self.limit_wave = self.load_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'limit_wave')), np.ndarray, default=self.limit_wave)
 
     def get_model_parameters(self):
+        """
+        Return parameters that will be interpolated across gridpoints
+        """
+
         params = super(Alex, self).get_model_parameters()
         params.append(ModelParameter(name='legendre',
                 rbf_method='solve',
@@ -219,22 +229,27 @@ class Alex(ContinuumModel):
 
         model_cont = self.eval_continuum_all(params)
         model_cont += self.eval_blended_all(params)
+        model_cont = np.exp(model_cont)
 
         return self.wave, model_cont
-    
-    def normalize(self, spec, params):
-        # Normalize the spectrum given the fit params and constants
-        # Returns normalized log flux
 
-        # Continuum
+    def normalize(self, spec, params):
+        self.normalize_use_flux(spec, params)
+       
+    def normalize_use_log_flux(self, spec, params):
+        # Takes log of the flux at the end
+
+        # Evaluate the model
         model_cont = self.eval_continuum_all(params=params)
+        model_blended = self.eval_blended_all(params)
+        
+        # Theoretical continuum, if available
         if spec.cont is not None:
             norm_cont = self.safe_log(spec.cont[self.wave_mask]) - model_cont
         else:
             norm_cont = None
 
-        # Continuum and blended regions
-        model_blended = self.eval_blended_all(params)
+        # Flux normalized with continuum and blended regions
         cont_norm_flux = self.safe_log(spec.flux[self.wave_mask]) - model_cont
         norm_flux = cont_norm_flux - model_blended
 
@@ -249,7 +264,65 @@ class Alex(ContinuumModel):
         spec.cont = norm_cont
         spec.flux = norm_flux
 
+    def normalize_use_flux(self, spec, params):
+        # Do not take the log of flux at the end
+        # Models are always fitted to the log flux so take exp
+
+        # Evaluate the model
+        model_cont = self.safe_exp(self.eval_continuum_all(params=params))
+        model_blended = self.safe_exp(self.eval_blended_all(params))
+
+        # Theoretical continuum, if available
+        if spec.cont is not None:
+            norm_cont = spec.cont[self.wave_mask] / model_cont
+        else:
+            norm_cont = None
+
+        # Flux normalized with continuum and blended regions
+        cont_norm_flux = spec.flux[self.wave_mask] / model_cont
+        norm_flux = cont_norm_flux / model_blended
+
+        if self.trace is not None:
+            self.trace.cont_norm_flux = cont_norm_flux
+            self.trace.model_cont = model_cont
+            self.trace.model_blended = model_blended
+            self.trace.norm_flux = norm_flux
+            self.trace.norm_cont = norm_cont
+
+        spec.wave = self.wave
+        spec.cont = norm_cont
+        spec.flux = norm_flux
+
     def denormalize(self, spec, params, s=None):
+        self.denormalize_use_flux(spec, params, s=s)
+
+    def denormalize_use_flux(self, spec, params, s=None):
+        # Denormalize the spectrum given the fit params
+        # Expects normalized flux (no log)
+
+        model_cont = self.eval_continuum_all(params=params)
+        model_cont = model_cont[s or ()]
+        
+        if spec.cont is not None:
+            cont = spec.cont * self.safe_exp(model_cont)
+        else:
+            cont = self.safe_exp(model_cont)
+
+        model_blended = self.eval_blended_all(params)
+        model_blended = model_blended[s or ()]
+
+        flux = spec.flux * self.safe_exp(model_cont + model_blended)
+
+        if self.trace is not None:
+            self.trace.model_cont = model_cont
+            self.trace.model_blended = model_blended
+            self.trace.norm_flux = spec.flux
+            self.trace.norm_cont = spec.cont
+        
+        spec.flux = flux
+        spec.cont = cont
+
+    def denormalize_use_log_flux(self, spec, params, s=None):
         # Denormalize the spectrum given the fit params
         # Expects normalized log flux
 
