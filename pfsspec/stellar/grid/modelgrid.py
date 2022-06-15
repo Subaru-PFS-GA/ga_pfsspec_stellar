@@ -62,6 +62,10 @@ class ModelGrid(PfsObject):
     def rbf_grid(self):
         return self.grid.rbf_grid
 
+    @property
+    def pca_grid(self):
+        return self.grid.pca_grid
+
     def create_grid(self, grid_type):
         grid = grid_type(config=self.config)
 
