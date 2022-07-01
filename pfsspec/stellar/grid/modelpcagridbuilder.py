@@ -62,9 +62,17 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         # When fitting, the output fluxes will be already normalized, so
         # here we return the flux field only
         idx = tuple(self.input_grid_index[:, i])
+        
+        # Spectrum
         spec = self.input_grid.get_model_at(idx)
+        
+        # Weight, if available
+        if self.input_grid.grid.has_value('weight'):
+            w = self.input_grid.grid.get_value_at('weight', idx)
+        else:
+            w = None
 
-        return spec.flux
+        return spec.flux, w
 
     def run(self):
         super(ModelPcaGridBuilder, self).run()
