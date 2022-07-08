@@ -18,8 +18,14 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
 
         if isinstance(orig, ModelPcaGridBuilder):
             self.grid_config = grid_config if grid_config is not None else orig.grid_config
+            
+            self.weights_grid = orig.weights_grid
+            self.weights_grid_index = None
         else:
             self.grid_config = grid_config
+            
+            self.weights_grid = None
+            self.weights_grid_index = None
 
     def add_subparsers(self, configurations, parser):
         return None
@@ -43,17 +49,38 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         config = type(self.grid_config)(orig=self.grid_config, pca=True)
         return ModelGrid(config, ArrayGrid)
 
+    def create_weights_grid(self):
+        # It should match the input grid but not necessarily the same file
+        return ModelGridBuilder.create_input_grid(self)
+
     def open_input_grid(self, input_path):
         ModelGridBuilder.open_input_grid(self, input_path)
 
     def open_output_grid(self, output_path):
         ModelGridBuilder.open_output_grid(self, output_path)
 
-    def open_data(self, args, input_path, output_path, params_path=None):
-        return ModelGridBuilder.open_data(self, args, input_path, output_path, params_path=params_path)
+    def open_weights_grid(self, weights_path):
+        fn = os.path.join(weights_path, 'weights') + '.h5'
+        self.weights_grid.load(fn)
+
+    def open_data(self, args, input_path, output_path, params_path=None, weights_path=None):
+        ModelGridBuilder.open_data(self, args, input_path, output_path, params_path=params_path)
+
+        if weights_path is not None:
+            self.weights_grid = self.create_weights_grid()
+            self.open_weights_grid(weights_path)
+            self.weights_grid.init_from_args(args)
+            self.weights_grid.build_axis_indexes()
+        else:
+            self.weights_grid = None
 
     def build_data_index(self):
-        return ModelGridBuilder.build_data_index(self)
+        ModelGridBuilder.build_data_index(self)
+
+        if self.weights_grid is not None:
+            slice = self.weights_grid.get_slice()
+            index = self.weights_grid.array_grid.get_value_index_unsliced('weight', s=slice)
+            self.weights_grid_index = np.array(np.where(index))
 
     def get_vector_shape(self):
         return self.input_grid.get_wave().shape
@@ -67,7 +94,9 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         spec = self.input_grid.get_model_at(idx)
         
         # Weight, if available
-        if self.input_grid.grid.has_value('weight'):
+        if self.weights_grid is not None:
+            w = self.weights_grid.grid.get_value_at('weight', idx)
+        elif self.input_grid.grid.has_value('weight'):
             w = self.input_grid.grid.get_value_at('weight', idx)
         else:
             w = None
