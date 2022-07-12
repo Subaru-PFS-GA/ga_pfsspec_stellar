@@ -222,6 +222,8 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         for name in ['flux', 'cont']:
             self.output_grid.grid.eigs[name] = self.input_grid.grid.eigs[name]
             self.output_grid.grid.eigv[name] = self.input_grid.grid.eigv[name]
+            self.output_grid.grid.mean[name] = self.input_grid.grid.mean[name]
+            self.output_grid.grid.transform = self.input_grid.grid.transform
 
     def run(self):
         if self.step == 'flux':

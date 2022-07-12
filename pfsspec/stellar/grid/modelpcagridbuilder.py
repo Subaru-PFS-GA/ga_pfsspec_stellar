@@ -60,12 +60,13 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         ModelGridBuilder.open_output_grid(self, output_path)
 
     def open_weights_grid(self, weights_path):
-        fn = os.path.join(weights_path, 'weights') + '.h5'
+        if os.path.isfile(weights_path):
+            fn = weights_path
+        else:
+            fn = os.path.join(weights_path, 'weights') + '.h5'
         self.weights_grid.load(fn)
 
     def open_data(self, args, input_path, output_path, params_path=None, weights_path=None):
-        ModelGridBuilder.open_data(self, args, input_path, output_path, params_path=params_path)
-
         if weights_path is not None:
             self.weights_grid = self.create_weights_grid()
             self.open_weights_grid(weights_path)
@@ -74,14 +75,24 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         else:
             self.weights_grid = None
 
+        ModelGridBuilder.open_data(self, args, input_path, output_path, params_path=params_path)
+
     def build_data_index(self):
         ModelGridBuilder.build_data_index(self)
 
-        if self.weights_grid is not None:
-            slice = self.weights_grid.get_slice()
-            index = self.weights_grid.array_grid.get_value_index_unsliced('weight', s=slice)
-            self.weights_grid_index = np.array(np.where(index))
+        # TODO: try to merge some of it with ModelGridBuild.build_data_index because
+        #       weights mask just need to be &-d to the data masks
 
+        if self.weights_grid is not None:
+            # TODO: something might need to be done here with slicing of the weights
+
+            slice = self.input_grid.get_slice()
+            index = self.input_grid.array_grid.get_value_index_unsliced('flux', s=slice)
+            slice = self.weights_grid.get_slice()
+            index &= self.weights_grid.array_grid.get_value_index_unsliced('weight', s=slice)
+            index &= np.squeeze((self.weights_grid.array_grid.get_value('weight') > 0), axis=-1)
+            self.weights_grid_index = np.array(np.where(index))
+       
     def get_vector_shape(self):
         return self.input_grid.get_wave().shape
 
@@ -99,7 +110,7 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         elif self.input_grid.grid.has_value('weight'):
             w = self.input_grid.grid.get_value_at('weight', idx)
         else:
-            w = None
+            w = 1.0
 
         return spec.flux, w
 
