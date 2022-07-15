@@ -59,12 +59,12 @@ class PhoenixSpectrum(ModelSpectrum):
 
     def normalize_to_mag(self, filt, mag):
         try:
-            m = self.synthmag_bosz(filt)
-            if m <= -10:
-                # Checking that not really negative number, which happens when flux is from
-                # Phoenix but isn't properly re-scaled - i.e. flux is ~1e8 too big
-                # this step probably isn't really catching everything - must look into better way
-                m = self.synthmag_phoenix(filt)
+            m = self.synthmag(filt)
+            # if m <= -10:
+            #     # Checking that not really negative number, which happens when flux is from
+            #     # Phoenix but isn't properly re-scaled - i.e. flux is ~1e8 too big
+            #     # this step probably isn't really catching everything - must look into better way
+            # m = self.synthmag_carrie(filt)
         except Exception as ex:
             print('flux max', np.max(self.flux))
             print('mag', mag)
