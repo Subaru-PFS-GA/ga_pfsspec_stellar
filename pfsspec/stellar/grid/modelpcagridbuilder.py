@@ -163,5 +163,15 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         self.output_grid.grid.allocate_value('flux', shape=coeffs.shape, pca=True)
         self.output_grid.grid.set_value('flux', (coeffs, self.S, self.V, self.M), pca=True)
 
+        # DEBUG
+
+        # import h5py
+        # f = h5py.File(self.output_grid.filename, 'a')
+        # f.create_dataset('w', data=self.W)
+        # f.create_dataset('x', data=self.X)
+        # f.close()
+        
+        # END DEBUG
+
         
     
