@@ -13,7 +13,9 @@ class StellarTestBase(TestBase):
 
         self.kurucz_grid = None
         self.bosz_grid = None
+
         self.phoenix_grid = None
+        self.phoenix_pca_grid = None
 
     def get_kurucz_grid(self):
         # TODO: file location is broken
@@ -41,3 +43,11 @@ class StellarTestBase(TestBase):
             self.phoenix_grid.load(file, s=None, format='h5')
 
         return self.phoenix_grid
+
+    def get_phoenix_pca_grid(self):
+        if self.phoenix_pca_grid is None:
+            file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/phoenix/phoenix_HiRes_GK/pca_none_weights_3/spectra.h5')
+            self.phoenix_pca_grid = ModelGrid(Phoenix(pca=True), ArrayGrid)
+            self.phoenix_pca_grid.load(file, s=None, format='h5')
+
+        return self.phoenix_pca_grid

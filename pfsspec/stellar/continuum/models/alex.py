@@ -10,8 +10,8 @@ from pfsspec.core import Physics
 from pfsspec.core.util.array_filters import *
 from pfsspec.stellar.continuum import ContinuumModel
 from pfsspec.stellar.continuum import ModelParameter
-from pfsspec.stellar.continuum.function import Legendre
-from pfsspec.stellar.continuum.function import AlexSigmoid
+from pfsspec.stellar.continuum.functions import Legendre
+from pfsspec.stellar.continuum.functions import AlexSigmoid
 
 class AlexContinuumModelTrace():
     def __init__(self):
@@ -185,10 +185,16 @@ class Alex(ContinuumModel):
 #region Utility functions
 
     def safe_log(self, x):
-        return np.log(np.where(x <= 1, 1, x))
+        return np.log(np.where(x > 1e-7, x, np.nan))
+
+    def safe_log_error(self, x, sigma):
+        return np.where(x > 1e-7, sigma / x, np.nan)
 
     def safe_exp(self, x):
         return np.exp(np.where(x < 100, x, np.nan))
+
+    def safe_exp_error(self, x, sigma):
+        return np.where(x < 100, x * sigma, np.nan)
 
 #endregion
 #region Main entrypoints: fit, eval and normalize
@@ -253,6 +259,13 @@ class Alex(ContinuumModel):
         cont_norm_flux = self.safe_log(spec.flux[self.wave_mask]) - model_cont
         norm_flux = cont_norm_flux - model_blended
 
+        if spec.flux_err is not None:
+            # TODO: verify and test
+            raise NotImplementedError()
+            norm_flux_err = self.safe_log_error(spec.flux[self.wave_mask], spec.flux_err[self.wave_mask])
+        else:
+            norm_flux_err = None
+
         if self.trace is not None:
             self.trace.cont_norm_flux = cont_norm_flux
             self.trace.model_cont = model_cont
@@ -263,6 +276,7 @@ class Alex(ContinuumModel):
         spec.wave = self.wave
         spec.cont = norm_cont
         spec.flux = norm_flux
+        spec.flux = norm_flux_err
 
     def normalize_use_flux(self, spec, params):
         # Do not take the log of flux at the end
@@ -281,6 +295,10 @@ class Alex(ContinuumModel):
         # Flux normalized with continuum and blended regions
         cont_norm_flux = spec.flux[self.wave_mask] / model_cont
         norm_flux = cont_norm_flux / model_blended
+        if spec.flux_err is not None:
+            norm_flux_err = spec.flux_err / model_cont
+        else:
+            norm_flux_err = None
 
         if self.trace is not None:
             self.trace.cont_norm_flux = cont_norm_flux
@@ -292,6 +310,7 @@ class Alex(ContinuumModel):
         spec.wave = self.wave
         spec.cont = norm_cont
         spec.flux = norm_flux
+        spec.flux_err = norm_flux_err
 
     def denormalize(self, spec, params, s=None):
         self.denormalize_use_flux(spec, params, s=s)
@@ -316,7 +335,11 @@ class Alex(ContinuumModel):
             self.trace.norm_flux = spec.flux
             self.trace.norm_cont = spec.cont
 
-        spec.multiply(self.safe_exp(model_cont + model_blended))
+        model_full = self.safe_exp(model_cont + model_blended)
+        spec.flux *= model_full
+        if spec.flux_err is not None:
+            spec.flux_err *= model_full
+
         spec.cont = cont
 
     def denormalize_use_log_flux(self, spec, params, s=None):
@@ -334,15 +357,23 @@ class Alex(ContinuumModel):
         model_blended = self.eval_blended_all(params)
         model_blended = model_blended[s or ()]
 
-        flux = self.safe_exp(spec.flux + model_cont + model_blended)
-
         if self.trace is not None:
             self.trace.model_cont = model_cont
             self.trace.model_blended = model_blended
             self.trace.norm_flux = spec.flux
             self.trace.norm_cont = spec.cont
-        
+
+        flux = self.safe_exp(spec.flux + model_cont + model_blended)
+
+        if spec.flux_err is not None:
+            # TODO: verify and test
+            raise NotImplementedError()
+            flux_err = self.safe_exp_error(spec.flux, spec.flux_err)
+        else:
+            flux_err = None
+
         spec.flux = flux
+        spec.flux_err = flux_err
         spec.cont = cont
 
     def fill_params(self, name, params):

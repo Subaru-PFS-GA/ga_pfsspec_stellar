@@ -2,10 +2,10 @@ import numpy as np
 
 from pfsspec.core.grid import GridConfig
 from pfsspec.stellar import ModelSpectrum
-from pfsspec.stellar.continuum.model import Chebyshev
-from pfsspec.stellar.continuum.model import Planck
-from pfsspec.stellar.continuum.model import Alex
-from pfsspec.stellar.continuum.model import Log
+from pfsspec.stellar.continuum.models import Chebyshev
+from pfsspec.stellar.continuum.models import Planck
+from pfsspec.stellar.continuum.models import Alex
+from pfsspec.stellar.continuum.models import Log
 
 class ModelGridConfig(GridConfig):
     # Implements functions to initialize a model grid. Inherited classes should

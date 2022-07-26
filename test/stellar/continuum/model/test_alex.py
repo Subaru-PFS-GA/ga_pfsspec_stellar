@@ -2,12 +2,13 @@ import numpy as np
 
 from ...stellartestbase import StellarTestBase
 
-from pfsspec.stellar.continuum.model.alex import Alex, AlexContinuumModelTrace
+from pfsspec.stellar.continuum.models.alex import Alex, AlexContinuumModelTrace
 
 class TestAlexContinuumModel(StellarTestBase):
     def get_test_grid(self, args):
         #grid = self.get_bosz_grid()
         grid = self.get_phoenix_grid()
+        #grid = self.get_phoenix_pca_grid()
         grid.init_from_args(args)
         return grid
 
@@ -32,7 +33,7 @@ class TestAlexContinuumModel(StellarTestBase):
 
         trace = AlexContinuumModelTrace()
         model = Alex(trace)
-        ix, x, y = model.get_convex_hull(spec.wave, spec.flux)
+        x, y = model.get_convex_hull(spec.wave, spec.flux)
 
         pass
 
