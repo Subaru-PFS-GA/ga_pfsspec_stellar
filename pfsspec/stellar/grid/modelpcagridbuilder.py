@@ -160,8 +160,13 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
             idx = tuple(self.output_grid_index[:, i])
             coeffs[idx] = self.PC[i, :]
 
+        # Calculate the residual variance, this represents the reconstruction error
+        flux_err = np.std(self.R, axis=0)
+
         self.output_grid.grid.allocate_value('flux', shape=coeffs.shape, pca=True)
-        self.output_grid.grid.set_value('flux', (coeffs, self.S, self.V, self.M), pca=True)
+        self.output_grid.grid.set_value('flux', coeffs, 
+                                        eigs=self.S, eigv=self.V, mean=self.M, error=flux_err,
+                                        transform=self.pca_transform)
 
         # DEBUG
 

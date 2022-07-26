@@ -14,7 +14,7 @@ class TestModelGrid_Pca(TestBase):
         #file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/bosz/bosz_5000_GF/pca/spectra.h5')
         #grid = ModelGrid(Bosz(pca=True), ArrayGrid)
         
-        file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/phoenix/phoenix_HiRes_GK/pca-sqrt-full/spectra.h5')
+        file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/phoenix/phoenix_HiRes_GK/pca_none_weights_3/spectra.h5')
         grid = ModelGrid(Phoenix(pca=True), ArrayGrid)
 
         #file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/phoenix/phoenix_HiRes_GK/norm/spectra.h5')
@@ -71,7 +71,7 @@ class TestModelGrid_Pca(TestBase):
     def test_get_nearest_model(self):
         args = {}
         grid = self.get_test_grid(args)
-        spec = grid.get_nearest_model(M_H=0., T_eff=4500, log_g=4, C_M=0, a_M=0)
+        spec = grid.get_nearest_model(M_H=0., T_eff=4500, log_g=4, C_M=0, a_M=0, denormalize=True)
         self.assertIsNotNone(spec)
 
     def test_get_model_at_perf(self):

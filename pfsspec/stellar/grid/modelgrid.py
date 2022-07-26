@@ -290,37 +290,51 @@ class ModelGrid(PfsObject):
         return params
 
     def get_model(self, denormalize=False, **kwargs):
-        spec = self.get_parameterized_spectrum(s=self.get_wave_slice(), **kwargs)
         flux = self.grid.get_value('flux', s=self.get_wave_slice(), **kwargs)
-        # In case the interpolation didn't work
-        if flux is None:
-            return None
-        spec.flux = copy_array(flux)
         
-        if self.grid.has_value('cont'):
-            cont = self.grid.get_value('cont', s=self.get_wave_slice(), **kwargs)
-            spec.cont = copy_array(cont)
+        # In case the interpolation didn't work
+        if flux is not None:
+            s = self.get_wave_slice()
 
-        if denormalize and self.continuum_model is not None:
-            # Get the continuum parameters. This means interpolation,
-            # in case the parameters are given with an RBF. Also allow
-            # skipping parameters for those continuum models which
-            # are calculated from the grid parameters (i.e. Planck)
-            params = self.get_continuum_parameters(**kwargs)
-            self.continuum_model.denormalize(spec, params)
+            spec = self.get_parameterized_spectrum(s=self, **kwargs)
+            spec.flux = copy_array(flux)
 
-        return spec
+            if self.grid.has_error('flux'):
+                flux_err = self.grid.get_error('flux', s=s, **kwargs)
+                spec.flux_err = copy_array(flux_err)
+            
+            if self.grid.has_value('cont'):
+                cont = self.grid.get_value('cont', s=s, **kwargs)
+                spec.cont = copy_array(cont)
+
+            if denormalize and self.continuum_model is not None:
+                # Get the continuum parameters. This means interpolation,
+                # in case the parameters are given with an RBF. Also allow
+                # skipping parameters for those continuum models which
+                # are calculated from the grid parameters (i.e. Planck)
+                params = self.get_continuum_parameters(**kwargs)
+                self.continuum_model.denormalize(spec, params, s=s)
+
+            return spec
+        else:
+            return None
 
     def get_model_at(self, idx, denormalize=False):
         if self.grid.has_value_at('flux', idx):
+            s = self.get_wave_slice()
+
             spec = self.get_parameterized_spectrum(idx, s=self.get_wave_slice())
-            spec.flux = copy_array(self.grid.get_value_at('flux', idx, s=self.get_wave_slice()))
+            spec.flux = copy_array(self.grid.get_value_at('flux', idx, s=s))
+            
+            if self.grid.has_error('flux'):
+                spec.flux_err = copy_array(self.grid.get_error_at('flux', idx, s=s))
+            
             if self.grid.has_value('cont'):
                 spec.cont = copy_array(self.grid.get_value_at('cont', idx, s=self.get_wave_slice()))
 
             if denormalize and self.continuum_model is not None:
                 params = self.get_continuum_parameters_at(idx)
-                self.continuum_model.denormalize(spec, params, s=self.get_wave_slice())
+                self.continuum_model.denormalize(spec, params, s=s)
             
             return spec
         else:
