@@ -10,7 +10,7 @@ from pfsspec.stellar.grid.bosz import Bosz
 
 class TestModelGrid_Pca_Rbf(TestBase):
     def get_test_grid(self, args):
-        file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/bosz/bosz_5000_GF/pca-rbf/spectra.h5')
+        file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/bosz/bosz_50000_FGK/pca-rbf/spectra.h5')
         grid = ModelGrid(Bosz(pca=True), RbfGrid)
         grid.load(file, format='h5')
         grid.init_from_args(args)

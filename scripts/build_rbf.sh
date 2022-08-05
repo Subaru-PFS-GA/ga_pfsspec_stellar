@@ -5,8 +5,8 @@
 # or with command line arguments passed in.
 
 # Examples:
-#   ./stellar/scripts/build_rbf.sh stellar-grid bosz
-#   ./scripts/stellar/build_rbf.sh stellar-grid bosz --config ./configs/import/stellar/grid/bosz/rbf --in /.../grid/bosz_5000/ --out /.../rbf/bosz_5000
+#   ./stellar/scripts/build_rbf.sh stellar-grid bosz alex
+#   ./scripts/stellar/build_rbf.sh stellar-grid bosz alex --config ./configs/import/stellar/grid/bosz/rbf --in /.../grid/bosz_5000/ --out /.../rbf/bosz_5000
 
 set -e
 
@@ -24,7 +24,8 @@ RUNMODE="run"
 LASTJOBID=""
 TYPE="$1"
 SOURCE="$2"
-shift 2
+CONTINUUM="$3"
+shift 3
 
 while (( "$#" )); do
     case "$1" in
@@ -97,7 +98,7 @@ if [[ -d "$OUTDIR/fit" ]]; then
     echo "Skipping fitting upper envelope."
 else
     echo "Fitting upper envelope..."
-    cmd="$BINDIR/fit $TYPE $SOURCE \
+    cmd="$BINDIR/fit $TYPE $SOURCE $CONTINUUM \
         --config "$CONFIGDIR/common.json" "$CONFIGDIR/fit.json" \
         --in "$INDIR" --out "$OUTDIR/fit" \
         --step fit $PARAMS"
@@ -132,7 +133,7 @@ if [[ -d "$OUTDIR/norm" ]]; then
     echo "Skipping normalizing spectra."
 else
     echo "Normalizing spectra..."
-    cmd="$BINDIR/fit $TYPE $SOURCE \
+    cmd="$BINDIR/fit $TYPE $SOURCE $CONTINUUM \
         --config "$CONFIGDIR/common.json" \
         --in "$INDIR" --out "$OUTDIR/norm" \
         --params "$OUTDIR/fit-rbf" --rbf \
