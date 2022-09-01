@@ -1,7 +1,7 @@
 import numpy as np
 
-from pfsspec.core import Physics
-from pfsspec.stellar.continuum import ContinuumModel
+from pfs.ga.pfsspec.core import Physics
+from pfs.ga.pfsspec.stellar.continuum import ContinuumModel
 
 class Chebyshev(ContinuumModel):
     def __init__(self, orig=None):

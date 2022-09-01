@@ -4,7 +4,7 @@ import logging
 import multiprocessing
 import time
 
-from pfsspec.core.grid.io import GridReader
+from pfs.ga.pfsspec.core.grid.io import GridReader
 
 class ModelGridReader(GridReader):
 

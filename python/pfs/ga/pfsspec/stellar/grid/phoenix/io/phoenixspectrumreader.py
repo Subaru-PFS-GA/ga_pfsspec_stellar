@@ -6,8 +6,8 @@ import re
 from scipy.interpolate import interp1d
 from astropy.io import fits
 
-from pfsspec.core.io import SpectrumReader
-from pfsspec.stellar.grid.phoenix import PhoenixSpectrum
+from pfs.ga.pfsspec.core.io import SpectrumReader
+from pfs.ga.pfsspec.stellar.grid.phoenix import PhoenixSpectrum
 
 class PhoenixSpectrumReader(SpectrumReader):
     # Implements function to read PHOENIX stellar spectrum models

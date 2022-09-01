@@ -8,8 +8,8 @@ import multiprocessing
 import time
 from astropy.io import fits
 
-from pfsspec.core.io import SpectrumReader
-from pfsspec.stellar.grid.bosz import BoszSpectrum
+from pfs.ga.pfsspec.core.io import SpectrumReader
+from pfs.ga.pfsspec.stellar.grid.bosz import BoszSpectrum
 
 class BoszSpectrumReader(SpectrumReader):
 

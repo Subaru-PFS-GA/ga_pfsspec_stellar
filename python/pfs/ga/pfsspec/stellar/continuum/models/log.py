@@ -3,8 +3,8 @@ import numpy as np
 import scipy as sp
 import logging
 
-from pfsspec.stellar.continuum import ContinuumModel
-from pfsspec.stellar.continuum import ModelParameter
+from pfs.ga.pfsspec.stellar.continuum import ContinuumModel
+from pfs.ga.pfsspec.stellar.continuum import ModelParameter
 
 class Log(ContinuumModel):
     # Simply take the logarithm of the flux

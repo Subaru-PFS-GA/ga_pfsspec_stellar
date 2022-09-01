@@ -1,7 +1,7 @@
 import os
 
 from test.core import TestBase
-from pfsspec.stellar.grid.kurucz.io import KuruczSpectrumReader
+from pfs.ga.pfsspec.stellar.grid.kurucz.io import KuruczSpectrumReader
 
 class TestKuruczSpectrumReader(TestBase):
     def test_read(self):

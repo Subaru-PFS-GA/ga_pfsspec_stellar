@@ -4,10 +4,10 @@ import cProfile
 import numpy as np
 
 from test.core import TestBase
-from pfsspec.core.grid import ArrayGrid
-from pfsspec.stellar.grid import ModelGrid
-from pfsspec.stellar.grid.bosz import Bosz
-from pfsspec.stellar.grid.phoenix import Phoenix
+from pfs.ga.pfsspec.core.grid import ArrayGrid
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
+from pfs.ga.pfsspec.stellar.grid.phoenix import Phoenix
 
 class TestModelGrid_Pca(TestBase):
     def get_test_grid(self, args, preload_arrays=False):

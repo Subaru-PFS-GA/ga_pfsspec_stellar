@@ -1,7 +1,7 @@
 import os
 import logging
 
-from pfsspec.stellar.grid.io import ModelGridReader
+from pfs.ga.pfsspec.stellar.grid.io import ModelGridReader
 from .kuruczspectrumreader import KuruczSpectrumReader
 
 class KuruczGridReader(ModelGridReader):

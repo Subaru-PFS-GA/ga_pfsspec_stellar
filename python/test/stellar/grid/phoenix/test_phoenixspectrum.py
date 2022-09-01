@@ -1,12 +1,12 @@
 import os
 
 from test.core import TestBase
-from pfsspec.core import Filter
-from pfsspec.core.grid import ArrayGrid
-from pfsspec.core.grid import RbfGrid
-from pfsspec.stellar.grid import ModelGrid
-from pfsspec.stellar.grid.bosz import Bosz
-from pfsspec.stellar.grid.phoenix import Phoenix
+from pfs.ga.pfsspec.core import Filter
+from pfs.ga.pfsspec.core.grid import ArrayGrid
+from pfs.ga.pfsspec.core.grid import RbfGrid
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
+from pfs.ga.pfsspec.stellar.grid.phoenix import Phoenix
 
 class TestPhoenixSpectrum(TestBase):
     

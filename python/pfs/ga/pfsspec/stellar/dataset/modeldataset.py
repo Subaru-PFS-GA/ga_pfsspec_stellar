@@ -1,5 +1,5 @@
-from pfsspec.core.dataset import SpectrumDataset
-from pfsspec.stellar import ModelSpectrum
+from pfs.ga.pfsspec.core.dataset import SpectrumDataset
+from pfs.ga.pfsspec.stellar import ModelSpectrum
 
 class ModelDataset(SpectrumDataset):
     def __init__(self, constant_wave=True, preload_arrays=False, orig=None):

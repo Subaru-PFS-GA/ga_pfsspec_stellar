@@ -1,6 +1,6 @@
 import numpy as np
 
-from pfsspec.stellar import ModelSpectrum
+from pfs.ga.pfsspec.stellar import ModelSpectrum
 
 class KuruczSpectrum(ModelSpectrum):
     def __init__(self, orig=None):

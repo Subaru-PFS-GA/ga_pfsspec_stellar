@@ -2,8 +2,8 @@ import os
 
 from test.core import TestBase
 
-from pfsspec.stellar.grid import ModelGrid
-from pfsspec.stellar.grid.phoenix.io import PhoenixSpectrumReader
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixSpectrumReader
 
 class TestPhoenixSpectrumReader(TestBase):
     def test_read(self):

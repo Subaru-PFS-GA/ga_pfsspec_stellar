@@ -4,9 +4,9 @@ from tqdm import tqdm
 import numpy as np
 
 from test.core import TestBase
-from pfsspec.core.grid import RbfGrid
-from pfsspec.stellar.grid import ModelGrid
-from pfsspec.stellar.grid.bosz import Bosz
+from pfs.ga.pfsspec.core.grid import RbfGrid
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
 
 class TestModelGrid_Rbf(TestBase):
     def get_test_grid(self, args):

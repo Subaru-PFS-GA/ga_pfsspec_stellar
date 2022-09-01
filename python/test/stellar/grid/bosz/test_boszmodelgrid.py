@@ -2,9 +2,9 @@ import os
 import numpy as np
 
 from test.core import TestBase
-from pfsspec.core.grid import ArrayGrid
-from pfsspec.stellar.grid import ModelGrid
-from pfsspec.stellar.grid.bosz import Bosz
+from pfs.ga.pfsspec.core.grid import ArrayGrid
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
 
 class TestBoszModelGrid(TestBase):
     def get_grid(self, normalized=False):

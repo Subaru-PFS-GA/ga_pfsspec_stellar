@@ -1,7 +1,7 @@
 import numpy as np
 
-from pfsspec.core.grid import GridAxis
-from pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.core.grid import GridAxis
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from .kuruczspectrum import KuruczSpectrum
 
 class KuruczGrid(ModelGrid):

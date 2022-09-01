@@ -5,7 +5,7 @@ import pysynphot.spectrum
 import pysynphot.reddening
 from scipy.integrate import simps
 
-from pfsspec.stellar import ModelSpectrum
+from pfs.ga.pfsspec.stellar import ModelSpectrum
 
 class PhoenixSpectrum(ModelSpectrum):
     def __init__(self, orig=None):

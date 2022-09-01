@@ -6,10 +6,10 @@ import multiprocessing
 import time
 from tqdm import tqdm
 
-from pfsspec.core.util import SmartParallel
-from pfsspec.core.io import Downloader
-from pfsspec.core.grid import GridEnumerator
-from pfsspec.stellar.grid.io.modelgridreader import ModelGridReader
+from pfs.ga.pfsspec.core.util import SmartParallel
+from pfs.ga.pfsspec.core.io import Downloader
+from pfs.ga.pfsspec.core.grid import GridEnumerator
+from pfs.ga.pfsspec.stellar.grid.io.modelgridreader import ModelGridReader
 
 class ModelGridDownloader(Downloader):
 

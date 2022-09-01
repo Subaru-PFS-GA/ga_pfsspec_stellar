@@ -6,12 +6,12 @@ from scipy.interpolate import interp1d
 import alphashape
 import logging
 
-from pfsspec.core import Physics
-from pfsspec.core.util.array_filters import *
-from pfsspec.stellar.continuum import ContinuumModel
-from pfsspec.stellar.continuum import ModelParameter
-from pfsspec.stellar.continuum.functions import Legendre
-from pfsspec.stellar.continuum.functions import AlexSigmoid
+from pfs.ga.pfsspec.core import Physics
+from pfs.ga.pfsspec.core.util.array_filters import *
+from pfs.ga.pfsspec.stellar.continuum import ContinuumModel
+from pfs.ga.pfsspec.stellar.continuum import ModelParameter
+from pfs.ga.pfsspec.stellar.continuum.functions import Legendre
+from pfs.ga.pfsspec.stellar.continuum.functions import AlexSigmoid
 
 class AlexContinuumModelTrace():
     def __init__(self):

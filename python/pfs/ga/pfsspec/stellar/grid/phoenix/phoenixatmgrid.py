@@ -1,6 +1,6 @@
 import numpy as np
 
-from pfsspec.stellar.grid.kurucz import KuruczAtmGrid
+from pfs.ga.pfsspec.stellar.grid.kurucz import KuruczAtmGrid
 
 class PhoenixAtmGrid(KuruczAtmGrid):
 

@@ -1,6 +1,6 @@
 import numpy as np
 
-from pfsspec.stellar import Atm
+from pfs.ga.pfsspec.stellar import Atm
 
 class KuruczAtm(Atm):
     ABUNDANCE_ELEMENTS = 99

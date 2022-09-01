@@ -3,12 +3,12 @@ import numpy as np
 from tqdm import tqdm
 import multiprocessing
 
-from pfsspec.core.util.smartparallel import SmartParallel
-from pfsspec.core.grid import GridBuilder
-from pfsspec.core.grid import ArrayGrid
-from pfsspec.stellar.grid import ModelGrid
-from pfsspec.stellar.grid import ModelGridBuilder
-from pfsspec.stellar.grid import ModelGridConfig
+from pfs.ga.pfsspec.core.util.smartparallel import SmartParallel
+from pfs.ga.pfsspec.core.grid import GridBuilder
+from pfs.ga.pfsspec.core.grid import ArrayGrid
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.stellar.grid import ModelGridBuilder
+from pfs.ga.pfsspec.stellar.grid import ModelGridConfig
 
 class ModelGridFit(GridBuilder, ModelGridBuilder):
     # Fit continuum models to stellar model spectra

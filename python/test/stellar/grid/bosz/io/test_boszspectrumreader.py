@@ -1,9 +1,9 @@
 import os
 
 from test.core import TestBase
-from pfsspec.core.grid import ArrayGrid
-from pfsspec.stellar.grid import ModelGrid
-from pfsspec.stellar.grid.bosz.io import BoszSpectrumReader
+from pfs.ga.pfsspec.core.grid import ArrayGrid
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszSpectrumReader
 
 class TestBoszSpectrumReader(TestBase):
     def test_get_filename(self):

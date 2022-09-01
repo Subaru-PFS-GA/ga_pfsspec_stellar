@@ -2,9 +2,9 @@ import os
 import numpy as np
 
 from test.core import TestBase
-from pfsspec.stellar.grid.kurucz.io import KuruczSpectrumReader
-from pfsspec.stellar.grid.kurucz.io import KuruczGridReader
-from pfsspec.stellar.grid.kurucz import KuruczGrid
+from pfs.ga.pfsspec.stellar.grid.kurucz.io import KuruczSpectrumReader
+from pfs.ga.pfsspec.stellar.grid.kurucz.io import KuruczGridReader
+from pfs.ga.pfsspec.stellar.grid.kurucz import KuruczGrid
 
 class TestKuruczGrid(TestBase):
     def save_load_helper(self, format, ext):

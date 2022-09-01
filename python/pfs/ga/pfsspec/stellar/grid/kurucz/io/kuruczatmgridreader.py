@@ -3,7 +3,7 @@ import logging
 import multiprocessing
 import time
 
-from pfsspec.stellar.grid.io import AtmGridReader
+from pfs.ga.pfsspec.stellar.grid.io import AtmGridReader
 from .kuruczatmreader import KuruczAtmReader
 
 class KuruczAtmGridReader(AtmGridReader):

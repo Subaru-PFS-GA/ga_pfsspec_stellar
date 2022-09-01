@@ -2,7 +2,7 @@ import numpy as np
 
 from ...stellartestbase import StellarTestBase
 
-from pfsspec.stellar.continuum.models.alex import Alex, AlexContinuumModelTrace
+from pfs.ga.pfsspec.stellar.continuum.models.alex import Alex, AlexContinuumModelTrace
 
 class TestAlexContinuumModel(StellarTestBase):
     def get_test_grid(self, args):

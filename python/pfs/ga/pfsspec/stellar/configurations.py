@@ -1,12 +1,17 @@
-from pfsspec.core import Pipeline
-from pfsspec.core.grid import ArrayGrid, RbfGrid
-from pfsspec.stellar.grid.bosz import Bosz
-from pfsspec.stellar.grid.phoenix import Phoenix
-from pfsspec.stellar.grid.bosz.io import BoszGridReader
-from pfsspec.stellar.grid.bosz.io import BoszGridDownloader
-from pfsspec.stellar.grid.phoenix.io import PhoenixGridReader
-from pfsspec.stellar.grid.phoenix.io import PhoenixGridDownloader
-from pfsspec.stellar.grid import ModelGridFit, ModelPcaGridBuilder, ModelRbfGridBuilder
+from pfs.ga.pfsspec.core import Pipeline
+from pfs.ga.pfsspec.core.grid import ArrayGrid, RbfGrid
+from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
+from pfs.ga.pfsspec.stellar.grid.phoenix import Phoenix
+from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszGridReader
+from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszGridDownloader
+from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridReader
+from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridDownloader
+from pfs.ga.pfsspec.stellar.grid import ModelGridFit, ModelPcaGridBuilder, ModelRbfGridBuilder
+
+from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumRegressionalAugmenter
+from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumGenerativeAugmenter
+from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumAutoencodingAugmenter
+
 
 DOWNLOAD_CONFIGURATIONS = {
     'stellar-grid': {
@@ -71,6 +76,24 @@ PCA_CONFIGURATIONS = {
         'phoenix': {
             'type': ModelPcaGridBuilder,
             'config': Phoenix()
+        }
+    }
+}
+
+TRAIN_CONFIGURATIONS = {
+    'reg': {
+        'model': {
+            'augmenter': ModelSpectrumRegressionalAugmenter
+        },
+    },
+    'gen': {
+        'model': {
+            'augmenter': ModelSpectrumGenerativeAugmenter
+        }
+    },
+    'ae': {
+        'model': {
+            'augmenter': ModelSpectrumAutoencodingAugmenter
         }
     }
 }

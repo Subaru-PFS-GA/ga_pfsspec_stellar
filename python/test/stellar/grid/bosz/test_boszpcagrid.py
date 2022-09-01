@@ -2,7 +2,7 @@ import os
 import numpy as np
 
 from test.core import TestBase
-from pfsspec.core.grid import PcaGrid
+from pfs.ga.pfsspec.core.grid import PcaGrid
 
 class TestBoszPcaGrid(TestBase):
     def test_load(self):

@@ -6,13 +6,13 @@ import time
 import h5py
 from tqdm import tqdm
 
-from pfsspec.core.util.array_filters import *
-from pfsspec.core.grid import ArrayGrid
-from pfsspec.core.grid import RbfGrid
-from pfsspec.core.grid import PcaGrid
-from pfsspec.core.grid import RbfGridBuilder
-from pfsspec.stellar.grid import ModelGrid
-from pfsspec.stellar.grid import ModelGridBuilder
+from pfs.ga.pfsspec.core.util.array_filters import *
+from pfs.ga.pfsspec.core.grid import ArrayGrid
+from pfs.ga.pfsspec.core.grid import RbfGrid
+from pfs.ga.pfsspec.core.grid import PcaGrid
+from pfs.ga.pfsspec.core.grid import RbfGridBuilder
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.stellar.grid import ModelGridBuilder
 
 class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
 
