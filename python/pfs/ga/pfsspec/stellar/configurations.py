@@ -12,6 +12,9 @@ from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumRegressionalAugmenter
 from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumGenerativeAugmenter
 from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumAutoencodingAugmenter
 
+from pfs.ga.pfsspec.learn.configurations import DNN_MODEL_TYPES
+from pfs.ga.pfsspec.learn.dnn.keras import KerasModelTrainer, KerasModelPredictor
+
 
 DOWNLOAD_CONFIGURATIONS = {
     'stellar-grid': {
@@ -81,19 +84,21 @@ PCA_CONFIGURATIONS = {
 }
 
 TRAIN_CONFIGURATIONS = {
-    'reg': {
-        'model': {
-            'augmenter': ModelSpectrumRegressionalAugmenter
+    'stellar-model': {
+        'reg': {
+            'type': KerasModelTrainer,
+            'augmenter': ModelSpectrumRegressionalAugmenter,
+            'models': DNN_MODEL_TYPES['reg']
         },
-    },
-    'gen': {
-        'model': {
-            'augmenter': ModelSpectrumGenerativeAugmenter
-        }
-    },
-    'ae': {
-        'model': {
-            'augmenter': ModelSpectrumAutoencodingAugmenter
+        'gen': {
+            'type': KerasModelTrainer,
+            'augmenter': ModelSpectrumGenerativeAugmenter,
+            'models': DNN_MODEL_TYPES['gen']
+        },
+        'ae': {
+            'type': KerasModelTrainer,
+            'augmenter': ModelSpectrumAutoencodingAugmenter,
+            'models': DNN_MODEL_TYPES['ae']
         }
     }
 }
