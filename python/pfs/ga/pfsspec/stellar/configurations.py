@@ -7,10 +7,7 @@ from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszGridDownloader
 from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridReader
 from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridDownloader
 from pfs.ga.pfsspec.stellar.grid import ModelGridFit, ModelPcaGridBuilder, ModelRbfGridBuilder
-
-from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumRegressionalAugmenter
-from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumGenerativeAugmenter
-from pfs.ga.pfsspec.stellar.dnn import ModelSpectrumAutoencodingAugmenter
+from pfs.ga.pfsspec.learn.stellar import *
 
 from pfs.ga.pfsspec.learn.configurations import DNN_MODEL_TYPES
 from pfs.ga.pfsspec.learn.dnn.keras import KerasModelTrainer, KerasModelPredictor
