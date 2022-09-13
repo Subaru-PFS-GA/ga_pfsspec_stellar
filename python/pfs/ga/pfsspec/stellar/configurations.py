@@ -99,3 +99,24 @@ TRAIN_CONFIGURATIONS = {
         }
     }
 }
+
+
+PREDICT_CONFIGURATIONS = {
+    'stellar-model': {
+        'reg': {
+            'type': KerasModelPredictor,
+            'augmenter': ModelSpectrumRegressionalAugmenter,
+            'models': DNN_MODEL_TYPES['reg']
+        },
+        'gen': {
+            'type': KerasModelPredictor,
+            'augmenter': ModelSpectrumGenerativeAugmenter,
+            'models': DNN_MODEL_TYPES['gen']
+        },
+        'ae': {
+            'type': KerasModelPredictor,
+            'augmenter': ModelSpectrumAutoencodingAugmenter,
+            'models': DNN_MODEL_TYPES['ae']
+        }
+    }
+}
