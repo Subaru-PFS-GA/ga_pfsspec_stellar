@@ -88,7 +88,7 @@ class TestModelGrid_Pca(TestBase):
         start = timer()
         q = 0
         for idx in idxs[:100]:
-            spec = grid.get_model_at(idx, denormalize=False)
+            spec = grid.get_model_at(idx, denormalize=True)
             q += 1
         end = timer()
 

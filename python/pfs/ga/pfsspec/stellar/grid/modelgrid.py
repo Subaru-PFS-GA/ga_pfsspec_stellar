@@ -289,7 +289,7 @@ class ModelGrid(PfsObject):
         params = self.grid.get_values_at(idx, names=names)
         return params
 
-    def get_model(self, denormalize=False, **kwargs):
+    def get_model(self, denormalize=True, **kwargs):
         flux = self.grid.get_value('flux', s=self.get_wave_slice(), **kwargs)
         
         # In case the interpolation didn't work
@@ -319,7 +319,7 @@ class ModelGrid(PfsObject):
         else:
             return None
 
-    def get_model_at(self, idx, denormalize=False):
+    def get_model_at(self, idx, denormalize=True):
         if self.grid.has_value_at('flux', idx):
             s = self.get_wave_slice()
 
@@ -340,7 +340,7 @@ class ModelGrid(PfsObject):
         else:
             return None
 
-    def get_nearest_model(self, denormalize=False, **kwargs):
+    def get_nearest_model(self, denormalize=True, **kwargs):
         """
         Finds grid point closest to the parameters specified
         """
