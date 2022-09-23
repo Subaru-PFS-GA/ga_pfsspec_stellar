@@ -11,30 +11,6 @@ class RVFit():
             self.grid = orig.grid
             self.psf = orig.psf
 
-    def calculate_snr(self, spec, shift):
-        # TODO: Move this elsewhere and build a set of SNR classes
-        #       implementing different algorithms
-
-        # TODO: This doesn't really work with the ETC noise model because
-        #       of the maximum filter involved in the the sky subtraction
-        #       error estimate.
-
-        """
-        Estimate the S/N using Stoehr et al ADASS 2008
-           
-        signal = median(flux(i))
-        noise = 1.482602 / sqrt(6.0) *
-        median(abs(2 * flux(i) - flux(i-2) - flux(i+2)))
-        DER_SNR = signal / noise
-        """
-
-        s1 = np.median(spec.flux)
-        s2 = np.abs(2 * spec.flux[shift:-shift] - spec.flux[:-2 * shift] - spec.flux[2 * shift:])
-        n1 = 1.482602 / np.sqrt(6.0) * np.median(s2)
-        sn = s1 / n1
-
-        return sn
-
     def get_template(self, convolve=True, **kwargs):
         """
         Generate a noiseless template spectrum with same line spread function as the

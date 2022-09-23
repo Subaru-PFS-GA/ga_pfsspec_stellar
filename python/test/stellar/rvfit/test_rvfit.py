@@ -94,13 +94,6 @@ class TestRVFit(StellarTestBase):
         spec.plot(xlim=(7000, 9000))
         self.save_fig()
 
-    def test_calculate_snr(self):
-        spec = self.get_observation()
-        rvfit = RVFit()
-
-        snr = rvfit.calculate_snr(spec, shift=3)
-        self.assertIsNotNone(snr)
-
     def test_get_template(self):
         rvfit = self.get_rvfit()
 
