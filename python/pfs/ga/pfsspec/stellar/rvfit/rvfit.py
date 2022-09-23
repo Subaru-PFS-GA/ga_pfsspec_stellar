@@ -147,9 +147,30 @@ class RVFit():
         Fit a Lorentz function to the log-likelihood to have a good initial guess for RV.
         """
 
-        # TODO: are these always good initial parameters for the Lorentz fit?
-        p0 = [200, 0, 100, 0.5 * (y0[0] + y0[-1])]
-        bb = ((0, -300, 100, y0.min()), (5000, 300, 300, y0.min() + 4 * (y0.max() - y0.min())))
+        # Guess initial values from y0
+        p0 = [
+            np.max(y0),
+            rv[np.argmax(y0)],
+            0.5 * (rv[-1] - rv[0]),
+            y0.min() + 0.5 * (y0.max() - y0.min())
+        ]
+
+        # Bounds
+        bb = [
+            (
+                0,
+                rv[0],
+                0.2 * (rv[-1] - rv[0]),
+                y0.min()
+            ),
+            (
+                5 * np.max(y0),
+                rv[-1],
+                5.0 * (rv[-1] - rv[0]),
+                y0.min() + 4 * (y0.max() - y0.min())
+            )
+        ]
+        
         pp, pcov = curve_fit(self.lorentz, rv, y0, p0=p0, bounds=bb)
 
         return pp, pcov
