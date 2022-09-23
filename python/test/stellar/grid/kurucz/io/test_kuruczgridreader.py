@@ -1,6 +1,6 @@
 import os
 
-from test.core import TestBase
+from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.stellar.grid.kurucz.io import KuruczSpectrumReader
 from pfs.ga.pfsspec.stellar.grid.kurucz.io import KuruczGridReader
 from pfs.ga.pfsspec.stellar.grid.kurucz import KuruczGrid

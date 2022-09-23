@@ -1,6 +1,6 @@
 import os
 
-from test.core import TestBase
+from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszSpectrumReader

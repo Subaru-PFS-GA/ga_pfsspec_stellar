@@ -1,6 +1,6 @@
 import numpy as np
 
-from test.core import TestBase
+from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.core.grid import GridAxis
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.io import ModelGridReader
