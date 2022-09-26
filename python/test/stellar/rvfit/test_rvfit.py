@@ -8,10 +8,11 @@ from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
 from pfs.ga.pfsspec.core import Filter
-from pfs.ga.pfsspec.sim.obsmod import Sky, Moon, Detector
+from pfs.ga.pfsspec.sim.obsmod import Detector
+from pfs.ga.pfsspec.sim.obsmod.background import Sky, Moon
 from pfs.ga.pfsspec.sim.obsmod.observations import PfsObservation
 from pfs.ga.pfsspec.sim.obsmod.pipelines import StellarModelPipeline
-from pfs.ga.pfsspec.core.psf import PcaPsf, GaussPsf
+from pfs.ga.pfsspec.core.obsmod.psf import PcaPsf, GaussPsf
 from pfs.ga.pfsspec.stellar.rvfit import RVFit
 
 class TestRVFit(StellarTestBase):
@@ -62,6 +63,8 @@ class TestRVFit(StellarTestBase):
         pp.model_res = grid.resolution or 150000
         pp.mag_filter = filter
         pp.observation = obs
+        pp.noise_level = noise_level
+        pp.noise_freeze = True
 
         args = {
             'mag': 22,
@@ -77,8 +80,6 @@ class TestRVFit(StellarTestBase):
         }
 
         pp.run(spec, **args)
-
-        spec.flux = spec.flux + noise_level * spec.flux_err * np.random.normal(size=spec.flux.shape)
 
         return spec
 
@@ -179,12 +180,3 @@ class TestRVFit(StellarTestBase):
         plt.axvline(rv, color='r')
         
         self.save_fig()
-
-    def test_run(self):
-        
-        
-        rvfit = RVFit()
-        rvfit.grid = self.get_bosz_grid()
-        rvfit.psf = self.get_test_psf()
-        
-        rvfit.run(spec)

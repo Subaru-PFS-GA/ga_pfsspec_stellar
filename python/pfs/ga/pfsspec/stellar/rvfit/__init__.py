@@ -1,1 +1,1 @@
-from .rvfit import RVFit
+from .rvfit import RVFit, RVFitTrace

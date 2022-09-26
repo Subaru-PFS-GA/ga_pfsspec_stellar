@@ -1,13 +1,25 @@
 import numpy as np
 from scipy.optimize import curve_fit, minimize
 
+class RVFitTrace():
+    def __init__(self):
+        self.template = None
+        self.guess_rv = None
+        self.guess_log_L = None
+        self.guess_fit = None
+        self.guess_function = None
+        self.guess_params = None
+        self.guess_cov = None
+
 class RVFit():
-    def __init__(self, orig=None):
+    def __init__(self, trace=None, orig=None):
         
         if not isinstance(orig, RVFit):
+            self.trace = trace
             self.grid = None
             self.psf = None
         else:
+            self.trace = orig.trace
             self.grid = orig.grid
             self.psf = orig.psf
 
@@ -161,6 +173,14 @@ class RVFit():
         y0, _, _ = self.get_log_L(spec, template, rv)
 
         pp, pcov = self.fit_lorentz(rv, y0)
+
+        if self.trace is not None:
+            self.trace.guess_rv = rv
+            self.trace.guess_log_L = y0
+            self.trace.guess_fit = self.lorentz(rv, *pp)
+            self.trace.guess_function = 'lorentz'
+            self.trace.guess_params = pp
+            self.trace.guess_cov = pcov
 
         return pp[1]
 
