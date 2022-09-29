@@ -1,9 +1,9 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from pfs.ga.pfsspec.core.physics import Physics
 
 from test.pfs.ga.pfsspec.stellar.stellartestbase import StellarTestBase
+from pfs.ga.pfsspec.core.physics import Physics
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
@@ -12,8 +12,10 @@ from pfs.ga.pfsspec.sim.obsmod import Detector
 from pfs.ga.pfsspec.sim.obsmod.background import Sky, Moon
 from pfs.ga.pfsspec.sim.obsmod.observations import PfsObservation
 from pfs.ga.pfsspec.sim.obsmod.pipelines import StellarModelPipeline
+from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
 from pfs.ga.pfsspec.core.obsmod.psf import PcaPsf, GaussPsf
 from pfs.ga.pfsspec.stellar.rvfit import RVFit
+from pfs.ga.pfsspec.core.obsmod.resampling import Interp1dResampler
 
 class TestRVFit(StellarTestBase):
     def get_test_spectrum(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
@@ -65,6 +67,7 @@ class TestRVFit(StellarTestBase):
         pp.observation = obs
         pp.noise_level = noise_level
         pp.noise_freeze = True
+        pp.calibration = FluxCalibrationBias()
 
         args = {
             'mag': 22,
@@ -87,6 +90,7 @@ class TestRVFit(StellarTestBase):
         rvfit = RVFit()
         rvfit.grid = self.get_bosz_grid()
         rvfit.psf = self.get_test_psf()
+        rvfit.resampler = Interp1dResampler()
         return rvfit
 
     def test_get_observation(self):
@@ -100,13 +104,13 @@ class TestRVFit(StellarTestBase):
 
         temp = rvfit.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
 
-    def test_rebin_template(self):
+    def test_resample_template(self):
         rvfit = self.get_rvfit()
 
         temp = rvfit.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation()
 
-        temp = rvfit.rebin_template(temp, 100, spec)
+        temp = rvfit.resample_template(temp, 100, spec)
 
     def test_get_log_L(self):
         rvfit = self.get_rvfit()
@@ -180,3 +184,13 @@ class TestRVFit(StellarTestBase):
         plt.axvline(rv, color='r')
         
         self.save_fig()
+
+# Run when profiling
+
+# $ python -m cProfile -o tmp/tmp.prof python/test/pfs/ga/pfsspec/stellar/rvfit/test_rvfit.py
+# $ python -m snakeviz --server tmp/tmp.prof
+
+# t = TestRVFit()
+# t.setUpClass()
+# t.setUp()
+# t.test_fit_rv()

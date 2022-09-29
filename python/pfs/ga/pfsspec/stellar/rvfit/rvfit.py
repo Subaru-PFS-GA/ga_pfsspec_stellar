@@ -18,10 +18,18 @@ class RVFit():
             self.trace = trace
             self.grid = None
             self.psf = None
+            self.resampler = None
+
+            self.rv0 = None
+            self.rv_bounds = None
         else:
             self.trace = orig.trace
             self.grid = orig.grid
             self.psf = orig.psf
+            self.resampler = orig.resampler
+
+            self.rv0 = orig.rv0
+            self.rv_bounds = orig.rv_bounds
 
     def get_template(self, convolve=True, **kwargs):
         """
@@ -40,7 +48,7 @@ class RVFit():
 
         return temp
 
-    def rebin_template(self, template, rv, spec):
+    def resample_template(self, template, rv, spec):
         """
         Shift and rebin template to match the wavelength grid of `spec`.
         """
@@ -50,7 +58,7 @@ class RVFit():
         temp.set_rv(rv)
 
         # TODO: this uses pysynphot to rebin, which might be too slow
-        temp.rebin(spec.wave, spec.wave_edges)
+        temp.apply_resampler(self.resampler, spec.wave, spec.wave_edges)
 
         return temp
 
@@ -77,7 +85,7 @@ class RVFit():
         s2 = spec.flux_err ** 2
 
         for i in range(v0.size):
-            temp = self.rebin_template(template, v0[i], spec)
+            temp = self.resample_template(template, v0[i], spec)
             phi[i] = np.sum(spec.flux * temp.flux / s2)
             chi[i] = np.sum(temp.flux ** 2 / s2)
             nu[i] = phi[i] / np.sqrt(chi[i])
@@ -93,15 +101,15 @@ class RVFit():
 
         return nu, phi, chi
 
-    def get_fisher(self, spec, template, rv, step=1.0):
+    def get_fisher(self, spec, template, rv, rv_step=1.0):
         """
         Calculate the Fisher matrix numerically from a local finite difference
         around `rv` in steps of `step`.
         """
 
-        temp0 = self.rebin_template(template, rv, spec)
-        temp1 = self.rebin_template(template, rv + step, spec)
-        temp2 = self.rebin_template(template, rv - step, spec)
+        temp0 = self.resample_template(template, rv, spec)
+        temp1 = self.resample_template(template, rv + rv_step, spec)
+        temp2 = self.resample_template(template, rv - rv_step, spec)
 
         # Calculate the centered diffence of the flux
         d1  = 0.5 * (temp2.flux - temp1.flux)
@@ -122,7 +130,7 @@ class RVFit():
         F01 = a0 * psi01
         F11 = a0 ** 2 * (psi02 - phi02 / a0 + psi11)
 
-        F  = np.array([[F00,F01],[F01,F11]])
+        F  = np.array([[F00, F01], [F01, F11]])
 
         return F
 
@@ -191,12 +199,20 @@ class RVFit():
         If no initial guess is provided, rv0 is determined automatically.
         """
 
-        def llh(rv):
-            nu, _, _ = self.get_log_L(spec, template, rv)
-            return -nu
+        rv0 = rv0 if rv0 is not None else self.rv0
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+
+        # No initial RV estimate provided, try to guess it and save it for later
 
         if rv0 is None:
             rv0 = self.guess_rv(spec, template, rv_bounds=rv_bounds, rv_steps=rv_steps)
+            self.rv0 = rv0
+
+        # Run optimization for log_L
+
+        def llh(rv):
+            nu, _, _ = self.get_log_L(spec, template, rv)
+            return -nu
 
         out = minimize(llh, [rv0], method=method)
         
