@@ -1,7 +1,11 @@
 import numpy as np
 
+from pfs.ga.pfsspec.core.obsmod.resampling.interp1dresampler import Interp1dResampler
+
 from .stellartestbase import StellarTestBase
 from pfs.ga.pfsspec.core import Spectrum
+from pfs.ga.pfsspec.core.obsmod.resampling import Interp1dResampler
+from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
 
 class TestSpectrum(StellarTestBase):
     def get_test_spectrum(self):
@@ -18,25 +22,29 @@ class TestSpectrum(StellarTestBase):
 
         self.save_fig()
 
-    def test_rebin(self):
+    def test_apply_resampler(self):
+        res = Interp1dResampler()
+
         spec = self.get_test_spectrum()
         spec.plot()
 
         nwave = np.arange(3800, 6500, 2.7) + 2.7 / 2
-        spec.rebin(nwave, None)
+        spec.apply_resampler(res, nwave, None)
         spec.plot()
 
         self.assertEqual((1000,), spec.wave.shape)
         self.assertEqual((1000,), spec.flux.shape)
         self.save_fig()
 
-    def test_rebin_with_mask(self):
+    def test_resample_with_mask(self):
+        res = Interp1dResampler()
+
         spec = self.get_test_spectrum()
         spec.mask = np.arange(spec.wave.shape[0], dtype=np.int64)       # fake mask
         spec.plot()
 
         nwave = np.arange(3800, 6500, 2.7) + 2.7 / 2
-        spec.rebin(nwave, None)
+        spec.apply_resampler(res, nwave, None)
         spec.plot()
 
         self.assertEqual((1000,), spec.wave.shape)
@@ -229,12 +237,16 @@ class TestSpectrum(StellarTestBase):
 
         self.save_fig()
 
-    def test_add_calib_bias(self):
+    def test_apply_calibration(self):
+        res = Interp1dResampler()
+
         spec = self.get_test_spectrum()
-        spec.rebin(np.linspace(6300, 9700, 1200), None)
+        spec.apply_resampler(res, np.linspace(6300, 9700, 1200), None)
         spec.plot(xlim=(5000, 10000))
 
-        spec.add_calib_bias()
+        calibration = FluxCalibrationBias()
+
+        spec.apply_calibration(calibration)
         spec.plot()
 
         self.save_fig()
