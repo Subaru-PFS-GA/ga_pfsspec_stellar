@@ -217,7 +217,13 @@ class RVFit():
         out = minimize(llh, [rv0], method=method)
         
         if out.success:
-            return out.x[0]         # covariance?
+            # Calculate the error from the Fisher matrix
+            rv_fit = out.x[0]
+            F = self.get_fisher(spec, template, rv_fit)
+            iF = np.linalg.inv(F)
+            rv_err = np.sqrt(iF[1, 1])  # sigma
+
+            return rv_fit, rv_err
         else:
             raise Exception(f"Could not fit RV using `{method}`")
 

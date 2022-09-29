@@ -180,8 +180,10 @@ class TestRVFit(StellarTestBase):
         rv0 = rvfit.guess_rv(spec, temp)
         plt.axvline(rv0, color='k')
     
-        rv = rvfit.fit_rv(spec, temp)
+        rv, rv_err = rvfit.fit_rv(spec, temp)
         plt.axvline(rv, color='r')
+        plt.axvline(rv - rv_err, color='r')
+        plt.axvline(rv + rv_err, color='r')
         
         self.save_fig()
 
