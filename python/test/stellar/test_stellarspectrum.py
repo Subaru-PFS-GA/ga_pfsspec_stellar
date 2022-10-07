@@ -1,10 +1,8 @@
 import numpy as np
 
-from pfs.ga.pfsspec.core.obsmod.resampling.interp1dresampler import Interp1dResampler
-
 from .stellartestbase import StellarTestBase
 from pfs.ga.pfsspec.core import Spectrum
-from pfs.ga.pfsspec.core.obsmod.resampling import Interp1dResampler
+from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
 
 class TestSpectrum(StellarTestBase):
@@ -23,7 +21,7 @@ class TestSpectrum(StellarTestBase):
         self.save_fig()
 
     def test_apply_resampler(self):
-        res = Interp1dResampler()
+        res = FluxConservingResampler()
 
         spec = self.get_test_spectrum()
         spec.plot()
@@ -37,7 +35,7 @@ class TestSpectrum(StellarTestBase):
         self.save_fig()
 
     def test_resample_with_mask(self):
-        res = Interp1dResampler()
+        res = FluxConservingResampler()
 
         spec = self.get_test_spectrum()
         spec.mask = np.arange(spec.wave.shape[0], dtype=np.int64)       # fake mask
@@ -238,7 +236,7 @@ class TestSpectrum(StellarTestBase):
         self.save_fig()
 
     def test_apply_calibration(self):
-        res = Interp1dResampler()
+        res = FluxConservingResampler()
 
         spec = self.get_test_spectrum()
         spec.apply_resampler(res, np.linspace(6300, 9700, 1200), None)
