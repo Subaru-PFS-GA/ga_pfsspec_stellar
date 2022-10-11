@@ -3,6 +3,8 @@ from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 from collections.abc import Iterable
 
+from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
+
 class RVFitTrace():
     def __init__(self):
         self.templates = None
@@ -14,40 +16,52 @@ class RVFitTrace():
         self.guess_cov = None
 
 class RVFit():
-
-    # TODO: The current implementation expect the templates to be convolved down
-    #       to the resolution of the instrument and only applies Doppler shifting and
-    #       resampling during the fitting process. This is based on the assumption
-    #       that the PSF doesn't change significantly in the RV range we are fitting.
+    """
+    A basic RV fit implementation based on a non-linear maximum likelihood method.
+    It takes a single, high resolution template which is fitted to the observation.
+    Optionally, the template is convolved with the instrumental PSF after Doppler
+    shifting but before convolution.
+    """
 
     def __init__(self, trace=None, orig=None):
         
         if not isinstance(orig, RVFit):
-            self.trace = trace
-            self.resampler = None
+            self.trace = trace              # Collect debug info
 
-            self.rv0 = None
-            self.rv_bounds = None
+            self.template_psf = None        # Convolve template to instrument resolution
+            self.template_resampler = FluxConservingResampler()  # Resample template to instrument pixels
+
+            self.rv0 = None                 # RV initial guess
+            self.rv_bounds = None           # Find RV between these bounds
         else:
             self.trace = orig.trace
-            self.resampler = orig.resampler
+
+            self.template_psf = orig.template_psf
+            self.template_resampler = orig.template_resampler
 
             self.rv0 = orig.rv0
             self.rv_bounds = orig.rv_bounds
 
-    def resample_template(self, template, rv, wave, wave_edges):
+    def process_template(self, template, spectrum, rv):
         """
-        Shift and rebin template to match the wavelength grid of `spec`.
+        Preprocess the template to match the observation
         """
 
-        # Make a copy, not in-place update
-        temp = template.copy()
-        temp.set_rv(rv)
+        #   1. Make a copy, not in-place update
+        t = template.copy()
 
-        # TODO: this uses pysynphot to rebin, which might be too slow
-        temp.apply_resampler(self.resampler, wave, wave_edges)
+        #   2. Shift template to the desired RV
+        t.set_rv(rv)
 
-        return temp
+        #   3. If a PSF if provided, convolve down template to the instruments
+        #      resolution. Otherwise assume the template is already convolved.
+        if self.template_psf is not None:
+            t.convolve_psf(self.template_psf)
+
+        #   4. Resample template to the binning of the observation
+        t.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
+
+        return t
 
     def get_log_L(self, spectra, templates, rv):
         """
@@ -74,15 +88,16 @@ class RVFit():
         phi = np.zeros_like(rv0)
         chi = np.zeros_like(rv0)
 
-        # For each value of rv0, sum up log_L contributions from all
-        # spectrum - template pairs
+        # For each value of rv0, sum up log_L contributions from spectrum - template pairs
         for i in range(rv0.size):
             phi[i] = 0.0
             chi[i] = 0.0
 
             for spec, temp in zip(spectra, templates):
+                t = self.process_template(temp, spec, rv0[i])
+
                 s2 = spec.flux_err ** 2
-                t = self.resample_template(temp, rv0[i], spec.wave, spec.wave_edges)
+                
                 phi[i] += np.sum(spec.flux * t.flux / s2)
                 chi[i] += np.sum(t.flux ** 2 / s2)
                 
@@ -120,9 +135,9 @@ class RVFit():
         phi00 = 0.0
 
         for spec, temp in zip(spectra, templates):
-            temp0 = self.resample_template(temp, rv, spec.wave, spec.wave_edges)
-            temp1 = self.resample_template(temp, rv + rv_step, spec.wave, spec.wave_edges)
-            temp2 = self.resample_template(temp, rv - rv_step, spec.wave, spec.wave_edges)
+            temp0 = self.process_template(temp, spec, rv)
+            temp1 = self.process_template(temp, spec, rv + rv_step)
+            temp2 = self.process_template(temp, spec, rv - rv_step)
 
             # Calculate the centered diffence of the flux
             d1  = 0.5 * (temp2.flux - temp1.flux)
@@ -239,10 +254,9 @@ class RVFit():
         
         # Univariate
         if rv_bounds is not None:
-            bracket = (rv_bounds[0], rv0, rv_bounds[1])
-            # fbracket = list(llh(b) for b in bracket)
-            # print(bracket)
-            # print(list(llh(b) for b in bracket))
+            # NOTE: scipy.optimize is sensitive to type of args
+            rv_bounds = tuple(float(b) for b in rv_bounds)
+            bracket = (rv_bounds[0], float(rv0), rv_bounds[1])
         else:
             bracket = None
 

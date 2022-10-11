@@ -95,7 +95,7 @@ class TestRVFit(StellarTestBase):
 
     def get_rvfit(self):
         rvfit = RVFit()
-        rvfit.resampler = FluxConservingResampler()
+        rvfit.template_resampler = FluxConservingResampler()
         return rvfit
 
     def test_get_observation(self):
@@ -104,13 +104,16 @@ class TestRVFit(StellarTestBase):
         spec.plot(xlim=(7000, 9000))
         self.save_fig()
 
-    def test_resample_template(self):
-        rvfit = self.get_rvfit()
-
-        temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+    def test_process_template(self):
         spec = self.get_observation()
+        
+        rvfit = self.get_rvfit()
+        temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+        temp = rvfit.process_template(temp, spec, 100)
 
-        temp = rvfit.resample_template(temp, 100, spec.wave, spec.wave_edges)
+        rvfit.template_psf = self.get_test_psf()
+        temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+        temp = rvfit.process_template(temp, spec, 100)
 
     def test_get_log_L(self):
         rvfit = self.get_rvfit()
