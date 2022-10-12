@@ -16,13 +16,15 @@ class PhoenixSpectrumReader(SpectrumReader):
     WL_START_OPTICAL = 3000
     WL_END_OPTICAL = 25000
 
-    def __init__(self, path=None, wave_lim=None, resolution=None, orig=None):
+    def __init__(self, path=None, wave_lim=None, resolution=None, version=None, orig=None):
         super(PhoenixSpectrumReader, self).__init__(wave_lim=wave_lim, orig=orig)
 
         if not isinstance(orig, PhoenixSpectrumReader):
+            self.version = version if version is not None else "1.0"
             self.path = path
             self.resolution = resolution
         else:
+            self.version = version if version is not None else orig.version
             self.path = path or orig.path
             self.resolution = resolution or orig.resolution
         
@@ -171,10 +173,14 @@ class PhoenixSpectrumReader(SpectrumReader):
     def get_url(self, **kwargs):
         # ftp://phoenix.astro.physik.uni-goettingen.de/HiResFITS//WAVE_PHOENIX-ACES-AGSS-COND-2011.fits
         # ftp://phoenix.astro.physik.uni-goettingen.de/HiResFITS/PHOENIX-ACES-AGSS-COND-2011/Z-1.5.Alpha=+0.60/lte06000-4.50-1.5.Alpha=+0.60.PHOENIX-ACES-AGSS-COND-2011-HiRes.fits
-        
-        url = 'ftp://phoenix.astro.physik.uni-goettingen.de/HiResFITS/PHOENIX-ACES-AGSS-COND-2011/'
-        url += self.get_filename(**kwargs)
 
+        if self.version == "1.0":
+            url = 'ftp://phoenix.astro.physik.uni-goettingen.de/HiResFITS/PHOENIX-ACES-AGSS-COND-2011/'
+            url += self.get_filename(**kwargs)
+        elif self.version == "2.0":
+            url = 'ftp://phoenix.astro.physik.uni-goettingen.de/v2.0/HiResFITS/PHOENIX-ACES-AGSS-COND-2011/'
+            url += self.get_filename(**kwargs)
+        
         return url
 
     @staticmethod

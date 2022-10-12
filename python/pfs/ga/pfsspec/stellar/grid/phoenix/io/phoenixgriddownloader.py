@@ -12,13 +12,23 @@ class PhoenixGridDownloader(ModelGridDownloader):
     def __init__(self, grid=None, orig=None):
         super(PhoenixGridDownloader, self).__init__(grid=grid, orig=orig)
 
-        if isinstance(orig, PhoenixGridDownloader):
-            pass
+        if not isinstance(orig, PhoenixGridDownloader):
+            self.version = "1.0"
         else:
-            pass
+            self.version = orig.version
+
+    def add_args(self, parser):
+        super().add_args(parser)
+
+        parser.add_argument('--phoenix-version', type=str, default="1.0", help='PHOENIX grid version')
+
+    def init_from_args(self, config, args):
+        super().init_from_args(config, args)
+
+        self.version = self.get_arg('phoenix_version', self.version, args)
 
     def create_grid(self):
         return ModelGrid(Phoenix(), ArrayGrid)
 
     def create_reader(self, input_path, output_path):
-        return PhoenixSpectrumReader(input_path)
+        return PhoenixSpectrumReader(input_path, version=self.version)
