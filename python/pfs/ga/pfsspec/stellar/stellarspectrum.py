@@ -6,7 +6,7 @@ from pfs.ga.pfsspec.core import Physics
 class StellarSpectrum(Spectrum):
     # TODO: make it a mixin instead of an inherited class
     def __init__(self, orig=None):
-        super(StellarSpectrum, self).__init__(orig=orig)
+        super().__init__(orig=orig)
         
         if isinstance(orig, StellarSpectrum):
             self.T_eff = orig.T_eff
