@@ -2,7 +2,7 @@ import numpy as np
 
 from pfs.ga.pfsspec.core.grid import GridConfig
 from pfs.ga.pfsspec.stellar import ModelSpectrum
-from pfs.ga.pfsspec.stellar.continuum.models import Chebyshev
+from pfs.ga.pfsspec.stellar.continuum.models import PiecewiseChebyshev
 from pfs.ga.pfsspec.stellar.continuum.models import Planck
 from pfs.ga.pfsspec.stellar.continuum.models import Alex
 from pfs.ga.pfsspec.stellar.continuum.models import Log
@@ -14,7 +14,7 @@ class ModelGridConfig(GridConfig):
     CONTINUUM_MODEL_TYPES = {
         'planck': Planck,
         'alex': Alex,
-        'chebyshev': Chebyshev,
+        'chebyshev': PiecewiseChebyshev,
         'log': Log,
     }
 

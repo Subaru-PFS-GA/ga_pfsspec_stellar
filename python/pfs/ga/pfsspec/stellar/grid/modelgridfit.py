@@ -117,7 +117,7 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         self.continuum_model.init_wave(self.input_grid.wave)
 
         # Allocate output grid
-        for p in self.continuum_model.get_model_parameters():
+        for p in self.continuum_model.get_interpolated_params():
             self.output_grid.grid.value_shapes[p.name] = self.params_grid.grid.value_shapes[p.name]
         
         # We do not save the continuum and flux at this step, so temporarily set
@@ -130,7 +130,7 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         self.output_grid.set_wave(self.params_grid.wave)
         self.output_grid.grid.set_constants(self.params_grid.grid.get_constants())
 
-        for p in self.continuum_model.get_model_parameters():
+        for p in self.continuum_model.get_interpolated_params():
             # Get original fit parameters from the input grid
             params = self.params_grid.grid.get_value(p.name)
 

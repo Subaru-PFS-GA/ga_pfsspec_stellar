@@ -142,7 +142,7 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         # as possible. Unfortunately, because of this, we cannot reuse the RBF
         # distance and kernel matrix.
 
-        for p in params_grid.continuum_model.get_model_parameters():
+        for p in params_grid.continuum_model.get_interpolated_params():
             # TODO: can we run this with a PcaGrid output?
             if params_grid.array_grid.has_value(p.name):
                 self.build_rbf(params_grid.array_grid, output_grid.rbf_grid,
@@ -154,7 +154,7 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         output_grid.set_constants(params_grid.get_constants())
         output_grid.set_wave(params_grid.get_wave())
 
-        for p in self.continuum_model.get_model_parameters():
+        for p in self.continuum_model.get_interpolated_params():
             self.copy_rbf(params_grid.grid, output_grid.grid.grid, p.name)
 
     def fit_flux(self, input_grid, output_grid):

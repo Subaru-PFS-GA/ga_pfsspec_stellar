@@ -150,7 +150,7 @@ class ModelGridBuilder():
         if isinstance(self.params_grid.grid, ArrayGrid):
             params_index = None
 
-            for p in self.continuum_model.get_model_parameters():
+            for p in self.continuum_model.get_interpolated_params():
                 pi, _ = self.get_params_index(p.name)
                 params_index = pi if params_index is None else params_index & pi
 
@@ -210,7 +210,7 @@ class ModelGridBuilder():
         output_idx = tuple(self.output_grid_index[:, i])
 
         params = {}
-        for p in self.continuum_model.get_model_parameters():
+        for p in self.continuum_model.get_interpolated_params():
             params[p.name] = self.params_grid.grid.get_value_at(p.name, params_idx)
 
         return params_idx, output_idx, params
@@ -219,7 +219,7 @@ class ModelGridBuilder():
         # Interpolate the params grid to a location defined by kwargs
 
         params = {}
-        for p in self.continuum_model.get_model_parameters():
+        for p in self.continuum_model.get_interpolated_params():
             v = self.params_grid.grid.get_value(p.name, **kwargs)
             params[p.name] = v
 

@@ -280,12 +280,12 @@ class ModelGrid(PfsObject):
         return spec
 
     def get_continuum_parameters(self, **kwargs):
-        names = [p.name for p in self.continuum_model.get_model_parameters()]
+        names = [p.name for p in self.continuum_model.get_interpolated_params()]
         params = self.grid.get_values(names=names, **kwargs)
         return params
 
     def get_continuum_parameters_at(self, idx):
-        names = [p.name for p in self.continuum_model.get_model_parameters()]
+        names = [p.name for p in self.continuum_model.get_interpolated_params()]
         params = self.grid.get_values_at(idx, names=names)
         return params
 
