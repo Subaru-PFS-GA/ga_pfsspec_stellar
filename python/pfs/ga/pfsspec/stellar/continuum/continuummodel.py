@@ -2,19 +2,32 @@ import numpy as np
 
 from pfs.ga.pfsspec.core import PfsObject
 
+class ContinuumModelTrace():
+    def __init__(self):
+        pass
+
+    def on_fit_function_iter(self, piece_id, iter, x, y, w, model, mask):
+        pass
+
 class ContinuumModel(PfsObject):
 
     PREFIX_CONTINUUM_MODEL = 'continumm_model'
 
-    def __init__(self, orig=None):
+    def __init__(self, continuum_finder=None, trace=None, orig=None):
         super().__init__()
 
-        if isinstance(orig, ContinuumModel):
-            self.wave = orig.wave
-            self.wave_mask = orig.wave_mask
-        else:
+        if not isinstance(orig, ContinuumModel):
+            self.trace = trace
+            self.continuum_finder = continuum_finder
+
             self.wave = None
             self.wave_mask = None
+        else:
+            self.trace = trace or orig.trace
+            self.continuum_finder = continuum_finder or orig.continuum_finder
+
+            self.wave = orig.wave
+            self.wave_mask = orig.wave_mask
 
     @property
     def name(self):
@@ -32,7 +45,7 @@ class ContinuumModel(PfsObject):
     def load_items(self):
         pass
 
-    def get_model_parameters(self):
+    def get_interpolated_params(self):
         return []
 
     def get_constants(self, wave):
@@ -59,11 +72,19 @@ class ContinuumModel(PfsObject):
         # Initialize the values in a grid necessary to store the fitted parameters
         # These are the parameters that we store for each spectrum and not the grid-wide
         # constants that are the same for each spectrum.
-        for p in self.get_model_parameters():
+        for p in self.get_interpolated_params():
             grid.init_value(p.name)
 
     def allocate_values(self, grid):
         # Allocate the values in a grid necessary to store the fitted parameters
+        raise NotImplementedError()
+
+    def fill_params(self, name, params):
+        # Fill in the hole of the parameter grid
+        raise NotImplementedError()
+
+    def smooth_params(self, name, params):
+        # Smooth the parameter grid
         raise NotImplementedError()
 
     def fit(self, spec):
@@ -84,23 +105,83 @@ class ContinuumModel(PfsObject):
     def smooth_params(self, name, params):
         raise NotImplementedError()
 
-    def fit_model_simple(self, model, x, y, w=None, p0=None, max_deg=None):
-        # Simple chi2 fit to x and y with optional weights
-        params = model.fit(x, y, w=w, p0=p0, max_deg=max_deg)
-        return params
+    def fit_function(self, id, func, x, y, w=None, p0=None, mask=None, continuum_finder=None, **kwargs):
+        """
+        Fit a function to a set of points. If a continuum finder algorithm is set,
+        use that to identify points to fit to.
+        """
 
-    def fit_model_sigmaclip(self, model, x, y, w=None, p0=None, sigma_low=1, sigma_high=1):
-        w = w if w is not None else np.full(x.shape, 1.0)
-        m = np.full(x.shape, True)
-        p = p0
-        for i in range(5):
-            p = model.fit(x[m], y[m], w=w[m], p0=p)
-            f = model.eval(x, p)
+        param_count = func.get_param_count()
+        min_point_count = func.get_min_point_count()
+
+        continuum_finder = continuum_finder if continuum_finder is not None else self.continuum_finder
+
+        if mask is None:
+            mask = np.full_like(x, True, dtype=np.bool)
+        else:
+            mask = mask.copy()
             
-            # Sigma clipping
-            s = np.std(f - y)
-            m = (y < f + sigma_high * s) & (f - sigma_low * s < y)
-        return p
+        iter = 0
+        params = None
+        success = False
+        while True:
+            if iter == 0 and p0 is not None and self.continuum_finder is not None:
+                # Use initial parameter estimates in the first iteration
+                params = p0
+            else:
+                # Filter points based on the previous iteration of fitting
+                # and run fitting again
+                params = func.fit(x[mask], y[mask], 
+                    w=w[mask] if w is not None else None,
+                    p0=params, **kwargs)    
+            
+            if self.trace:
+                self.trace.on_fit_function_iter(id, iter, x, y, w, func.eval(x, params), mask)
+            
+            # We're always successful if it's a linear model and func.fit has been
+            # executed at least once.
+            # TODO: handle non-linear fitting with unsuccessful convergence here
+            #       this requires returning a success flag from func.fit
+            success = True  
+
+            # If we fit to all points withing the mask and there's no continuum finder
+            # to be executed iteratively, we're done, otherwise just do the iterations
+            if continuum_finder is None:
+                break
+
+            # Evaluate the model at the current parameters and run the continuum finder to
+            # filter out points that are not part of the continuum
+            model = func.eval(x, params)
+            mask, need_more_iter = continuum_finder.find(iter, x, y, w=w, mask=mask, model=model)
+            iter += 1
+
+            if not need_more_iter:
+                break
+
+            # Only continue fitting if we have enough data points
+            if mask.sum() < min_point_count:
+                break
+
+        if success:
+            return True, params
+        else:
+            return False, np.full(param_count, np.nan)
 
     def eval_model(self, model, x, params):
         return model.eval(x, params)
+
+#region Utility functions
+
+    def safe_log(self, x):
+        return np.log(np.where(x > 1e-7, x, np.nan))
+
+    def safe_log_error(self, x, sigma):
+        return np.where(x > 1e-7, sigma / x, np.nan)
+
+    def safe_exp(self, x):
+        return np.exp(np.where(x < 100, x, np.nan))
+
+    def safe_exp_error(self, x, sigma):
+        return np.where(x < 100, x * sigma, np.nan)
+
+#endregion

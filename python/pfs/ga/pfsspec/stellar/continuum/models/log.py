@@ -21,8 +21,8 @@ class Log(ContinuumModel):
     def name(self):
         return "log"
 
-    def get_model_parameters(self):
-        params = super(Log, self).get_model_parameters()
+    def get_interpolated_params(self):
+        params = super(Log, self).get_interpolated_params()
         params.append(ModelParameter(name='log'))
         return params
 

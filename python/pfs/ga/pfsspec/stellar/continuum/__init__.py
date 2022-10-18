@@ -1,2 +1,2 @@
-from .continuummodel import ContinuumModel
+from .continuummodel import ContinuumModel, ContinuumModelTrace
 from .modelparameter import ModelParameter

@@ -29,8 +29,8 @@ class Planck(ContinuumModel):
     def name(self):
         return "planck"
 
-    def get_model_parameters(self):
-        params = super(Planck, self).get_model_parameters()
+    def get_interpolated_params(self):
+        params = super(Planck, self).get_interpolated_params()
         params.append(ModelParameter(name='planck'))
         return params
 

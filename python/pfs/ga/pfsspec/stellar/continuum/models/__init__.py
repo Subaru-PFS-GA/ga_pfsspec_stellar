@@ -1,4 +1,4 @@
 from .alex import Alex
-from .chebyshev import Chebyshev
+from .piecewisechebyshev import PiecewiseChebyshev
 from .log import Log
 from .planck import Planck

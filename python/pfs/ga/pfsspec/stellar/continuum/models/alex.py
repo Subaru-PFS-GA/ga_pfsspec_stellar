@@ -8,13 +8,15 @@ import logging
 
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.util.array_filters import *
-from pfs.ga.pfsspec.stellar.continuum import ContinuumModel
-from pfs.ga.pfsspec.stellar.continuum import ModelParameter
-from pfs.ga.pfsspec.stellar.continuum.functions import Legendre
-from pfs.ga.pfsspec.stellar.continuum.functions import AlexSigmoid
+from ..continuummodel import ContinuumModel, ContinuumModelTrace
+from ..modelparameter import ModelParameter
+from ..functions import AlexSigmoid, Legendre
+from ..finders import SigmaClipping
 
-class AlexContinuumModelTrace():
+class AlexContinuumModelTrace(ContinuumModelTrace):
     def __init__(self):
+        super().__init__()
+
         self.model_cont = None
         self.model_blended = None
         self.norm_flux = None
@@ -151,12 +153,12 @@ class Alex(ContinuumModel):
         self.blended_bounds = self.load_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'blended_bounds')), np.ndarray, default=self.blended_bounds)
         self.limit_wave = self.load_item('/'.join((self.PREFIX_CONTINUUM_MODEL, 'limit_wave')), np.ndarray, default=self.limit_wave)
 
-    def get_model_parameters(self):
+    def get_interpolated_params(self):
         """
         Return parameters that will be interpolated across gridpoints
         """
 
-        params = super(Alex, self).get_model_parameters()
+        params = super(Alex, self).get_interpolated_params()
         params.append(ModelParameter(name='legendre',
                 rbf_method='solve',
                 rbf_function='multiquadric',
@@ -182,21 +184,6 @@ class Alex(ContinuumModel):
             k = m.get_param_count()
             grid.allocate_value('blended_' + str(i), (k,))
 
-#region Utility functions
-
-    def safe_log(self, x):
-        return np.log(np.where(x > 1e-7, x, np.nan))
-
-    def safe_log_error(self, x, sigma):
-        return np.where(x > 1e-7, sigma / x, np.nan)
-
-    def safe_exp(self, x):
-        return np.exp(np.where(x < 100, x, np.nan))
-
-    def safe_exp_error(self, x, sigma):
-        return np.where(x < 100, x * sigma, np.nan)
-
-#endregion
 #region Main entrypoints: fit, eval and normalize
 
     def fit(self, spec):
@@ -340,6 +327,7 @@ class Alex(ContinuumModel):
         if spec.flux_err is not None:
             spec.flux_err *= model_full
 
+        # TODO: what if we know the theoretical continuum?
         spec.cont = cont
 
     def denormalize_use_log_flux(self, spec, params, s=None):
@@ -783,8 +771,8 @@ class Alex(ContinuumModel):
         if self.trace is not None:
             self.trace.legendre_control_points[i] = (x, y, w)
 
-        # params = self.fit_model_simple(model, x, y, w=w, max_deg=max_deg)
-        params = self.fit_model_sigmaclip(model, x, y, sigma_low=2., sigma_high=2.)
+        continuum_finder = SigmaClipping(sigma=[2, 2], max_iter=5)
+        success, params = self.fit_function(0, model, x, y, continuum_finder=continuum_finder)
         
         # Find the minimum difference between the model fitted to the continuum
         # and the actual flux and shift the model to avoid big jumps.
