@@ -8,21 +8,49 @@ class StellarSpectrum(Spectrum):
     def __init__(self, orig=None):
         super().__init__(orig=orig)
         
-        if isinstance(orig, StellarSpectrum):
-            self.T_eff = orig.T_eff
-            self.T_eff_err = orig.T_eff_err
-            self.log_g = orig.log_g
-            self.log_g_err = orig.log_g_err
-        else:
+        if not isinstance(orig, StellarSpectrum):
+            self.Fe_H = np.nan
+            self.Fe_H_err = np.nan
+            self.M_H = np.nan
+            self.M_H_err = np.nan
+            self.C_M = np.nan
+            self.C_M_err = np.nan
+            self.O_M = np.nan
+            self.O_M_err = np.nan
+            self.a_M = np.nan
+            self.a_M_err = np.nan
+            
             self.T_eff = np.nan
             self.T_eff_err = np.nan
             self.log_g = np.nan
             self.log_g_err = np.nan
+        else:
+            self.Fe_H = orig.Fe_H
+            self.Fe_H_err = orig.Fe_H_err
+            self.M_H = orig.M_H
+            self.M_H_err = orig.M_H_err
+            self.a_M = orig.a_M
+            self.a_M_err = orig.a_M_err
+            self.C_M = orig.C_M
+            self.C_M_err = orig.C_M_err
+            self.O_M = orig.O_M
+            self.O_M_err = orig.O_M_err
+            self.T_eff = orig.T_eff
+            self.T_eff_err = orig.T_eff_err
+            self.log_g = orig.log_g
+            self.log_g_err = orig.log_g_err
 
     def get_param_names(self):
         params = super(StellarSpectrum, self).get_param_names()
-        params = params + ['T_eff', 'T_eff_err',
-                           'log_g', 'log_g_err']
+        params = params + [
+            'Fe_H', 'Fe_H_err',
+            'M_H', 'M_H_err',
+            'a_M', 'a_M_err',
+            'C_M', 'C_M_err',
+            'O_M', 'O_M_err',
+            'T_eff', 'T_eff_err',
+            'log_g', 'log_g_err']
+            
         return params
 
     def set_rv(self, rv):
@@ -49,8 +77,3 @@ class StellarSpectrum(Spectrum):
         radius = np.sqrt(l / (4 * np.pi * sb * t**4))
         return radius
 
-    def print_info(self):
-        super(StellarSpectrum, self).print_info()
-
-        print('T_eff=', self.T_eff)
-        print('log g=', self.log_g)

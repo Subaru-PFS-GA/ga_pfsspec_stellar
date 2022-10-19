@@ -12,29 +12,10 @@ class BoszSpectrum(KuruczSpectrum):
         super(BoszSpectrum, self).__init__(orig=orig)
 
         if not isinstance(orig, BoszSpectrum):
-            self.M_H = np.nan
-            self.M_H_err = np.nan
-            self.a_M = np.nan
-            self.a_M_err = np.nan
-            self.C_M = np.nan
-            self.C_M_err = np.nan
+            pass
         else:
-            self.M_H = orig.M_H
-            self.M_H_err = orig.M_H_err
-            self.a_M = orig.a_M
-            self.a_M_err = orig.a_M_err
-            self.C_M = orig.C_M
-            self.C_M_err = orig.C_M_err
-
-    def get_param_names(self):
-        params = super().get_param_names()
-        params = params + [
-            'M_H', 'M_H_err',
-            'a_M', 'a_M_err',
-            'C_M', 'C_M_err'
-        ]
-        return params
-
+            pass
+            
     def synthmag_carrie(self, filter, log_L):
         '''
         pass in a filter (filter), which is just a dataframe/structured array with columns of wavelength and throughput. Here, 
@@ -66,9 +47,3 @@ class BoszSpectrum(KuruczSpectrum):
         b = -2.5 * np.log10(i2 / i3)
         
         return a + b + 18.6921
-
-    def print_info(self):
-        super(BoszSpectrum, self).print_info()
-
-        print('[M/H]=', self.M_H)
-        print('[a/M]=', self.a_M)

@@ -26,12 +26,3 @@ class ModelSpectrum(StellarSpectrum):
                            'L_H',
                            'interp_param']
         return params
-
-    def print_info(self):
-        super(ModelSpectrum, self).print_info()
-
-        print('N(He)=', self.N_He)
-        print('v_turb=', self.v_turb)
-        print('L/H=', self.L_H)
-        print('[C/M]=', self.C_M)
-        print('[O/M]=', self.O_M)
