@@ -148,7 +148,7 @@ def get_observation(arm, grid, obs, rv=0.0, noise_level=1.0, noise_freeze=True, 
         'moon_zenith_angle': 45,
         'moon_target_angle': 60,
         'moon_phase': 0.,
-        'redshift': Physics.vel_to_z(rv) 
+        'z': Physics.vel_to_z(rv) 
     }
 
     idx = grid.get_nearest_index(**kwargs)

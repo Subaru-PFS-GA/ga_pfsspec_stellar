@@ -86,7 +86,7 @@ class TestRVFit(StellarTestBase):
             'moon_zenith_angle': 45,
             'moon_target_angle': 60,
             'moon_phase': 0.,
-            'redshift': Physics.vel_to_z(rv)
+            'z': Physics.vel_to_z(rv)
         }
 
         pp.run(spec, **args)
