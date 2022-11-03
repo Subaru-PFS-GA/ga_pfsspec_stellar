@@ -6,14 +6,14 @@ from collections.abc import Iterable
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 
 class RVFitTrace():
-    def __init__(self):
-        self.templates = None
-        self.guess_rv = None
-        self.guess_log_L = None
-        self.guess_fit = None
-        self.guess_function = None
-        self.guess_params = None
-        self.guess_cov = None
+    def on_guess_rv(self, rv, log_L, fit, function, pp, pcov):
+        pass
+
+    def on_calculate_log_L(self, rv, spec, temp):
+        pass
+
+    def on_fit_rv(self, rv, spec, temp):
+        pass
 
 class RVFit():
     """
@@ -63,7 +63,7 @@ class RVFit():
 
         return t
 
-    def get_log_L(self, spectra, templates, rv):
+    def calculate_log_L(self, spectra, templates, rv):
         """
         Calculate the log-likelihood of an observed spectrum for a template with RV.
         Also return `phi` and `chi` for the Fisher matrix.
@@ -93,13 +93,18 @@ class RVFit():
             phi[i] = 0.0
             chi[i] = 0.0
 
+            tt = []
             for spec, temp in zip(spectra, templates):
                 t = self.process_template(temp, spec, rv0[i])
+                tt.append(t)
 
                 s2 = spec.flux_err ** 2
                 
                 phi[i] += np.sum(spec.flux * t.flux / s2)
                 chi[i] += np.sum(t.flux ** 2 / s2)
+
+            if self.trace is not None:
+                self.trace.on_calculate_log_L(rv0[i], spectra, tt)
                 
             nu[i] = phi[i] / np.sqrt(chi[i])
 
@@ -207,17 +212,12 @@ class RVFit():
         """
 
         rv = np.linspace(*rv_bounds, rv_steps)
-        y0, _, _ = self.get_log_L(spectra, templates, rv)
+        y0, _, _ = self.calculate_log_L(spectra, templates, rv)
 
         pp, pcov = self.fit_lorentz(rv, y0)
 
         if self.trace is not None:
-            self.trace.guess_rv = rv
-            self.trace.guess_log_L = y0
-            self.trace.guess_fit = self.lorentz(rv, *pp)
-            self.trace.guess_function = 'lorentz'
-            self.trace.guess_params = pp
-            self.trace.guess_cov = pcov
+            self.trace.on_guess_rv(rv, y0, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
 
         return pp[1]
 
@@ -246,7 +246,7 @@ class RVFit():
         # Run optimization for log_L
 
         def llh(rv):
-            nu, _, _ = self.get_log_L(spectra, templates, rv)
+            nu, _, _ = self.calculate_log_L(spectra, templates, rv)
             return -nu
 
         # Multivariate method
@@ -268,6 +268,13 @@ class RVFit():
             # Calculate the error from the Fisher matrix
             # rv_fit = out.x[0]
             rv_fit = out.x
+
+            if self.trace is not None:
+                tt = []
+                for spec, temp in zip(spectra, templates):
+                    t = self.process_template(temp, spec, rv_fit)
+                    tt.append(t)
+                self.trace.on_fit_rv(rv_fit, spectra, tt)
 
             F = self.get_fisher(spectra, templates, rv_fit)
             iF = np.linalg.inv(F)

@@ -115,23 +115,23 @@ class TestRVFit(StellarTestBase):
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         temp = rvfit.process_template(temp, spec, 100)
 
-    def test_get_log_L(self):
+    def test_calculate_log_L(self):
         rvfit = self.get_rvfit()
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation(rv=125)
 
         # Test with scalar
         rv = 100.0
-        y0, _, _ = rvfit.get_log_L(spec, temp, rv)
+        y0, _, _ = rvfit.calculate_log_L(spec, temp, rv)
         plt.plot(rv, y0, 'o')
 
         # Test with vector
         rv = np.linspace(-300, 300, 31)
-        y0, _, _ = rvfit.get_log_L(spec, temp, rv)
+        y0, _, _ = rvfit.calculate_log_L(spec, temp, rv)
 
         # Test with multiple spectra
         rv = 100.0
-        y0, _, _ = rvfit.get_log_L([spec, spec], [temp, temp], rv)
+        y0, _, _ = rvfit.calculate_log_L([spec, spec], [temp, temp], rv)
         plt.plot(rv, y0, 'o')
 
         plt.plot(rv, y0)
@@ -154,7 +154,7 @@ class TestRVFit(StellarTestBase):
         spec = self.get_observation(rv=125)
 
         rv = np.linspace(-300, 300, 31)
-        y0, _, _ = rvfit.get_log_L(spec, temp, rv)
+        y0, _, _ = rvfit.calculate_log_L(spec, temp, rv)
 
         pp, _ = rvfit.fit_lorentz(rv, y0)
 
@@ -179,7 +179,7 @@ class TestRVFit(StellarTestBase):
         spec = self.get_observation(rv=125)
 
         rv = np.linspace(-300, 300, 31)
-        y0, _, _ = rvfit.get_log_L(spec, temp, rv)
+        y0, _, _ = rvfit.calculate_log_L(spec, temp, rv)
         plt.plot(rv, y0, 'o')
 
         pp, _ = rvfit.fit_lorentz(rv, y0)
