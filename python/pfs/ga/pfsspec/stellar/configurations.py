@@ -7,6 +7,7 @@ from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszGridDownloader
 from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridReader
 from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridDownloader
 from pfs.ga.pfsspec.stellar.grid import ModelGridFit, ModelPcaGridBuilder, ModelRbfGridBuilder
+from pfs.ga.pfsspec.stellar.grid import ModelGridConverter
 from pfs.ga.pfsspec.learn.stellar import *
 
 from pfs.ga.pfsspec.learn.configurations import KERAS_DNN_MODEL_TYPES, TORCH_DNN_MODEL_TYPES
@@ -35,6 +36,18 @@ IMPORT_CONFIGURATIONS = {
         },
         'phoenix': {
             'type': PhoenixGridReader,
+            'pipelines': {
+                'basic': Pipeline
+            }
+        }
+    }
+}
+
+CONVERT_CONFIGURATIONS = {
+    'stellar-grid': {
+        'phoenix': {
+            'type': ModelGridConverter,
+            'config': Phoenix(),
             'pipelines': {
                 'basic': Pipeline
             }

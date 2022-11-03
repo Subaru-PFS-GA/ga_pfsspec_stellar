@@ -1,7 +1,5 @@
-import os
 import numpy as np
 from tqdm import tqdm
-import multiprocessing
 
 from pfs.ga.pfsspec.core.util.smartparallel import SmartParallel
 from pfs.ga.pfsspec.core.grid import GridBuilder
@@ -11,7 +9,9 @@ from pfs.ga.pfsspec.stellar.grid import ModelGridBuilder
 from pfs.ga.pfsspec.stellar.grid import ModelGridConfig
 
 class ModelGridFit(GridBuilder, ModelGridBuilder):
-    # Fit continuum models to stellar model spectra
+    """
+    Fit continuum models to stellar model spectra
+    """
 
     STEPS = ['fit', 'fill', 'smooth', 'norm']
 
