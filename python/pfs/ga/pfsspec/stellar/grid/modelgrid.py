@@ -361,7 +361,7 @@ class ModelGrid(PfsObject):
             spec = self.get_parameterized_spectrum(**kwargs)
             spec.flux = flux
             if self.grid.has_value('cont'):
-                spec.cont = self.grid.interpolate_value_linear('cont', **kwargs)
+                spec.cont, _ = self.grid.interpolate_value_linear('cont', **kwargs)
             return spec
         else:
             return None
