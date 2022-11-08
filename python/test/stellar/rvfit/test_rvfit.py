@@ -15,7 +15,7 @@ from pfs.ga.pfsspec.sim.obsmod.pipelines import StellarModelPipeline
 from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
 from pfs.ga.pfsspec.core.obsmod.psf import PcaPsf, GaussPsf
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.rvfit import RVFit
+from pfs.ga.pfsspec.stellar.rvfit import RVFit, RVFitTrace
 
 class TestRVFit(StellarTestBase):
     def get_test_spectrum(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
@@ -93,9 +93,25 @@ class TestRVFit(StellarTestBase):
 
         return spec
 
-    def get_rvfit(self):
-        rvfit = RVFit()
+    def get_rvfit(self, flux_correction=False):
+        trace = RVFitTrace()
+        rvfit = RVFit(trace=trace)
         rvfit.template_resampler = FluxConservingResampler()
+
+        if flux_correction:
+            def polys(wave):
+                npoly = 10
+                normwave = (wave - wave[0]) / (wave[-1] - wave[0]) * 2 - 1
+                polys = np.empty((wave.shape[0], npoly))
+
+                coeffs = np.eye(npoly)
+                for i in range(npoly):
+                    polys[:, i] = np.polynomial.Chebyshev(coeffs[i])(normwave)
+
+                return polys
+
+            rvfit.basis_functions = polys
+
         return rvfit
 
     def test_get_observation(self):
@@ -111,30 +127,82 @@ class TestRVFit(StellarTestBase):
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         temp = rvfit.process_template(temp, spec, 100)
 
-        rvfit.template_psf = self.get_test_psf()
+        psf = self.get_test_psf()
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
-        temp = rvfit.process_template(temp, spec, 100)
+        temp = rvfit.process_template(temp, spec, 100, psf=psf)
 
     def test_calculate_log_L(self):
         rvfit = self.get_rvfit()
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation(rv=125)
+        psf = self.get_test_psf()
 
         # Test with scalar
         rv = 100.0
-        y0, _, _ = rvfit.calculate_log_L(spec, temp, rv)
-        plt.plot(rv, y0, 'o')
+        rvfit.psf = {'mr': psf}
+        log_L, phi, chi = rvfit.calculate_log_L({'mr': spec}, {'mr': temp}, rv)
+        self.assertEqual((), log_L.shape)
+        self.assertEqual((), phi.shape)
+        self.assertEqual((), chi.shape)
+
+        plt.plot(rv, log_L, 'o')
 
         # Test with vector
         rv = np.linspace(-300, 300, 31)
-        y0, _, _ = rvfit.calculate_log_L(spec, temp, rv)
+        rvfit.psf = {'mr': psf}
+        log_L, phi, chi = rvfit.calculate_log_L({'mr': spec}, {'mr': temp}, rv)
+        self.assertEqual((31,), log_L.shape)
+        self.assertEqual((31,), phi.shape)
+        self.assertEqual((31,), chi.shape)
 
         # Test with multiple spectra
         rv = 100.0
-        y0, _, _ = rvfit.calculate_log_L([spec, spec], [temp, temp], rv)
-        plt.plot(rv, y0, 'o')
+        rvfit.psf = None
+        log_L, phi, chi = rvfit.calculate_log_L({'b': spec, 'mr': spec}, {'b': temp, 'mr': temp}, rv)
+        self.assertEqual((), log_L.shape)
+        self.assertEqual((), phi.shape)
+        self.assertEqual((), chi.shape)
 
-        plt.plot(rv, y0)
+        plt.plot(rv, log_L, 'o')
+
+        rv = np.linspace(-300, 300, 31)
+        rvfit.psf = {'b': psf, 'mr': psf}
+        log_L, phi, chi = rvfit.calculate_log_L({'b': spec, 'mr': spec}, {'b': temp, 'mr': temp}, rv)
+        self.assertEqual((31,), log_L.shape)
+        self.assertEqual((31,), phi.shape)
+        self.assertEqual((31,), chi.shape)
+        plt.plot(rv, log_L, 'o')
+
+        self.save_fig()
+
+    def test_calculate_log_L_flux_correction(self):
+        rvfit = self.get_rvfit(flux_correction=True)
+        temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+        spec = self.get_observation(rv=125)
+        psf = self.get_test_psf()
+
+        # Test with scalar
+        rv = 100.0
+        rvfit.psf = {'mr': psf}
+        log_L, phi, chi = rvfit.calculate_log_L({'mr': spec}, {'mr': temp}, rv)
+
+        # Test with vector
+        rv = np.linspace(-300, 300, 31)
+        rvfit.psf = {'mr': psf}
+        log_L, phi, chi = rvfit.calculate_log_L({'mr': spec}, {'mr': temp}, rv)
+        plt.plot(rv, log_L, 'o')
+
+        # Test with multiple spectra
+        rv = 100.0
+        rvfit.psf = None
+        log_L, phi, chi = rvfit.calculate_log_L({'b': spec, 'mr': spec}, {'b': temp, 'mr': temp}, rv)
+        plt.plot(rv, log_L, 'o')
+
+        rv = np.linspace(-300, 300, 31)
+        rvfit.psf = {'b': psf, 'mr': psf}
+        log_L, phi, chi = rvfit.calculate_log_L({'b': spec, 'mr': spec}, {'b': temp, 'mr': temp}, rv)
+        plt.plot(rv, log_L, 'o')
+
         self.save_fig()
 
     def test_get_fisher(self):
@@ -142,8 +210,8 @@ class TestRVFit(StellarTestBase):
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation(rv=125)
 
-        F = rvfit.get_fisher(spec, temp, 125.1)
-        F = rvfit.get_fisher([spec], [temp], 125.1)
+        F = rvfit.get_fisher({'mr': spec}, {'mr': temp}, 125.1)
+        F = rvfit.get_fisher({'b': spec, 'mr': spec}, {'b': temp, 'mr': temp}, 125.1)
 
         pass
 
@@ -154,13 +222,13 @@ class TestRVFit(StellarTestBase):
         spec = self.get_observation(rv=125)
 
         rv = np.linspace(-300, 300, 31)
-        y0, _, _ = rvfit.calculate_log_L(spec, temp, rv)
+        log_L, phi, chi = rvfit.calculate_log_L({'mr': spec}, {'mr': temp}, rv)
 
-        pp, _ = rvfit.fit_lorentz(rv, y0)
+        pp, _ = rvfit.fit_lorentz(rv, log_L)
 
         y1 = rvfit.lorentz(rv, *pp)
 
-        plt.plot(rv, y0, 'o')
+        plt.plot(rv, log_L, 'o')
         plt.plot(rv, y1, '-')
         self.save_fig()
 
@@ -170,7 +238,7 @@ class TestRVFit(StellarTestBase):
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation(rv=125)
 
-        rv0 = rvfit.guess_rv(spec, temp)
+        rv0 = rvfit.guess_rv({'mr': spec}, {'mr': temp})
 
     def test_fit_rv(self):
         rvfit = self.get_rvfit()
@@ -179,17 +247,17 @@ class TestRVFit(StellarTestBase):
         spec = self.get_observation(rv=125)
 
         rv = np.linspace(-300, 300, 31)
-        y0, _, _ = rvfit.calculate_log_L(spec, temp, rv)
-        plt.plot(rv, y0, 'o')
+        log_L, phi, chi = rvfit.calculate_log_L({'mr': spec}, {'mr': temp}, rv)
+        plt.plot(rv, log_L, 'o')
 
-        pp, _ = rvfit.fit_lorentz(rv, y0)
+        pp, _ = rvfit.fit_lorentz(rv, log_L)
         y1 = rvfit.lorentz(rv, *pp)
         plt.plot(rv, y1, '-')
 
-        rv0 = rvfit.guess_rv(spec, temp)
+        rv0 = rvfit.guess_rv({'mr': spec}, {'mr': temp})
         plt.axvline(rv0, color='k')
     
-        rv, rv_err = rvfit.fit_rv(spec, temp)
+        rv, rv_err = rvfit.fit_rv({'mr': spec}, {'mr': temp})
         plt.axvline(rv, color='r')
         plt.axvline(rv - rv_err, color='r')
         plt.axvline(rv + rv_err, color='r')
@@ -202,7 +270,7 @@ class TestRVFit(StellarTestBase):
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation(rv=125)
 
-        rv, rv_err = rvfit.fit_rv([spec, spec], [temp, temp])
+        rv, rv_err = rvfit.fit_rv({'b': spec, 'mr': spec}, {'b': temp, 'mr': temp})
 
 # Run when profiling
 

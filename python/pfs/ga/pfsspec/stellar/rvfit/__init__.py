@@ -1,2 +1,2 @@
 from .rvfit import RVFit, RVFitTrace
-from .modelgridrvfit import ModelGridRVFit
+from .modelgridrvfit import ModelGridRVFit, ModelGridRVFitTrace

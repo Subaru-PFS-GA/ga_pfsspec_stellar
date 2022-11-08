@@ -9,7 +9,7 @@ class RVFitTrace():
     def on_guess_rv(self, rv, log_L, fit, function, pp, pcov):
         pass
 
-    def on_calculate_log_L(self, rv, spec, temp):
+    def on_calculate_log_L(self, rv, spec, temp, log_L, phi, chi):
         pass
 
     def on_fit_rv(self, rv, spec, temp):
@@ -17,10 +17,8 @@ class RVFitTrace():
 
 class RVFit():
     """
-    A basic RV fit implementation based on a non-linear maximum likelihood method.
-    It takes a single, high resolution template which is fitted to the observation.
-    Optionally, the template is convolved with the instrumental PSF after Doppler
-    shifting but before convolution.
+    A basic RV estimation based on template fitting using a non-linear maximum likelihood or
+    maximum significance method. Templates are optionally convolved with the instrumental LSF.
     """
 
     def __init__(self, trace=None, orig=None):
@@ -28,21 +26,25 @@ class RVFit():
         if not isinstance(orig, RVFit):
             self.trace = trace              # Collect debug info
 
-            self.template_psf = None        # Convolve template to instrument resolution
+            self.template_psf = None        # Dict of psf to downgrade templates with
             self.template_resampler = FluxConservingResampler()  # Resample template to instrument pixels
 
-            self.rv0 = None                 # RV initial guess
+            self.rv_0 = None                # RV initial guess
             self.rv_bounds = None           # Find RV between these bounds
+
+            self.basis_functions = None     # Callable that provides the basis functions for flux correction / continuum fitting.
         else:
             self.trace = orig.trace
 
             self.template_psf = orig.template_psf
             self.template_resampler = orig.template_resampler
 
-            self.rv0 = orig.rv0
+            self.rv_0 = orig.rv_0
             self.rv_bounds = orig.rv_bounds
 
-    def process_template(self, template, spectrum, rv):
+            self.basis_functions = orig.basis_functions
+
+    def process_template(self, template, spectrum, rv, psf=None):
         """
         Preprocess the template to match the observation
         """
@@ -55,75 +57,103 @@ class RVFit():
 
         #   3. If a PSF if provided, convolve down template to the instruments
         #      resolution. Otherwise assume the template is already convolved.
-        if self.template_psf is not None:
-            t.convolve_psf(self.template_psf)
+        if psf is not None:
+            t.convolve_psf(psf)
 
         #   4. Resample template to the binning of the observation
         t.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
 
-        return t
+        return t    
 
     def calculate_log_L(self, spectra, templates, rv):
         """
         Calculate the log-likelihood of an observed spectrum for a template with RV.
-        Also return `phi` and `chi` for the Fisher matrix.
 
         It assumes that the template is already convolved down to the instrumental
         resolution.
-
-        Not to be used for the rv fitting, but rather for testing and error estimation.
         """
 
-        if not isinstance(spectra, Iterable):
-            spectra = [ spectra ]
-        if not isinstance(templates, Iterable):
-            templates = [ templates ]
-
         if not isinstance(rv, np.ndarray):
-            rv0 = np.array([rv])
+            rvv = np.array([rv])
         else:
-            rv0 = rv.flatten()
+            rvv = rv.flatten()
 
-        nu = np.zeros_like(rv0)
-        phi = np.zeros_like(rv0)
-        chi = np.zeros_like(rv0)
+        if self.basis_functions is None:
+            bases = None
 
+            phi = np.zeros(rvv.shape)
+            chi = np.zeros(rvv.shape)
+            log_L = np.zeros(rvv.shape)
+        else:
+            # Evaluate the basis for each spectrum
+            bases = {}
+            basis_size = None
+            for k in spectra:
+                spec = spectra[k]
+                bases[k] = self.basis_functions(spec.wave)
+                if basis_size is None:
+                    basis_size = bases[k].shape[-1]
+                elif basis_size != bases[k].shape[-1]:
+                    raise Exception('Inconsistent basis size')
+
+            phi = np.zeros(rvv.shape + (basis_size,))
+            chi = np.zeros(rvv.shape + (basis_size, basis_size))
+            log_L = np.zeros(rvv.shape)
+                
         # For each value of rv0, sum up log_L contributions from spectrum - template pairs
-        for i in range(rv0.size):
-            phi[i] = 0.0
-            chi[i] = 0.0
-
-            tt = []
-            for spec, temp in zip(spectra, templates):
-                t = self.process_template(temp, spec, rv0[i])
+        for i in range(rvv.size):
+            tt = []         # Collect preprocessed templates for tracing
+            cc = []         # Collect continuum basis functions for tracing
+            for k in spectra:
+                spec = spectra[k]
+                temp = templates[k]
+                psf = self.template_psf[k] if self.template_psf is not None else None
+                
+                t = self.process_template(temp, spec, rvv[i], psf=psf)
                 tt.append(t)
 
                 s2 = spec.flux_err ** 2
                 
-                phi[i] += np.sum(spec.flux * t.flux / s2)
-                chi[i] += np.sum(t.flux ** 2 / s2)
+                if bases is None:
+                    phi[i] += np.sum(spec.flux * t.flux / s2)
+                    chi[i] += np.sum(t.flux ** 2 / s2)
+                else:
+                    basis = bases[k]
+                    phi[i] += np.sum(spec.flux[:, None] * t.flux[:, None] * basis / s2[:, None], axis=0)
+                    chi[i] += np.sum(t.flux[:, None, None] ** 2 * np.matmul(basis[:, :, None], basis[:, None, :]) / s2[:, None, None], axis=0)
+
+            if bases is None:
+                log_L[i] = 0.5 * phi[i] ** 2 / chi[i]
+            else:
+                chi_inv = np.linalg.inv(chi[i])
+                chi_inv_phi = np.matmul(chi_inv, phi[i])
+                log_L[i] = 0.5 * np.dot(phi[i], chi_inv_phi)
 
             if self.trace is not None:
-                self.trace.on_calculate_log_L(rv0[i], spectra, tt)
-                
-            nu[i] = phi[i] / np.sqrt(chi[i])
+                self.trace.on_calculate_log_L(rvv[i], spectra, tt, log_L[i], phi[i], chi[i])
 
         if not isinstance(rv, np.ndarray):
-            nu = nu[0]
+            log_L = log_L[0]
             phi = phi[0]
             chi = chi[0]
         else:
-            nu = nu.reshape(rv.shape)
-            phi = phi.reshape(rv.shape)
-            chi = chi.reshape(rv.shape)
+            log_L = log_L.reshape(rv.shape)
+            if bases is None:
+                phi = phi.reshape(rv.shape)
+                chi = chi.reshape(rv.shape)
+            else:
+                phi = phi.reshape(rv.shape + (basis_size,))
+                chi = chi.reshape(rv.shape + (basis_size, basis_size))
 
-        return nu, phi, chi
+        return log_L, phi, chi
 
     def get_fisher(self, spectra, templates, rv, rv_step=1.0):
         """
         Calculate the Fisher matrix numerically from a local finite difference
         around `rv` in steps of `step`.
         """
+
+        # TODO: what if we are fitting the continuum as well?
 
         if not isinstance(spectra, Iterable):
             spectra = [ spectra ]
@@ -139,14 +169,17 @@ class RVFit():
         phi02 = 0.0
         phi00 = 0.0
 
-        for spec, temp in zip(spectra, templates):
-            temp0 = self.process_template(temp, spec, rv)
-            temp1 = self.process_template(temp, spec, rv + rv_step)
-            temp2 = self.process_template(temp, spec, rv - rv_step)
+        for k in spectra:
+            spec = spectra[k]
+            temp = templates[k]
+            psf = self.template_psf[k] if self.template_psf is not None else None
+            temp0 = self.process_template(temp, spec, rv, psf=psf)
+            temp1 = self.process_template(temp, spec, rv + rv_step, psf=psf)
+            temp2 = self.process_template(temp, spec, rv - rv_step, psf=psf)
 
             # Calculate the centered diffence of the flux
-            d1  = 0.5 * (temp2.flux - temp1.flux)
-            d2  = (temp1.flux + temp2.flux - 2 * temp0.flux)
+            d1  = 0.5 * (temp2.flux - temp1.flux) / rv_step
+            d2  = (temp1.flux + temp2.flux - 2 * temp0.flux) / rv_step
 
             # Build the different terms
             s2 = spec.flux_err ** 2
@@ -212,16 +245,16 @@ class RVFit():
         """
 
         rv = np.linspace(*rv_bounds, rv_steps)
-        y0, _, _ = self.calculate_log_L(spectra, templates, rv)
+        log_L, phi, chi = self.calculate_log_L(spectra, templates, rv)
 
-        pp, pcov = self.fit_lorentz(rv, y0)
+        pp, pcov = self.fit_lorentz(rv, log_L)
 
         if self.trace is not None:
-            self.trace.on_guess_rv(rv, y0, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
+            self.trace.on_guess_rv(rv, log_L, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
 
         return pp[1]
 
-    def fit_rv(self, spectra, templates, rv0=None, rv_bounds=(-500, 500), guess_rv_steps=31, method="Nelder-Mead"):
+    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), guess_rv_steps=31, method='Golden'):
         """
         Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
         Spectra are assumed to be of the same object in different wavelength ranges.
@@ -229,25 +262,20 @@ class RVFit():
         If no initial guess is provided, rv0 is determined automatically.
         """
 
-        if not isinstance(spectra, Iterable):
-            spectra = [ spectra ]
-        if not isinstance(templates, Iterable):
-            templates = [ templates ]
-
-        rv0 = rv0 if rv0 is not None else self.rv0
+        rv_0 = rv_0 if rv_0 is not None else self.rv_0
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
 
         # No initial RV estimate provided, try to guess it and save it for later
 
-        if rv0 is None:
-            rv0 = self.guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_steps=guess_rv_steps)
-            self.rv0 = rv0
+        if rv_0 is None:
+            rv_0 = self.guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_steps=guess_rv_steps)
+            self.rv_0 = rv_0
 
         # Run optimization for log_L
 
         def llh(rv):
-            nu, _, _ = self.calculate_log_L(spectra, templates, rv)
-            return -nu
+            log_L, phi, chi = self.calculate_log_L(spectra, templates, rv)
+            return -log_L
 
         # Multivariate method
         #out = minimize(llh, [rv0], method=method)
@@ -256,26 +284,31 @@ class RVFit():
         if rv_bounds is not None:
             # NOTE: scipy.optimize is sensitive to type of args
             rv_bounds = tuple(float(b) for b in rv_bounds)
-            bracket = (rv_bounds[0], float(rv0), rv_bounds[1])
+            bracket = (rv_bounds[0], float(rv_0), rv_bounds[1])
         else:
             bracket = None
 
-        out = minimize_scalar(llh, bracket=bracket, bounds=rv_bounds, method='Golden')
+        out = minimize_scalar(llh, bracket=bracket, bounds=rv_bounds, method=method)
 
         if out.success:
             # out.nit
-
-            # Calculate the error from the Fisher matrix
             # rv_fit = out.x[0]
             rv_fit = out.x
 
+            # If tracing, evaluate the template at the best fit RV.
+            # TODO: can we cache this for better performance?
             if self.trace is not None:
                 tt = []
-                for spec, temp in zip(spectra, templates):
-                    t = self.process_template(temp, spec, rv_fit)
+                for k in spectra:
+                    spec = spectra[k]
+                    temp = templates[k]
+                    psf = self.template_psf[k] if self.template_psf is not None else None
+                
+                    t = self.process_template(temp, spec, rv_fit, psf=psf)
                     tt.append(t)
                 self.trace.on_fit_rv(rv_fit, spectra, tt)
 
+            # Calculate the error from the Fisher matrix
             F = self.get_fisher(spectra, templates, rv_fit)
             iF = np.linalg.inv(F)
             rv_err = np.sqrt(iF[1, 1])  # sigma

@@ -299,7 +299,7 @@ def rvfit_mc_worker(i, rv=180, rv_bounds=(100, 300), calib_bias=False, mag=22, n
                 calib_bias=calib_bias, noise_level=noise_level, noise_freeze=False)
 
         # Reset initial value for optimization so that it will try to guess it from scratch
-        rvfit.rv0 = None
+        rvfit.rv_0 = None
 
     # Copy spectrum before generating the noise to keep original to be reused
     # when rv_gt is constant
