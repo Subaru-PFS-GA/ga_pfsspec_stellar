@@ -45,6 +45,13 @@ IMPORT_CONFIGURATIONS = {
 
 CONVERT_CONFIGURATIONS = {
     'stellar-grid': {
+        'bosz': {
+            'type': ModelGridConverter,
+            'config': Bosz(),
+            'pipelines': {
+                'basic': Pipeline
+            }
+        },
         'phoenix': {
             'type': ModelGridConverter,
             'config': Phoenix(),
