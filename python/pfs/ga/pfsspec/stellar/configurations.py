@@ -11,8 +11,8 @@ from pfs.ga.pfsspec.stellar.grid import ModelGridConverter
 from pfs.ga.pfsspec.learn.stellar import *
 
 from pfs.ga.pfsspec.learn.configurations import KERAS_DNN_MODEL_TYPES, TORCH_DNN_MODEL_TYPES
-from pfs.ga.pfsspec.learn.dnn.keras import KerasModelTrainer, KerasModelPredictor
-from pfs.ga.pfsspec.learn.dnn.torch import TorchModelTrainer
+from pfs.ga.pfsspec.learn.dnn import SimpleModelTrainer, AutoencodingModelTrainer
+from pfs.ga.pfsspec.learn.dnn import SimpleModelPredictor, AutoencodingModelPredictor
 
 
 DOWNLOAD_CONFIGURATIONS = {
@@ -97,23 +97,23 @@ PCA_CONFIGURATIONS = {
 TRAIN_CONFIGURATIONS = {
     'stellar-model': {
         'reg': {
-            'type': KerasModelTrainer,
+            'type': SimpleModelTrainer,
             'augmenter': ModelSpectrumRegressionalAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['reg']
         },
         'gen': {
-            'type': KerasModelTrainer,
+            'type': SimpleModelTrainer,
             'augmenter': ModelSpectrumGenerativeAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['gen']
         },
         'ae': {
-            'type': KerasModelTrainer,
+            'type': AutoencodingModelTrainer,
             'augmenter': ModelSpectrumAutoencodingAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['ae']
         },
 
         'ae-torch': {
-            'type': TorchModelTrainer,
+            'type': AutoencodingModelTrainer,
             'augmenter': ModelSpectrumAutoencodingAugmenter,
             'models': TORCH_DNN_MODEL_TYPES['ae-torch']
         }
@@ -124,17 +124,17 @@ TRAIN_CONFIGURATIONS = {
 PREDICT_CONFIGURATIONS = {
     'stellar-model': {
         'reg': {
-            'type': KerasModelPredictor,
+            'type': SimpleModelPredictor,
             'augmenter': ModelSpectrumRegressionalAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['reg']
         },
         'gen': {
-            'type': KerasModelPredictor,
+            'type': SimpleModelPredictor,
             'augmenter': ModelSpectrumGenerativeAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['gen']
         },
         'ae': {
-            'type': KerasModelPredictor,
+            'type': AutoencodingModelPredictor,
             'augmenter': ModelSpectrumAutoencodingAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['ae']
         }
