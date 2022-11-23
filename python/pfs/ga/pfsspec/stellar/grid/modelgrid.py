@@ -277,6 +277,7 @@ class ModelGrid(PfsObject):
         spec = self.config.create_spectrum()
         self.grid.set_object_params(spec, idx=idx, **kwargs)
         spec.wave = self.get_wave()
+        spec.resolution = self.resolution
         return spec
 
     def get_continuum_parameters(self, **kwargs):
