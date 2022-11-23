@@ -58,13 +58,6 @@ CONVERT_CONFIGURATIONS = {
             'pipelines': {
                 'basic': Pipeline
             }
-        },
-        'bosz': {
-            'type': ModelGridConverter,
-            'config': Bosz(),
-            'pipelines': {
-                'basic': Pipeline
-            }
         }
     }
 }
