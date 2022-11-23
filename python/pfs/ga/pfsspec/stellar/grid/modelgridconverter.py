@@ -1,6 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 
+from pfs.ga.pfsspec.core.util.args import *
 from pfs.ga.pfsspec.core.util.smartparallel import SmartParallel
 from pfs.ga.pfsspec.core.grid import GridBuilder
 from pfs.ga.pfsspec.core.grid import ArrayGrid
@@ -20,9 +21,11 @@ class ModelGridConverter(GridBuilder, ModelGridBuilder):
         ModelGridBuilder.__init__(self, grid_config, orig=orig)
 
         if isinstance(orig, ModelGridConverter):
+            self.resolution = orig.resolution
             self.pipeline = orig.pipeline
             self.grid_config = grid_config if grid_config is not None else orig.grid_config
         else:
+            self.resolution = None
             self.pipeline = None
             self.grid_config = grid_config
 
@@ -47,11 +50,14 @@ class ModelGridConverter(GridBuilder, ModelGridBuilder):
         GridBuilder.add_args(self, parser)
         ModelGridBuilder.add_args(self, parser)
 
+        parser.add_argument('--resolution', type=float, help='Input model resolution.')
+
     def init_from_args(self, config, args):
         GridBuilder.init_from_args(self, config, args)
         ModelGridBuilder.init_from_args(self, config, args)
 
         self.pipeline = self.create_pipeline(config['pipelines'][args[self.CONFIG_PIPELINE]], args)
+        self.resolution = get_arg('resolution', self.resolution, args)
 
     def create_pipeline(self, config, args=None):
         pipeline = config()
@@ -60,7 +66,10 @@ class ModelGridConverter(GridBuilder, ModelGridBuilder):
         return pipeline
 
     def create_input_grid(self):
-        return ModelGridBuilder.create_input_grid(self)
+        grid =  ModelGridBuilder.create_input_grid(self)
+        if self.resolution is not None:
+            grid.resolution = self.resolution
+        return grid
 
     def open_input_grid(self, input_path):
         return ModelGridBuilder.open_input_grid(self, input_path)
