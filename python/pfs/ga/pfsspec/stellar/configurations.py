@@ -12,7 +12,7 @@ from pfs.ga.pfsspec.learn.stellar import *
 
 from pfs.ga.pfsspec.learn.configurations import KERAS_DNN_MODEL_TYPES, TORCH_DNN_MODEL_TYPES
 from pfs.ga.pfsspec.learn.dnn.keras import KerasModelTrainer, KerasModelPredictor
-from pfs.ga.pfsspec.learn.dnn.torch import TorchModelTrainer
+from pfs.ga.pfsspec.learn.dnn.torch import TorchModelTrainer, TorchModelPredictor
 
 
 DOWNLOAD_CONFIGURATIONS = {
@@ -111,7 +111,11 @@ TRAIN_CONFIGURATIONS = {
             'augmenter': ModelSpectrumAutoencodingAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['ae']
         },
-
+        'reg-torch': {
+            'type': TorchModelPredictor,
+            'augmenter': ModelSpectrumRegressionalAugmenter,
+            'models': TORCH_DNN_MODEL_TYPES['reg-torch']
+        },
         'ae-torch': {
             'type': TorchModelTrainer,
             'augmenter': ModelSpectrumAutoencodingAugmenter,
@@ -137,6 +141,16 @@ PREDICT_CONFIGURATIONS = {
             'type': KerasModelPredictor,
             'augmenter': ModelSpectrumAutoencodingAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['ae']
-        }
+        },
+        'reg-torch': {
+            'type': TorchModelPredictor,
+            'augmenter': ModelSpectrumRegressionalAugmenter,
+            'models': TORCH_DNN_MODEL_TYPES['reg-torch']
+        },
+        'ae-torch' : {
+            'type': TorchModelPredictor,
+            'augmenter': ModelSpectrumAutoencodingAugmenter,
+            'models': TORCH_DNN_MODEL_TYPES['ae-torch']
+        },
     }
 }
