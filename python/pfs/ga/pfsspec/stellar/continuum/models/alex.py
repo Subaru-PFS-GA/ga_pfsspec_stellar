@@ -3,8 +3,12 @@ import numpy as np
 from scipy.signal import find_peaks
 from scipy.spatial import ConvexHull
 from scipy.interpolate import interp1d
-import alphashape
 import logging
+
+try:
+    import alphashape
+except:
+    alphashape = None
 
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.util.array_filters import *
@@ -635,6 +639,9 @@ class Alex(ContinuumModel):
         return x[ix], y[ix]
 
     def get_alpha_shape(self, x, y):
+        if alphashape is None:
+            raise Exception("Optional package alphashape is not available.")
+        
         # Determine the upper envelope from the alpha shape of points
         
         # Append two extreme low points at the beginning and the end
