@@ -118,11 +118,11 @@ TRAIN_CONFIGURATIONS = {
             'augmenter': ModelSpectrumAutoencodingAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['ae']
         },
-        'reg-torch': {
-            'type': SimpleModelTrainer,
-            'augmenter': ModelSpectrumRegressionalAugmenter,
-            'models': TORCH_DNN_MODEL_TYPES['reg-torch']
-        },
+        # 'reg-torch': {
+        #     'type': SimpleModelTrainer,
+        #     'augmenter': ModelSpectrumRegressionalAugmenter,
+        #     'models': TORCH_DNN_MODEL_TYPES['reg-torch']
+        # },
         'ae-torch': {
             'type': AutoencodingModelTrainer,
             'augmenter': ModelSpectrumAutoencodingAugmenter,
@@ -149,11 +149,11 @@ PREDICT_CONFIGURATIONS = {
             'augmenter': ModelSpectrumAutoencodingAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['ae']
         },
-        'reg-torch': {
-            'type': SimpleModelPredictor,
-            'augmenter': ModelSpectrumRegressionalAugmenter,
-            'models': TORCH_DNN_MODEL_TYPES['reg-torch']
-        },
+        # 'reg-torch': {
+        #     'type': SimpleModelPredictor,
+        #     'augmenter': ModelSpectrumRegressionalAugmenter,
+        #     'models': TORCH_DNN_MODEL_TYPES['reg-torch']
+        # },
         'ae-torch' : {
             'type': AutoencodingModelPredictor,
             'augmenter': ModelSpectrumAutoencodingAugmenter,
