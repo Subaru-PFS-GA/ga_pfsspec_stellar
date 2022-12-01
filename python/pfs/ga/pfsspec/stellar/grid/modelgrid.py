@@ -1,16 +1,16 @@
 import os
 import logging
 import itertools
+import importlib
 import numpy as np
+import h5py
 from random import choice
 from scipy.interpolate import RegularGridInterpolator, CubicSpline
 from scipy.interpolate import interp1d, interpn
 
 from pfs.ga.pfsspec.core import PfsObject
 from pfs.ga.pfsspec.core.util.array import *
-from pfs.ga.pfsspec.core.grid import ArrayGrid
-from pfs.ga.pfsspec.core.grid import RbfGrid
-from pfs.ga.pfsspec.core.grid import PcaGrid
+from pfs.ga.pfsspec.core.grid import ArrayGrid, RbfGrid, PcaGrid
 
 class ModelGrid(PfsObject):
     """Wraps an array or RBF grid, optionally PCA-compressed, and implements logic
@@ -45,6 +45,44 @@ class ModelGrid(PfsObject):
 
             self.wave_lim = orig.wave_lim
             self.wave_slice = orig.wave_slice
+
+    @classmethod
+    def from_file(cls, filename, preload_arrays=False, args=None):
+        """
+        Initializes a model grid from an HDF5 file by figuring out what configuration
+        and grid type to be used. This includes the config class, PCA and RBF.
+        """
+
+        # Peek into the HDF5 file
+        with h5py.File(filename, 'r') as f:
+            grid_type = f[ArrayGrid.PREFIX_GRID].attrs['type']
+            modelgrid_config = f[cls.PREFIX_MODELGRID].attrs['config']
+            modelgrid_type = f[cls.PREFIX_MODELGRID].attrs['type']
+
+            # This is an PCA grid if /grid/arrays/flux/pca exists
+            try:
+                _ = f['grid']['arrays']['flux']['pca']
+                is_pca = True
+            except KeyError:
+                is_pca = False
+
+        # These classes are imported into the namespace
+        grid_type = globals()[grid_type]
+        modelgrid_type = globals()[modelgrid_type]
+
+        # The grid config should be loaded manually
+        module = importlib.import_module(f'.{modelgrid_config.lower()}', 'pfs.ga.pfsspec.stellar.grid')
+        modelgrid_config_type = getattr(module, modelgrid_config)
+
+        # Instantiate the class
+        grid = modelgrid_type(modelgrid_config_type(pca=is_pca), grid_type)
+        grid.preload_arrays = preload_arrays
+        if args is not None:
+            grid.init_from_args
+        grid.load(filename, format='h5')
+
+        return grid
+
 
     @property
     def preload_arrays(self):

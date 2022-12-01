@@ -1,6 +1,6 @@
 import numpy as np
 
-from pfs.ga.pfsspec.stellar.grid import ModelGridConfig
+from ..modelgridconfig import ModelGridConfig
 from .boszspectrum import BoszSpectrum
 
 class Bosz(ModelGridConfig):

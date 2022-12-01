@@ -1,3 +1,6 @@
+import os
+
+from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from ..stellartestbase import StellarTestBase
 
 class TestModelGrid(StellarTestBase):
@@ -6,6 +9,27 @@ class TestModelGrid(StellarTestBase):
         grid = self.get_bosz_grid()
         grid.init_from_args(args)
         return grid
+
+    def test_from_file_arraygrid(self):
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/bosz/bosz_50000/spectra.h5')
+        grid = ModelGrid.from_file(filename)
+        self.assertIsNotNone(grid.array_grid)
+        self.assertIsNone(grid.rbf_grid)
+        self.assertIsNone(grid.pca_grid)
+
+    def test_from_file_rbf(self):
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/phoenix/phoenix_HiRes_GK/flux-rbf/spectra.h5')
+        grid = ModelGrid.from_file(filename)
+        self.assertIsNone(grid.array_grid)
+        self.assertIsNotNone(grid.rbf_grid)
+        self.assertIsNone(grid.pca_grid)
+
+    def test_from_file_pca_rbf(self):
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/phoenix/phoenix_HiRes_GK/pca-rbf/spectra.h5')
+        grid = ModelGrid.from_file(filename)
+        self.assertIsNone(grid.array_grid)
+        self.assertIsNotNone(grid.rbf_grid)
+        self.assertIsNotNone(grid.pca_grid)
 
     def test_init_from_args(self):
         args = {}
