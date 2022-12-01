@@ -53,6 +53,8 @@ class ModelGrid(PfsObject):
         and grid type to be used. This includes the config class, PCA and RBF.
         """
 
+        logging.info(f'Inferring model grid config and type from HDF5 file {filename}.')
+
         # Peek into the HDF5 file
         with h5py.File(filename, 'r') as f:
             grid_type = f[ArrayGrid.PREFIX_GRID].attrs['type']
@@ -73,6 +75,8 @@ class ModelGrid(PfsObject):
         # The grid config should be loaded manually
         module = importlib.import_module(f'.{modelgrid_config.lower()}', 'pfs.ga.pfsspec.stellar.grid')
         modelgrid_config_type = getattr(module, modelgrid_config)
+
+        logging.info(f'Inferred model grid type {modelgrid_type}({modelgrid_config}), pca={is_pca}')
 
         # Instantiate the class
         grid = modelgrid_type(modelgrid_config_type(pca=is_pca), grid_type)
