@@ -1,8 +1,4 @@
 import numpy as np
-import pysynphot
-import pysynphot.binning
-import pysynphot.spectrum
-import pysynphot.reddening
 from scipy.integrate import simps
 
 from pfs.ga.pfsspec.stellar.grid.kurucz import KuruczSpectrum
