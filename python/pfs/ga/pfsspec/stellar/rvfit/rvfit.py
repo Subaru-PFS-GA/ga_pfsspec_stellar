@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
+import numdifftools as nd
 from collections.abc import Iterable
 
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
@@ -32,7 +33,11 @@ class RVFit():
             self.rv_0 = None                # RV initial guess
             self.rv_bounds = None           # Find RV between these bounds
 
-            self.basis_functions = None     # Callable that provides the basis functions for flux correction / continuum fitting.
+            self.flux_corr = False          # Flux correction on/off
+            self.flux_corr_basis = None     # Callable that provides the basis functions for flux correction / continuum fitting.
+
+            self.spec_norm = None           # Spectrum (observation) normalization factor
+            self.temp_norm = None           # Template normalization factor
         else:
             self.trace = orig.trace
 
@@ -42,7 +47,30 @@ class RVFit():
             self.rv_0 = orig.rv_0
             self.rv_bounds = orig.rv_bounds
 
-            self.basis_functions = orig.basis_functions
+            self.flux_corr = orig.flux_corr
+            self.flux_corr_basis = orig.flux_corr_basis
+
+    def get_normalization(self, spectra, templates):
+        # Calculate a normalization factor for the spectra, as well as
+        # the templates assuming an RV=0 from the median flux. This is
+        # just a factor to bring spectra to the same scale and avoid
+        # very large numbers in the Fisher matrix
+
+        spec_flux = np.concatenate([spectra[k].flux for k in spectra])
+        temp_flux = np.concatenate([templates[k].flux for k in templates])
+
+        return np.median(spec_flux), np.median(temp_flux)
+
+    def process_spectrum(self, spectrum):
+        """
+        Preprocess the spectrum.
+        """
+
+        spec = spectrum.copy()
+        if self.spec_norm is not None:
+            spec.multiply(1.0 / self.spec_norm)
+
+        return spec
 
     def process_template(self, template, spectrum, rv, psf=None):
         """
@@ -52,25 +80,29 @@ class RVFit():
         #   1. Make a copy, not in-place update
         t = template.copy()
 
-        #   2. Shift template to the desired RV
+        # Normalize
+        if self.temp_norm is not None:
+            t.multiply(1.0 / self.temp_norm)
+
+        #   3. Shift template to the desired RV
         t.set_rv(rv)
 
-        #   3. If a PSF if provided, convolve down template to the instruments
+        #   4. If a PSF if provided, convolve down template to the instruments
         #      resolution. Otherwise assume the template is already convolved.
         if psf is not None:
             t.convolve_psf(psf)
 
-        #   4. Resample template to the binning of the observation
+        #   5. Resample template to the binning of the observation
         t.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
 
         return t    
 
-    def calculate_log_L(self, spectra, templates, rv):
+    def eval_phi_chi(self, spectra, templates, rv):
         """
         Calculate the log-likelihood of an observed spectrum for a template with RV.
 
         It assumes that the template is already convolved down to the instrumental
-        resolution.
+        resolution but not resampled to the instrumental bins yet.
         """
 
         if not isinstance(rv, np.ndarray):
@@ -78,19 +110,20 @@ class RVFit():
         else:
             rvv = rv.flatten()
 
-        if self.basis_functions is None:
+        if not self.flux_corr:
             bases = None
 
             phi = np.zeros(rvv.shape)
             chi = np.zeros(rvv.shape)
-            log_L = np.zeros(rvv.shape)
         else:
             # Evaluate the basis for each spectrum
+            # TODO: this can be cached because the spectrum doesn't
+            #       change between evaluations!
             bases = {}
             basis_size = None
             for k in spectra:
                 spec = spectra[k]
-                bases[k] = self.basis_functions(spec.wave)
+                bases[k] = self.flux_corr_basis(spec.wave)
                 if basis_size is None:
                     basis_size = bases[k].shape[-1]
                 elif basis_size != bases[k].shape[-1]:
@@ -98,46 +131,41 @@ class RVFit():
 
             phi = np.zeros(rvv.shape + (basis_size,))
             chi = np.zeros(rvv.shape + (basis_size, basis_size))
-            log_L = np.zeros(rvv.shape)
                 
         # For each value of rv0, sum up log_L contributions from spectrum - template pairs
         for i in range(rvv.size):
             tt = []         # Collect preprocessed templates for tracing
             cc = []         # Collect continuum basis functions for tracing
             for k in spectra:
-                spec = spectra[k]
-                temp = templates[k]
                 psf = self.template_psf[k] if self.template_psf is not None else None
                 
-                t = self.process_template(temp, spec, rvv[i], psf=psf)
-                tt.append(t)
+                spec = self.process_spectrum(spectra[k])
+                temp = self.process_template(templates[k], spec, rvv[i], psf=psf)
+                tt.append(temp)
 
                 s2 = spec.flux_err ** 2
                 
                 if bases is None:
-                    phi[i] += np.sum(spec.flux * t.flux / s2)
-                    chi[i] += np.sum(t.flux ** 2 / s2)
+                    phi[i] += np.sum(spec.flux * temp.flux / s2)
+                    chi[i] += np.sum(temp.flux ** 2 / s2)
+
+                    if self.trace is not None:
+                        log_L = self.eval_log_L(phi[i], chi[i])
+                        self.trace.on_calculate_log_L(rvv[i], spectra, tt, log_L, phi[i], chi[i])
                 else:
                     basis = bases[k]
-                    phi[i] += np.sum(spec.flux[:, None] * t.flux[:, None] * basis / s2[:, None], axis=0)
-                    chi[i] += np.sum(t.flux[:, None, None] ** 2 * np.matmul(basis[:, :, None], basis[:, None, :]) / s2[:, None, None], axis=0)
+                    phi[i] += np.sum(spec.flux[:, None] * temp.flux[:, None] * basis / s2[:, None], axis=0)
+                    chi[i] += np.sum(temp.flux[:, None, None] ** 2 * np.matmul(basis[:, :, None], basis[:, None, :]) / s2[:, None, None], axis=0)
 
-            if bases is None:
-                log_L[i] = 0.5 * phi[i] ** 2 / chi[i]
-            else:
-                chi_inv = np.linalg.inv(chi[i])
-                chi_inv_phi = np.matmul(chi_inv, phi[i])
-                log_L[i] = 0.5 * np.dot(phi[i], chi_inv_phi)
-
-            if self.trace is not None:
-                self.trace.on_calculate_log_L(rvv[i], spectra, tt, log_L[i], phi[i], chi[i])
+                    if self.trace is not None:
+                        # First dimension must index rv items
+                        log_L = self.eval_log_L(phi[np.newaxis, i], chi[np.newaxis, i])
+                        self.trace.on_calculate_log_L(rvv[i], spectra, tt, log_L[0], phi[i], chi[i])
 
         if not isinstance(rv, np.ndarray):
-            log_L = log_L[0]
             phi = phi[0]
             chi = chi[0]
         else:
-            log_L = log_L.reshape(rv.shape)
             if bases is None:
                 phi = phi.reshape(rv.shape)
                 chi = chi.reshape(rv.shape)
@@ -145,9 +173,111 @@ class RVFit():
                 phi = phi.reshape(rv.shape + (basis_size,))
                 chi = chi.reshape(rv.shape + (basis_size, basis_size))
 
+        return phi, chi
+
+    def eval_nu2(self, phi, chi):
+        # This doesn support vectorized inputs
+        if not self.flux_corr:
+            return phi ** 2 / chi
+        else:
+            chi_inv = np.linalg.inv(chi)
+            return np.dot(phi, np.matmul(chi_inv, phi))
+
+    def eval_log_L(self, phi, chi):
+        if not self.flux_corr:
+            log_L = np.empty(phi.shape)
+        else:
+            log_L = np.empty(phi.shape[:-1])
+
+        for i in np.ndindex(log_L.shape):
+            log_L[i] = 0.5 * self.eval_nu2(phi[i], chi[i])
+        
+        return log_L
+
+    def calculate_log_L(self, spectra, templates, rv):
+        phi, chi = self.eval_phi_chi(spectra, templates, rv)
+        log_L = self.eval_log_L(phi, chi)
+
         return log_L, phi, chi
 
-    def get_fisher(self, spectra, templates, rv, rv_step=1.0):
+    def calculate_rv_error(self, spectra, templates, rv, rv_step=1.0):
+        """
+        Calculate the RV fitting error around the best fit value using
+        numerical differentiation of the matrix elements of phi and chi.
+        """
+
+        def nu(rv):
+            phi, chi = self.eval_phi_chi(spectra, templates, rv)
+            return np.sqrt(self.eval_nu2(phi, chi))
+
+        # Second derivative by RV
+        dd_nu = nd.Derivative(nu, step=rv_step, n=2)
+
+        nu_0 = nu(rv)
+        dd_nu_0 = dd_nu(rv)
+
+        return -1.0 / (nu_0 * dd_nu_0)
+
+    def calculate_fisher(self, spectra, templates, rv_0, rv_step=1.0):
+        """
+        Calculate the full Fisher matrix using numerical differentiation around `rv`.
+        """
+
+        # We need to pack and unpack phi and chi because numdifftools don't
+        # properly handle multivariate functions of higher dimensions.
+
+        if not self.flux_corr:
+            def pack_phi_chi(phi, chi):
+                return np.array([phi, chi])
+
+            def unpack_phi_chi(phi_chi, size):
+                return phi_chi[0], phi_chi[1]
+
+            def phi_chi(rv):
+                phi, chi = self.eval_phi_chi(spectra, templates, rv)
+                return pack_phi_chi(phi, chi)
+
+            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+            a_0 = phi_0 / chi_0
+        else:
+            def pack_phi_chi(phi, chi):
+                return np.concatenate([phi.flatten(), chi.flatten()])
+
+            def unpack_phi_chi(phi_chi, size):
+                return phi_chi[:size], phi_chi[size:].reshape((size, size))
+
+            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+            a_0 = np.matmul(np.linalg.inv(chi_0), phi_0)
+
+        # First and second derivatives of the matrix elements by RV
+        def phi_chi(rv):
+            phi, chi = self.eval_phi_chi(spectra, templates, rv)
+            return pack_phi_chi(phi, chi)
+
+        d_phi_chi = nd.Derivative(phi_chi, step=rv_step)
+        dd_phi_chi = nd.Derivative(phi_chi, step=rv_step, n=2)
+
+        d_phi_0, d_chi_0 = unpack_phi_chi(d_phi_chi(rv_0), phi_0.size)
+        dd_phi_0, dd_chi_0 = unpack_phi_chi(dd_phi_chi(rv_0), phi_0.size)
+
+        if not self.flux_corr:
+            # TODO: use special calculations from Alex
+            F = np.empty((2, 2), dtype=phi_0.dtype)
+            F[0, 0] = chi_0
+            F[1, 0] = F[0, 1] = d_phi_0   # TODO: is this correct here?
+            F[1, 1] = -a_0 * dd_phi_0 + 0.5 * a_0**2 * dd_chi_0
+        else:
+            # Put together the Fisher matrix
+            ndf = phi_0.size
+            F = np.empty((ndf + 1, ndf + 1), dtype=phi_0.dtype)
+
+            F[:ndf, :ndf] = chi_0
+            F[-1, :-1] = F[:-1, -1] = -d_phi_0 + np.matmul(d_chi_0, a_0)
+            F[-1, -1] = - np.dot(a_0, dd_phi_0) + 0.5 * np.dot(a_0, np.matmul(dd_chi_0, a_0))
+
+        return F
+
+    def calculate_fisher_special(self, spectra, templates, rv, rv_step=1.0):
         """
         Calculate the Fisher matrix numerically from a local finite difference
         around `rv` in steps of `step`.
@@ -307,15 +437,15 @@ class RVFit():
                     t = self.process_template(temp, spec, rv_fit, psf=psf)
                     tt.append(t)
                 self.trace.on_fit_rv(rv_fit, spectra, tt)
-
-            # Calculate the error from the Fisher matrix
-            F = self.get_fisher(spectra, templates, rv_fit)
-            iF = np.linalg.inv(F)
-            rv_err = np.sqrt(iF[1, 1])  # sigma
-
-            return rv_fit, rv_err
         else:
             raise Exception(f"Could not fit RV using `{method}`")
+
+        # Calculate the error from the Fisher matrix
+        F = self.calculate_fisher(spectra, templates, rv_fit)
+        iF = np.linalg.inv(F)
+        rv_err = np.sqrt(iF[-1, -1])  # sigma
+
+        return rv_fit, rv_err
 
     def fit(self, spec):
         pass
