@@ -17,82 +17,10 @@ from pfs.ga.pfsspec.core.obsmod.psf import PcaPsf, GaussPsf
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 from pfs.ga.pfsspec.stellar.rvfit import ModelGridRVFit, ModelGridRVFitTrace
 
-class TestModelGridRVFit(StellarTestBase):
-    def get_test_spectrum(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
-        grid = self.get_bosz_grid()
-        spec = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
-        return grid, spec
+from .rvfittestbase import RVFitTestBase
 
-    def get_test_psf(self):
-        # fn = os.path.join(self.PFSSPEC_DATA_PATH, 'subaru/pfs/psf/import/mr.2/pca.h5')
-        # psf = PcaPsf()
-        # psf.load(fn, format='h5')
-
-        fn = os.path.join(self.PFSSPEC_DATA_PATH, 'subaru/pfs/psf/import/mr.2/gauss.h5')
-        psf = GaussPsf()
-        psf.load(fn, format='h5')
-
-        return psf
-
-    def get_template(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
-        grid = self.get_bosz_grid()
-        psf = self.get_test_psf()
-        temp = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
-        temp.convolve_psf(psf)
-        return temp
-
-    def get_observation(self, noise_level=1.0, rv=0.0, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
-        grid, spec = self.get_test_spectrum(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
-
-        fn = os.path.join(self.PFSSPEC_DATA_PATH, 'subaru/hsc/filters/HSC-g.txt')
-        filter = Filter()
-        filter.read(fn)
-
-        fn = os.path.join(self.PFSSPEC_DATA_PATH, 'subaru/pfs/noise/import/sky.see/mr/sky.h5')
-        sky = Sky()
-        sky.preload_arrays = True
-        sky.load(fn, format='h5')
-
-        fn = os.path.join(self.PFSSPEC_DATA_PATH, 'subaru/pfs/noise/import/moon/r/moon.h5')
-        moon = Moon()
-        moon.preload_arrays = True
-        moon.load(fn, format='h5')
-
-        fn = os.path.join(self.PFSSPEC_DATA_PATH, 'subaru/pfs/arms/mr.json')
-        detector = Detector()
-        detector.load_json(fn)
-        detector.psf = self.get_test_psf()
-
-        obs = PfsObservation()
-        obs.detector = detector
-        obs.sky = sky
-        obs.moon = moon
-
-        pp = StellarModelPipeline()
-        pp.model_res = grid.resolution or 150000
-        pp.mag_filter = filter
-        pp.observation = obs
-        pp.noise_level = noise_level
-        pp.noise_freeze = True
-        pp.calibration = FluxCalibrationBias()
-
-        args = {
-            'mag': 22,
-            'seeing': 0.5,
-            'exp_time': 15 * 60,
-            'exp_count': 4 * 3,
-            'target_zenith_angle': 0,
-            'target_field_angle': 0.0,
-            'moon_zenith_angle': 45,
-            'moon_target_angle': 60,
-            'moon_phase': 0.,
-            'z': Physics.vel_to_z(rv)
-        }
-
-        pp.run(spec, **args)
-
-        return spec
-
+class TestModelGridRVFit(RVFitTestBase):
+    
     def get_rvfit(self, flux_correction=False):
         trace = ModelGridRVFitTrace()
         rvfit = ModelGridRVFit(trace=trace)
@@ -114,9 +42,29 @@ class TestModelGridRVFit(StellarTestBase):
 
                 return polys
 
-            rvfit.basis_functions = polys
+            rvfit.flux_corr = True
+            rvfit.flux_corr_basis = polys
+
+        rvfit.params_fixed = [ 'a_M', 'C_M']
 
         return rvfit
+
+    def test_calculate_fisher_correction(self):
+        rvfit = self.get_rvfit(flux_correction=True)
+        temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+        spec = self.get_observation(rv=125)
+
+        rv_0 = 125.1
+        params_0 = dict(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+
+        F = rvfit.calculate_fisher({'mr': spec}, rv_0, params_0)
+        F = rvfit.calculate_fisher({'b': spec, 'mr': spec}, rv_0, params_0)
+
+        rvfit.spec_norm, rvfit.temp_norm = rvfit.get_normalization({'mr': spec}, {'mr': temp})
+        F = rvfit.calculate_fisher({'mr': spec}, {'mr': temp}, rv_0, params_0)
+
+        rvfit.spec_norm, rvfit.temp_norm = rvfit.get_normalization({'b': spec, 'mr': spec}, {'b': temp, 'mr': temp})
+        F = rvfit.calculate_fisher({'b': spec, 'mr': spec}, {'b': temp, 'mr': temp}, 125.1)
 
     def test_fit_rv(self):
         rvfit = self.get_rvfit(flux_correction=True)
