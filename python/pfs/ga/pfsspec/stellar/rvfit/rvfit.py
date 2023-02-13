@@ -44,6 +44,7 @@ class RVFit():
             self.temp_norm = None           # Template normalization factor
 
             self.use_mask = True            # Use mask from spectrum
+            self.use_weight = True          # Use weight from template, if available
         else:
             self.trace = orig.trace
 
@@ -63,6 +64,7 @@ class RVFit():
             self.temp_norm = orig.temp_norm
 
             self.use_mask = orig.use_mask
+            self.use_weight = orig.use_weight
 
     def get_normalization(self, spectra, templates):
         # Calculate a normalization factor for the spectra, as well as
@@ -106,6 +108,8 @@ class RVFit():
             #      resolution. Otherwise assume the template is already convolved.
             if psf is not None:
                 t.convolve_psf(psf)
+                
+            # TODO: calculate weight here, if weighting is requested
 
             return t
 
@@ -166,12 +170,18 @@ class RVFit():
             bases = {}
             basis_size = None
             for k in spectra:
-                spec = spectra[k]
-                bases[k] = self.flux_corr_basis(spec.wave)
-                if basis_size is None:
-                    basis_size = bases[k].shape[-1]
-                elif basis_size != bases[k].shape[-1]:
-                    raise Exception('Inconsistent basis size')
+                if not isinstance(spectra[k], list):
+                    specs = [spectra[k]]
+                else:
+                    specs = spectra[k]
+
+                bases[k] = []
+                for spec in specs:
+                    bases[k].append(self.flux_corr_basis(spec.wave))
+                    if basis_size is None:
+                        basis_size = bases[k][-1].shape[-1]
+                    elif basis_size != bases[k][-1].shape[-1]:
+                        raise Exception('Inconsistent basis size')
 
             phi = np.zeros(rvv.shape + (basis_size,))
             chi = np.zeros(rvv.shape + (basis_size, basis_size))
@@ -183,35 +193,38 @@ class RVFit():
             for k in spectra:
                 psf = self.template_psf[k] if self.template_psf is not None else None
                 
-                spec = self.process_spectrum(spectra[k])
-                temp = self.process_template(templates[k], spec, rvv[i], psf=psf)
-                tt.append(temp)
+                for ei in range(len(spectra[k])):
+                    spec = self.process_spectrum(spectra[k][ei])
+                    temp = self.process_template(templates[k], spec, rvv[i], psf=psf)
+                    tt.append(temp)
 
-                if self.use_mask:
-                    mask = ~spec.mask if spec.mask is not None else np.s_[:]
-                else:
-                    mask = np.s_[:]
+                    if self.use_mask:
+                        mask = ~spec.mask if spec.mask is not None else np.s_[:]
+                    else:
+                        mask = np.s_[:]
 
-                s2 = spec.flux_err ** 2
-                
-                if bases is None:
-                    phi[i] += np.sum(spec.flux[mask] * temp.flux[mask] / s2[mask])
-                    chi[i] += np.sum(temp.flux[mask] ** 2 / s2[mask])
+                    w = 1.0 / spec.flux_err ** 2
+                    if self.use_weight and temp.weight is not None:
+                        w = temp.weight * w
+                    
+                    if bases is None:
+                        phi[i] += np.sum(spec.flux[mask] * temp.flux[mask] * w[mask])
+                        chi[i] += np.sum(temp.flux[mask] ** 2 * w[mask])
 
-                    if self.trace is not None:
-                        log_L = self.eval_log_L(phi[i], chi[i])
-                        self.trace.on_calculate_log_L(rvv[i], spectra, tt, log_L, phi[i], chi[i])
-                else:
-                    basis = bases[k]
-                    # TODO: figure out where to use the mask on basis
-                    raise NotImplementedError()
-                    phi[i] += np.sum(spec.flux[mask, None] * temp.flux[mask, None] * basis / s2[mask, None], axis=0)
-                    chi[i] += np.sum(temp.flux[mask, None, None] ** 2 * np.matmul(basis[:, :, None], basis[:, None, :]) / s2[mask, None, None], axis=0)
+                        # TODO: only trace when all arms are fitted?
+                        if self.trace is not None:
+                            log_L = self.eval_log_L(phi[i], chi[i])
+                            self.trace.on_calculate_log_L(rvv[i], spectra, tt, log_L, phi[i], chi[i])
+                    else:
+                        basis = bases[k][ei]
+                        phi[i] += np.sum(spec.flux[mask, None] * temp.flux[mask, None] * basis[mask, :] * w[mask, None], axis=0)
+                        chi[i] += np.sum(temp.flux[mask, None, None] ** 2 * np.matmul(basis[mask, :, None], basis[mask, None, :]) * w[mask, None, None], axis=0)
 
-                    if self.trace is not None:
-                        # First dimension must index rv items
-                        log_L = self.eval_log_L(phi[np.newaxis, i], chi[np.newaxis, i])
-                        self.trace.on_calculate_log_L(rvv[i], spectra, tt, log_L[0], phi[i], chi[i])
+                        # TODO: only trace when all arms are fitted?
+                        if self.trace is not None:
+                            # First dimension must index rv items
+                            log_L = self.eval_log_L(phi[np.newaxis, i], chi[np.newaxis, i])
+                            self.trace.on_calculate_log_L(rvv[i], spectra, tt, log_L[0], phi[i], chi[i])
 
         if not isinstance(rv, np.ndarray):
             phi = phi[0]
@@ -436,7 +449,7 @@ class RVFit():
 
         return pp[1]
 
-    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), guess_rv_steps=31, method='Golden'):
+    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), guess_rv_steps=31, method='bounded'):
         """
         Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
         Spectra are assumed to be of the same object in different wavelength ranges.
@@ -452,9 +465,9 @@ class RVFit():
 
         # No initial RV estimate provided, try to guess it and save it for later
 
-        if rv_0 is None:
-            rv_0 = self.guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_steps=guess_rv_steps)
-            self.rv_0 = rv_0
+        # if rv_0 is None:
+        #     rv_0 = self.guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_steps=guess_rv_steps)
+        #     self.rv_0 = rv_0
 
         # Run optimization for log_L
 
@@ -465,15 +478,20 @@ class RVFit():
         # Multivariate method
         #out = minimize(llh, [rv0], method=method)
         
-        # Univariate
-        if rv_bounds is not None:
-            # NOTE: scipy.optimize is sensitive to type of args
-            rv_bounds = tuple(float(b) for b in rv_bounds)
-            bracket = (rv_bounds[0], float(rv_0), rv_bounds[1])
-        else:
-            bracket = None
+        # Univariate method
+        # NOTE: scipy.optimize is sensitive to type of args
+        rv_bounds = tuple(float(b) for b in rv_bounds)
+        bracket = None
+
+        # if rv_bounds is not None and rv_bounds[0] < rv_0 and rv_0 < rv_bounds[1]:
+        #     bracket = (rv_bounds[0], float(rv_0), rv_bounds[1])
+        # else:
+        #     bracket = None
             
-        out = minimize_scalar(llh, bracket=bracket, bounds=rv_bounds, method=method)
+        try:
+            out = minimize_scalar(llh, bracket=bracket, bounds=rv_bounds, method=method)
+        except Exception as ex:
+            raise ex
 
         # direct argmin method
         # rvv = np.linspace(100, 300, 400)
