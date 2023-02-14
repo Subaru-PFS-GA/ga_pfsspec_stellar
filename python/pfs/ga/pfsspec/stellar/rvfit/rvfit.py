@@ -191,10 +191,15 @@ class RVFit():
             tt = []         # Collect preprocessed templates for tracing
             cc = []         # Collect continuum basis functions for tracing
             for k in spectra:
+                if not isinstance(spectra[k], list):
+                    specs = [spectra[k]]
+                else:
+                    specs = spectra[k]
+
                 psf = self.template_psf[k] if self.template_psf is not None else None
                 
-                for ei in range(len(spectra[k])):
-                    spec = self.process_spectrum(spectra[k][ei])
+                for ei in range(len(specs)):
+                    spec = self.process_spectrum(specs[ei])
                     temp = self.process_template(templates[k], spec, rvv[i], psf=psf)
                     tt.append(temp)
 
