@@ -210,11 +210,15 @@ class TestRVFit(RVFitTestBase):
                     'rv',
                     'full',
                     'rv',
+                    'full',
+                    'full'
                 ], [
                     'hessian',
                     'hessian',
                     'emcee',
                     'sampling',
+                    'phi_chi',
+                    'alex'
                 ]):
                 FF, CC = rvfit.calculate_F(specs, temps, rv, mode=mode, method=method)
                 F[f'{mode}_{method}'] = FF

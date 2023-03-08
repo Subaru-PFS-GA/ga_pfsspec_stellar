@@ -562,10 +562,6 @@ class RVFit():
         p = np.polyfit(rvv, ll, 2)
         return np.array([[2.0 * p[0]]]), np.array([[-0.5 / p[0]]])
 
-
-    ###################
-
-    
     def eval_F_full_phi_chi(self, spectra, templates, rv_0, step=None):
         # Evaluate the Fisher matrix from the first and second derivatives of
         # phi and chi around rv_0, based on the flux correction formulate
@@ -618,8 +614,7 @@ class RVFit():
 
         return F, np.linalg.inv(F)
     
-    
-    def eval_F_full_alex(self, spectra, templates, rv, step=1.0):
+    def eval_F_full_alex(self, spectra, templates, rv, step=None):
         # Calculate the Fisher matrix numerically from a local finite difference
         # around `rv` in steps of `step`.
 
@@ -629,6 +624,9 @@ class RVFit():
             spectra = [ spectra ]
         if not isinstance(templates, Iterable):
             templates = [ templates ]
+
+        if step is None:
+            step = 0.001 * rv
 
         # TODO: Verify math in sum over spectra - templates
 
@@ -676,8 +674,12 @@ class RVFit():
     def calculate_F(self, spectra, templates, rv_0, step=None, mode='full', method='hessian'):
         # Calculate the Fisher matrix using different methods
 
-        return self.eval_F(spectra, templates, rv_0, step=step, mode=mode, method=method)
-
+        if mode == 'full' and method == 'phi_chi':
+            return self.eval_F_full_phi_chi(spectra, templates, rv_0, step=step)
+        elif mode == 'full' and method == 'alex':
+            return self.eval_F_full_alex(spectra, templates, rv_0, step=step)
+        else:
+            return self.eval_F(spectra, templates, rv_0, step=step, mode=mode, method=method)
 
     def eval_rv_error_alex(self, spectra, templates, rv_0, step=1.0):
         """
