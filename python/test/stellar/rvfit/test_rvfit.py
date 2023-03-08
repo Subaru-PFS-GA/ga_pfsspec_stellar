@@ -8,63 +8,17 @@ from .rvfittestbase import RVFitTestBase
 
 class TestRVFit(RVFitTestBase):
     
-    def get_rvfit(self, flux_correction=False):
+    def get_rvfit(self, flux_correction=False, **kwargs):
         trace = RVFitTrace()
         rvfit = RVFit(trace=trace)
         rvfit.template_resampler = FluxConservingResampler()
 
         if flux_correction:
-            def polys(wave):
-                npoly = 5
-                wmin = 3000
-                wmax = 12000
-                normwave = (wave - wmin) / (wmax - wmin) * 2 - 1
-                polys = np.empty((wave.shape[0], npoly))
-
-                coeffs = np.eye(npoly)
-                for i in range(npoly):
-                    polys[:, i] = np.polynomial.Chebyshev(coeffs[i])(normwave)
-
-                return polys
-
             rvfit.use_flux_corr = True
-            rvfit.flux_corr_basis = polys
+            rvfit.flux_corr_basis = RVFitTestBase.flux_correction_polys
 
         return rvfit
     
-    def get_initialized_rvfit(self, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp):
-        rv_real = 100
-        rvfit = self.get_rvfit(flux_correction=flux_correction)
-
-        if flux_correction:
-            phi_shape = (5,)
-            chi_shape = (5, 5)
-        else:
-            phi_shape = ()
-            chi_shape = ()
-
-        if multiple_arms:
-            arms = ['b', 'mr']
-        else:
-            arms = ['mr']
-
-        if multiple_exp:
-            specs = { k: [self.get_observation(arm=k, rv=rv_real, M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0) for _ in range(2)] for k in arms }
-        else:
-            specs = { k: self.get_observation(arm=k, rv=rv_real, M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0) for k in arms }
-        temps = { k: self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0) for k in arms}
-        psfs = { k: self.get_test_psf(k) for k in arms}
-
-        if convolve_template:
-            rvfit.psf = psfs
-        else:
-            rvfit.psf = None
-
-        if normalize:
-            rvfit.spec_norm, rvfit.temp_norm = rvfit.get_normalization(specs, temps)
-
-        return rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape
-
     def test_get_observation(self):
         spec = self.get_observation()
         
@@ -118,7 +72,7 @@ class TestRVFit(RVFitTestBase):
         wave, dfdl = rvfit.log_diff_template(temp, np.linspace(3000, 9000, 6000))
 
     def rvfit_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, calculate_log_L=False, fit_lorentz=False, guess_rv=False, fit_rv=False, calculate_error=False):
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp)
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp)
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -157,7 +111,7 @@ class TestRVFit(RVFitTestBase):
             ax.axvline(rv0, color='k', label='rv guess')
 
     def test_eval_flux_corr_basis(self):
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape = self.get_initialized_rvfit(True, True, True, True, True)
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(True, True, True, True, True)
 
         f, ax = plt.subplots(1, 1)
         
@@ -206,7 +160,7 @@ class TestRVFit(RVFitTestBase):
         self.save_fig(f)
 
     def rvfit_fit_rv_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp):
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp)
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp)
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -246,16 +200,26 @@ class TestRVFit(RVFitTestBase):
         f, axs = plt.subplots(len(configs), 1, squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape = self.get_initialized_rvfit(**config)
+            rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
             rv, rv_err = rvfit.fit_rv(specs, temps)
             F = {}
             C = {}
             err = {}
-            for method in ['full_phi_chi', 'full_hessian', 'rv_hessian', 'full_alex', 'full_emcee', 'rv_sampling']:
-                FF, CC = rvfit.calculate_F(specs, temps, rv, method=method)
-                F[method] = FF
-                C[method] = CC
-                err[method] = np.sqrt(CC[-1, -1])
+            for mode, method in zip([
+                    'full',
+                    'rv',
+                    'full',
+                    'rv',
+                ], [
+                    'hessian',
+                    'hessian',
+                    'emcee',
+                    'sampling',
+                ]):
+                FF, CC = rvfit.calculate_F(specs, temps, rv, mode=mode, method=method)
+                F[f'{mode}_{method}'] = FF
+                C[f'{mode}_{method}'] = CC
+                err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])
 
             pass
 
@@ -266,7 +230,7 @@ class TestRVFit(RVFitTestBase):
             dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
         ]
 
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape = self.get_initialized_rvfit(**configs[0])
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**configs[0])
         rvfit.calculate_rv_bouchy(specs, temps, rv_real)
 
 # Run when profiling

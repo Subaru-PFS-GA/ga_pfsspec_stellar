@@ -446,6 +446,125 @@ class RVFit():
         else:
             log_L = self.eval_log_L_a(phi, chi, a)
             return log_L, phi, chi
+        
+    #region Fisher matrix evaluation
+
+    # There are multiple ways of evaluating the Fisher matrix. Functions
+    # with _full_ return the full Fisher matrix including matrix elements for
+    # the flux correction coefficients and rv. Functions with _rv_ return
+    # the (single) matrix element corresponding to the RV only. Functions with
+    # _hessian depend on the numerical evaluation of the Hessian with respect
+    # to the parameters of the fitted model.
+
+    def eval_F(self, spectra, templates, rv_0, step=None, mode='full', method='hessian'):
+        # Evaluate the Fisher matrix around the provided rv_0. The corresponding
+        # a_0 best fit flux correction will be evaluated at the optimum.
+        # The Hessian will be calculated wrt either RV only, or rv and the
+        # flux correction coefficients. Alternatively, the covariance
+        # matrix will be determined using MCMC.
+
+        if mode == 'full' or mode == 'a_rv':
+            def pack_params(a, rv):
+                a_rv = np.concatenate([np.atleast_1d(a), np.atleast_1d(rv)])
+                return a_rv
+
+            def unpack_params(a_rv):
+                a = a_rv[:-1]
+                rv = a_rv[-1]
+                return a, rv
+
+            def log_L(a_rv):
+                a, rv = unpack_params(a_rv)
+                log_L, _, _ = self.calculate_log_L(spectra, templates, rv, a=a)
+                return np.asscalar(log_L)
+            
+            # Calculate a_0
+            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+            a_0 = self.eval_a(phi_0, chi_0)
+            x_0 = pack_params(a_0, rv_0)
+        elif mode == 'rv':
+            def pack_params(rv):
+                return np.atleast_1d(rv)
+
+            def unpack_params(params):
+                rv = params[0]
+                return rv
+
+            def log_L(params):
+                rv = unpack_params(params)
+                log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
+                return log_L
+            
+            x_0 = pack_params(rv_0)
+        else:
+            raise NotImplementedError()
+        
+        return self.eval_F_dispatch(x_0, log_L, step, method)
+
+    def eval_F_dispatch(self, x_0, log_L, step, method):
+        if method == 'hessian':
+            return self.eval_F_hessian(x_0, log_L, step)
+        elif method == 'emcee':
+            return self.eval_F_emcee(x_0, log_L, step)
+        elif method == 'sampling':
+            return self.eval_F_sampling(x_0, log_L, step)
+        else:
+            raise NotImplementedError()
+
+    def eval_F_hessian(self, x_0, log_L, step):
+        # Evaluate the Fisher matrix by calculating the Hessian numerically
+
+        # Default step size is 1% of optimum values
+        if step is None:
+            step = 0.01 * x_0
+
+        dd_log_L = nd.Hessian(log_L, step=step)
+        dd_log_L_0 = dd_log_L(x_0)
+
+        return dd_log_L_0, np.linalg.inv(-dd_log_L_0)
+
+    def eval_F_emcee(self, x_0, log_L, step):
+        # Evaluate the Fisher matrix by MC sampling around the optimum
+        ndim = x_0.size
+        nwalkers = 2 * x_0.size + 1
+        burnin = 100
+        samples = 100
+        p0 = (1 + np.random.uniform(size=(nwalkers, ndim)) * 0.1) * x_0
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L)
+        state = sampler.run_mcmc(p0, burnin, skip_initial_state_check=True)
+        sampler.reset()
+        sampler.run_mcmc(state, samples, skip_initial_state_check=True)
+        x = sampler.get_chain(flat=True)
+
+        # This is already the covanriance, we need its inverse here
+        C = np.cov(x.T)
+        return -np.linalg.inv(C), C
+    
+    def eval_F_sampling(self, x_0, log_L, step):
+        # Sample a bunch of RVs around the optimum and fit a parabola
+        # to obtain the error of RV            
+
+        # TODO: this only works for a single parameter only, can we
+        #       generalize to multiple parameters?
+
+        if x_0.size != 1:
+            # Currently fitting 1d parabola only
+            raise NotImplementedError()
+
+        # Default step size is 1% of optimum values
+        if step is None:
+            step = 0.01 * x_0
+
+        rvv = np.random.uniform(x_0 - step, x_0 + step, size=1000)
+        ll = np.empty_like(rvv)
+        for ix, rv in np.ndenumerate(rvv):
+            ll[ix] = log_L(np.atleast_1d(rv))
+        p = np.polyfit(rvv, ll, 2)
+        return np.array([[2.0 * p[0]]]), np.array([[-0.5 / p[0]]])
+
+
+    ###################
+
     
     def eval_F_full_phi_chi(self, spectra, templates, rv_0, step=None):
         # Evaluate the Fisher matrix from the first and second derivatives of
@@ -499,62 +618,6 @@ class RVFit():
 
         return F, np.linalg.inv(F)
     
-    def eval_F_full_hessian(self, spectra, templates, rv_0, step=None):
-        # Evaluate the Fisher matrix around the provided rv_0 and the corresponding
-        # a_0 best fit flux correction parameters by calculating the Hessian of
-        # the log likelihood numerically.
-
-        def pack_params(a, rv):
-            a_rv = np.concatenate([np.atleast_1d(a), np.atleast_1d(rv)])
-            return a_rv
-
-        def unpack_params(a_rv):
-            a = a_rv[:-1]
-            rv = a_rv[-1]
-            return a, rv
-
-        def log_L(a_rv):
-            a, rv = unpack_params(a_rv)
-            log_L, _, _ = self.calculate_log_L(spectra, templates, rv, a=a)
-            return np.asscalar(log_L)
-        
-        # Calculate a_0
-        phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
-        a_0 = self.eval_a(phi_0, chi_0)
-        
-        a_rv_0 = pack_params(a_0, rv_0)
-
-        # Evaluate the Hessian in the optimum
-        dd_log_L = nd.Hessian(log_L, step=step)
-        dd_log_L_0 = dd_log_L(a_rv_0)
-
-        return dd_log_L_0, np.linalg.inv(-dd_log_L_0)
-    
-    def eval_F_rv_hessian(self, spectra, templates, rv_0, step=None):
-        # Evaluate the second derivative of log_L numerically at the
-        # provided rv_0, along the manifold of best-fit flux correction
-        # parameters. This is basically the equivalent of calculating
-        # the second derivative of nu2.
-
-        def pack_params(rv):
-            return np.atleast_1d(rv)
-
-        def unpack_params(params):
-            rv = params[0]
-            return rv
-
-        def log_L(params):
-            rv = unpack_params(params)
-            log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
-            return log_L
-        
-        params_0 = pack_params(rv_0)
-                
-        # Evaluate the Hessian at the optimum
-        dd_log_L = nd.Hessian(log_L, step=step)
-        dd_log_L_0 = dd_log_L(params_0)
-
-        return dd_log_L_0, np.linalg.inv(-dd_log_L_0)
     
     def eval_F_full_alex(self, spectra, templates, rv, step=1.0):
         # Calculate the Fisher matrix numerically from a local finite difference
@@ -609,74 +672,12 @@ class RVFit():
         F  = np.array([[F00, F01], [F01, F11]])
 
         return -F, np.linalg.inv(F)
-    
-    def eval_F_full_emcee(self, spectra, templates, rv_0):
-        # Calculate the full Fisher matrix using MCMC around the provided
-        # rv_0 and the corresponding optimal flux correction coefficients a_0
-
-        def pack_params(a, rv):
-            a_rv = np.concatenate([np.atleast_1d(a), np.atleast_1d(rv)])
-            return a_rv
-
-        def unpack_params(a_rv):
-            a = a_rv[:-1]
-            rv = a_rv[-1]
-            return a, rv
-
-        def log_L(a_rv):
-            a, rv = unpack_params(a_rv)
-            log_L, _, _ = self.calculate_log_L(spectra, templates, rv, a=a)
-            return np.asscalar(log_L)
-        
-        # Calculate a_0
-        phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
-        a_0 = self.eval_a(phi_0, chi_0)
-        
-        a_rv_0 = pack_params(a_0, rv_0)
-
-        ndim = len(a_rv_0)
-        nwalkers = 2 * a_rv_0.size + 1
-        burnin = 100
-        samples = 100
-        p0 = (1 + np.random.uniform(size=(nwalkers, ndim)) * 0.1) * a_rv_0
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L)
-        state = sampler.run_mcmc(p0, burnin, skip_initial_state_check=True)
-        sampler.reset()
-        sampler.run_mcmc(state, samples, skip_initial_state_check=True)
-        a_rv = sampler.get_chain(flat=True)
-
-        # This is already the covanriance, we need its inverse here
-        C = np.cov(a_rv.T)
-        return -np.linalg.inv(C), C
-    
-    def eval_F_rv_sampling(self, spectra, templates, rv, step=1.0):
-        # Sample a bunch of RVs around the optimum and fit a parabola
-        # to obtain the error of RV
-
-        rvv = np.random.uniform(rv - step, rv + step, size=1000)
-        log_L, _, _ = self.calculate_log_L(spectra, templates, rvv)
-
-        p = np.polyfit(rvv, log_L, 2)
-
-        return np.array([[2.0 * p[0]]]), np.array([[-0.5 / p[0]]])
-    
-    def calculate_F(self, spectra, templates, rv_0, step=None, method='full_hessian'):
+       
+    def calculate_F(self, spectra, templates, rv_0, step=None, mode='full', method='hessian'):
         # Calculate the Fisher matrix using different methods
 
-        if method == 'full_phi_chi':
-            return self.eval_F_full_phi_chi(spectra, templates, rv_0, step=step)
-        elif method == 'full_hessian':
-            return self.eval_F_full_hessian(spectra, templates, rv_0, step=step)
-        elif method == 'rv_hessian':
-            return self.eval_F_rv_hessian(spectra, templates, rv_0, step=step)
-        elif method == 'full_alex':
-            return self.eval_F_full_alex(spectra, templates, rv_0, step=step if step is not None else 1.0)
-        elif method == 'full_emcee':
-            return self.eval_F_full_emcee(spectra, templates, rv_0)
-        elif method == 'rv_sampling':
-            return self.eval_F_rv_sampling(spectra, templates, rv_0)
-        else:
-            raise NotImplementedError()
+        return self.eval_F(spectra, templates, rv_0, step=step, mode=mode, method=method)
+
 
     def eval_rv_error_alex(self, spectra, templates, rv_0, step=1.0):
         """
@@ -696,9 +697,8 @@ class RVFit():
 
         return -1.0 / (nu_0 * dd_nu_0)
     
-    def calculate_rv_error(self, spectra, templates, rv_0, step=None):
-        pass
-
+    #endregion
+    
     @staticmethod
     def lorentz(x, a, b, c, d):
         return a / (1 + (x - b) ** 2 / c ** 2) + d
@@ -818,7 +818,7 @@ class RVFit():
             raise Exception(f"Could not fit RV using `{method}`")
 
         # Calculate the error from the Fisher matrix
-        _, C = self.eval_F_rv_hessian(spectra, templates, rv_fit)
+        _, C = self.eval_F(spectra, templates, rv_fit, mode='rv', method='hessian')
         rv_err = np.sqrt(C[-1, -1]) # sigma
 
         return rv_fit, rv_err

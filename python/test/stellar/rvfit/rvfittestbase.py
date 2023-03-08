@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 from pfs.ga.pfsspec.core.physics import Physics
 from pfs.ga.pfsspec.core.grid import ArrayGrid
@@ -15,6 +16,21 @@ from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
 from test.pfs.ga.pfsspec.stellar.stellartestbase import StellarTestBase
 
 class RVFitTestBase(StellarTestBase):
+
+    @staticmethod
+    def flux_correction_polys(wave):
+        npoly = 5
+        wmin = 3000
+        wmax = 12000
+        normwave = (wave - wmin) / (wmax - wmin) * 2 - 1
+        polys = np.empty((wave.shape[0], npoly))
+
+        coeffs = np.eye(npoly)
+        for i in range(npoly):
+            polys[:, i] = np.polynomial.Chebyshev(coeffs[i])(normwave)
+
+        return polys
+
     def get_test_grid(self):
         return self.get_bosz_grid()
 
@@ -92,3 +108,39 @@ class RVFitTestBase(StellarTestBase):
         pp.run(spec, **args)
 
         return spec
+    
+    def get_initialized_rvfit(self, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, **kwargs):
+        rv_real = 100
+        if kwargs is None or len(kwargs) == 0:
+            params_0 = dict(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+        
+        rvfit = self.get_rvfit(flux_correction=flux_correction, **params_0)
+       
+        if flux_correction:
+            phi_shape = (5,)
+            chi_shape = (5, 5)
+        else:
+            phi_shape = ()
+            chi_shape = ()
+
+        if multiple_arms:
+            arms = ['b', 'mr']
+        else:
+            arms = ['mr']
+
+        if multiple_exp:
+            specs = { k: [self.get_observation(arm=k, rv=rv_real, **params_0) for _ in range(2)] for k in arms }
+        else:
+            specs = { k: self.get_observation(arm=k, rv=rv_real, **params_0) for k in arms }
+        temps = { k: self.get_template(**params_0) for k in arms}
+        psfs = { k: self.get_test_psf(k) for k in arms}
+
+        if convolve_template:
+            rvfit.psf = psfs
+        else:
+            rvfit.psf = None
+
+        if normalize:
+            rvfit.spec_norm, rvfit.temp_norm = rvfit.get_normalization(specs, temps)
+
+        return rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0
