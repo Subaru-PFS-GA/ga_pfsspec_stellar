@@ -161,6 +161,9 @@ class ModelGrid(PfsObject):
     def set_axes(self, axes):
         self.grid.set_axes(axes)
 
+    def get_axis(self, key):
+        return self.grid.get_axis(key)
+
     def enumerate_axes(self, s=None, squeeze=False):
         return self.grid.enumerate_axes(s=s, squeeze=squeeze)
 
@@ -403,8 +406,11 @@ class ModelGrid(PfsObject):
         if flux is not None:
             spec = self.get_parameterized_spectrum(**kwargs)
             spec.flux = flux
-            if self.grid.has_value('cont'):
-                spec.cont, _ = self.grid.interpolate_value_linear('cont', **kwargs)
+
+            r = self.grid.interpolate_value_linear('cont', **kwargs)
+            if r is not None:
+                spec.cont, _ = r
+
             return spec
         else:
             return None

@@ -19,10 +19,25 @@ from pfs.ga.pfsspec.stellar.rvfit import ModelGridRVFit, ModelGridRVFitTrace
 
 from .rvfittestbase import RVFitTestBase
 
+class ModelGridRVFitTraceTest(ModelGridRVFitTrace):
+    def __init__(self):
+        super().__init__()
+
+        self.mcmc_x_0 = None
+        self.mcmc_x = None
+        self.mcmc_log_L = None
+
+    def on_eval_F_mcmc(self, x_0, x, log_L):
+        super().on_eval_F_mcmc(x_0, x)
+
+        self.mcmc_x_0 = x_0
+        self.mcmc_x = x
+        self.mcmc_log_L = log_L
+
 class TestModelGridRVFit(RVFitTestBase):
     
     def get_rvfit(self, flux_correction=False, **kwargs):
-        trace = ModelGridRVFitTrace()
+        trace = ModelGridRVFitTraceTest()
         rvfit = ModelGridRVFit(trace=trace)
         rvfit.params_0 = kwargs
         rvfit.template_resampler = FluxConservingResampler()
@@ -181,5 +196,28 @@ class TestModelGridRVFit(RVFitTestBase):
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])
 
             pass
+
+        self.save_fig(f)
+
+    def test_eval_F_emcee(self):
+        config = dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
+        rv, rv_err, params, params_err = rvfit.fit_rv(specs, rv_0=rv_real)
+
+        rvfit.calculate_F(specs, rv, params, mode='params_rv', method='emcee')
+
+        #
+
+        grid = rvfit.template_grids['mr']
+        params_free = [p for i, p, ax in grid.enumerate_axes() if p not in rvfit.params_fixed] + [ 'rv' ]
+
+        n = rvfit.trace.mcmc_x.shape[-1]
+        f, axs = plt.subplots(n, n, figsize=(2 * n, 2 * n), squeeze=False)
+
+        for i in range(n):
+            for j in range(i + 1):
+                axs[i, j].plot(rvfit.trace.mcmc_x[:, i], rvfit.trace.mcmc_x[:, j], '.')
+                axs[i, j].set_xlabel(params_free[i])
+                axs[i, j].set_ylabel(params_free[j])
 
         self.save_fig(f)

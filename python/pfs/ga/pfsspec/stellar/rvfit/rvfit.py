@@ -56,6 +56,9 @@ class RVFitTrace():
     def on_eval_log_L_a(self, phi, chi, a, log_L):
         self.eval_log_L_a_count += 1
 
+    def on_eval_F_mcmc(self, x_0, x, log_L):
+        pass
+
     def on_guess_rv(self, rv, log_L, fit, function, pp, pcov):
         pass
 
@@ -68,6 +71,8 @@ class RVFit():
     maximum significance method. Templates are optionally convolved with the instrumental LSF.
     The class supports various methods to determine the uncertainty of estimated parameters.
     """
+
+    # TODO: add cache flush logic
 
     def __init__(self, trace=None, orig=None):
         
@@ -501,46 +506,65 @@ class RVFit():
         
         return self.eval_F_dispatch(x_0, log_L, step, method)
 
-    def eval_F_dispatch(self, x_0, log_L, step, method):
+    def eval_F_dispatch(self, x_0, log_L_fun, step, method, bounds):
         if method == 'hessian':
-            return self.eval_F_hessian(x_0, log_L, step)
+            return self.eval_F_hessian(x_0, log_L_fun, step)
         elif method == 'emcee':
-            return self.eval_F_emcee(x_0, log_L, step)
+            return self.eval_F_emcee(x_0, log_L_fun, step, bounds)
         elif method == 'sampling':
-            return self.eval_F_sampling(x_0, log_L, step)
+            return self.eval_F_sampling(x_0, log_L_fun, step, bounds)
         else:
             raise NotImplementedError()
 
-    def eval_F_hessian(self, x_0, log_L, step):
+    def eval_F_hessian(self, x_0, log_L_fun, step):
         # Evaluate the Fisher matrix by calculating the Hessian numerically
 
         # Default step size is 1% of optimum values
         if step is None:
             step = 0.01 * x_0
 
-        dd_log_L = nd.Hessian(log_L, step=step)
+        dd_log_L = nd.Hessian(log_L_fun, step=step)
         dd_log_L_0 = dd_log_L(x_0)
 
         return dd_log_L_0, np.linalg.inv(-dd_log_L_0)
+    
+    def run_mcmc(self, x_0, log_L_fun, step, bounds):
+        if step is None:
+            step = 0.025
 
-    def eval_F_emcee(self, x_0, log_L, step):
-        # Evaluate the Fisher matrix by MC sampling around the optimum
         ndim = x_0.size
         nwalkers = 2 * x_0.size + 1
-        burnin = 100
-        samples = 100
-        p0 = (1 + np.random.uniform(size=(nwalkers, ndim)) * 0.1) * x_0
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L)
+        burnin = 1000
+        samples = 1000
+        
+        # Generate an initial state a little bit off of x_0
+        # TODO: randomizing this ways is not the best when RV is close to 0
+        p0 = (1 + np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step) * x_0
+        
+        # Make sure the initial state is inside the bounds
+        if bounds is not None:
+            p0 = np.where(bounds[0] < p0, p0, bounds[0])
+            p0 = np.where(bounds[1] > p0, p0, bounds[1])
+
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L_fun)
         state = sampler.run_mcmc(p0, burnin, skip_initial_state_check=True)
         sampler.reset()
         sampler.run_mcmc(state, samples, skip_initial_state_check=True)
-        x = sampler.get_chain(flat=True)
+
+        return p0, sampler.flatchain, sampler.flatlnprobability
+
+    def eval_F_emcee(self, x_0, log_L_fun, step, bounds):
+        # Evaluate the Fisher matrix by MC sampling around the optimum
+        p0, x, log_L = self.run_mcmc(x_0, log_L_fun, step, bounds)
+
+        if self.trace is not None:
+            self.trace.on_eval_F_mcmc(p0, x, log_L)
 
         # This is already the covanriance, we need its inverse here
         C = np.cov(x.T)
         return -np.linalg.inv(C), C
     
-    def eval_F_sampling(self, x_0, log_L, step):
+    def eval_F_sampling(self, x_0, log_L_fun, step, bounds):
         # Sample a bunch of RVs around the optimum and fit a parabola
         # to obtain the error of RV            
 
@@ -558,7 +582,7 @@ class RVFit():
         rvv = np.random.uniform(x_0 - step, x_0 + step, size=1000)
         ll = np.empty_like(rvv)
         for ix, rv in np.ndenumerate(rvv):
-            ll[ix] = log_L(np.atleast_1d(rv))
+            ll[ix] = log_L_fun(np.atleast_1d(rv))
         p = np.polyfit(rvv, ll, 2)
         return np.array([[2.0 * p[0]]]), np.array([[-0.5 / p[0]]])
 

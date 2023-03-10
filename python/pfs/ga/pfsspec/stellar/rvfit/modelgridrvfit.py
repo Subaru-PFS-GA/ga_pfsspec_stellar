@@ -91,6 +91,32 @@ class ModelGridRVFit(RVFit):
         
     #region Fisher matrix evaluation
 
+    def determine_grid_bounds(self, params_bounds, params_free):
+        if params_bounds is not None:
+            params_bounds = (
+                { p: params_bounds[p][0] for p in params_free },
+                { p: params_bounds[p][1] for p in params_free },
+            )
+        else:
+            # Param bounds are taken from grid limits, which is not the best solution
+            # with grids having jagged edges
+            grid = self.template_grids[list(self.template_grids.keys())[0]]
+
+            params_bounds = (
+                { p: grid.get_axis(p).values.min() for p in params_free },
+                { p: grid.get_axis(p).values.max() for p in params_free }
+            )
+
+        return params_bounds
+    
+    def determine_free_params(self, params_fixed):
+        # Enumerate grid parameters in order and filter out values that should be kept fixed
+        # Order is important because arguments are passed by position to the cost function
+
+        for k, grid in self.template_grids.items():
+            params_free = [p for i, p, ax in grid.enumerate_axes() if p not in params_fixed]
+            return params_free  # return from loop after very first iter!
+
     def eval_F(self, spectra, rv_0, params_0, params_fixed=None, step=None, mode='full', method='hessian'):
         # Evaluate the Fisher matrix around the provided rv_0 and params_0
         # values. The corresponding a_0 best fit flux correction will be
@@ -101,13 +127,22 @@ class ModelGridRVFit(RVFit):
 
         # Collect fixed template parameters
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
+        params_free = self.determine_free_params(params_fixed)
 
-        # Enumerate grid parameters in order and filter out values that should be kept fixed
-        # Order is important because arguments are passed by position to the cost function
-        for k in spectra:
-            grid = self.template_grids[k]
-            params_free = [p for i, p, ax in grid.enumerate_axes() if p not in params_fixed]
-            break
+        params_bounds = self.determine_grid_bounds(self.params_bounds, params_free)
+
+        if self.rv_bounds is not None:
+            rv_bounds = self.rv_bounds
+        else:
+            rv_bounds = np.array([-np.inf, np.inf])
+
+        if self.params_bounds and self.rv_bounds:
+            bounds = (
+                pack_params(np.full_like(a_0, -np.inf), self.params_bounds[0], self.rv_bounds[0])
+            )
+            bounds = (
+                np.concatenate()
+            )
 
         if mode == 'full' or mode == 'a_params_rv':
             def pack_params(a, params, rv):
@@ -133,7 +168,8 @@ class ModelGridRVFit(RVFit):
                 templates, missing = self.get_templates(spectra, params)
 
                 if missing:
-                    return np.inf
+                    # Trying to extrapolate outside the grid
+                    return -np.inf
                 else:
                     log_L, phi, chi = self.calculate_log_L(spectra, templates, rv, a=a)
                     return np.asscalar(log_L)
@@ -143,6 +179,11 @@ class ModelGridRVFit(RVFit):
             phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
             a_0 = self.eval_a(phi_0, chi_0)
             x_0 = pack_params(a_0, params_0, rv_0)
+
+            bounds = (
+                pack_params(np.full_like(a_0, -np.inf), params_bounds[0], rv_bounds[0]),
+                pack_params(np.full_like(a_0, np.inf), params_bounds[1], rv_bounds[1])
+            )
         elif mode == 'params_rv':
             def pack_params(params, rv):
                 return np.concatenate([
@@ -165,12 +206,18 @@ class ModelGridRVFit(RVFit):
                 templates, missing = self.get_templates(spectra, params)
 
                 if missing:
-                    return np.inf
+                    # Trying to extrapolate outside the grid
+                    return -np.inf
                 else:
                     log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
                     return np.asscalar(log_L)
                 
             x_0 = pack_params(params_0, rv_0)
+
+            bounds = (
+                pack_params(params_bounds[0], rv_bounds[0]),
+                pack_params(params_bounds[1], rv_bounds[1])
+            )
         elif mode == 'rv':
             def pack_params(rv):
                 return np.atleast_1d(rv)
@@ -184,155 +231,23 @@ class ModelGridRVFit(RVFit):
                 templates, missing = self.get_templates(spectra, params_0)
 
                 if missing:
-                    return np.inf
+                    # Trying to extrapolate outside the grid
+                    return -np.inf
                 else:
                     log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
                     return np.asscalar(log_L)
                 
             x_0 = np.atleast_1d(rv_0)
+            bounds = rv_bounds
         else:
             raise NotImplementedError()
 
-        return self.eval_F_dispatch(x_0, log_L, step, method)
-
+        return self.eval_F_dispatch(x_0, log_L, step, method, bounds)
+    
     def calculate_F(self, spectra, rv_0, params_0, params_fixed=None, step=None, mode='full', method='hessian'):
         # Calculate the Fisher matrix using different methods
 
         return self.eval_F(spectra, rv_0, params_0, params_fixed=params_fixed, step=step, mode=mode, method=method)
-
-        # TODO: DELETE
-        # if method == 'full_hessian':
-        #     return self.eval_F_full_hessian(spectra, rv_0, params_0, params_fixed=params_fixed, step=step)
-        # elif method == 'rv_params_hessian':
-        #     return self.eval_F_rv_params_hessian(spectra, rv_0, params_0, params_fixed=params_fixed, step=step)
-        # elif method == 'rv_hessian':
-        #     return self.eval_F_rv_hessian(spectra, rv_0, params_0, params_fixed=params_fixed, step=step)
-        # elif method == 'full_emcee':
-        #     return self.eval_F_full_emcee(spectra, rv_0, params_0, params_fixed=params_fixed, step=step)
-        # elif method == 'rv_sampling':
-        #     return self.eval_F_rv_sampling(spectra, rv_0, params_0, params_fixed=params_fixed, step=step)
-        # else:
-        #     raise NotImplementedError()
-
-    # TODO: merge with base-class
-    # def calculate_fisher(self, spectra, rv_0, params_0, rv_step=1.0, params_step=None):
-    #     """
-    #     Calculate the full Fisher matrix using numerical differentiation around `rv_0`
-    #     and `params_0`
-    #     """
-
-    #     # We need to pack and unpack phi and chi because numdifftools don't
-    #     # properly handle multivariate functions of higher dimensions.
-
-    #     # We'll have to pass the parameters to the functions in the same order,
-    #     # keep track of them now here.
-    #     param_keys = list(params_0.keys())
-
-    #     if not self.use_flux_corr:
-    #         def pack_phi_chi(phi, chi):
-    #             return np.array([phi, chi])
-
-    #         def unpack_phi_chi(phi_chi, size):
-    #             return phi_chi[0], phi_chi[1]
-    #     else:
-    #         def pack_phi_chi(phi, chi):
-    #             return np.concatenate([phi.flatten(), chi.flatten()])
-
-    #         def unpack_phi_chi(phi_chi, size):
-    #             var_shape = phi_chi.shape[1:]   # Variables
-    #             return phi_chi[:size], phi_chi[size:].reshape((size, size) + var_shape)
-
-    #     def pack_params_rv(params, rv):
-    #         params_rv = np.array([params[k] for i, k in enumerate(param_keys) if k not in self.params_fixed] + [rv])
-    #         params_fixed = {k: params[k] for i, k in enumerate(param_keys) if k in self.params_fixed}
-    #         return params_rv, params_fixed
-
-    #     def unpack_params_rv(params_rv, **params_fixed):
-    #         params = {k: params_rv[i] for i, k in enumerate(param_keys) if k not in self.params_fixed}
-    #         params.update(params_fixed)
-    #         rv = params_rv[-1]
-    #         return params, rv
-
-    #     # To work with numdifftools, we need to pack template parameters and rv
-    #     # into a numpy array
-    #     def phi_chi(params_rv, **params_fixed):
-    #         params, rv = unpack_params_rv(params_rv, **params_fixed)
-    #         templates, _ = self.get_templates(spectra, **params)
-    #         phi, chi = self.eval_phi_chi(spectra, templates, rv)
-    #         return pack_phi_chi(phi, chi)
-
-    #     # Calculate a_0
-    #     temp_0, _ = self.get_templates(spectra, **params_0)
-    #     phi_0, chi_0 = self.eval_phi_chi(spectra, temp_0, rv_0)
-    #     a_0 = self.eval_a(phi_0, chi_0)
-
-    #     # First and second derivatives of the matrix elements by the
-    #     # template parameters and RV
-
-    #     params_rv_0, params_fixed_0 = pack_params_rv(params_0, rv_0)
-
-    #     ## TODO: add step size (or take 1% or similar if not defined)
-    #     step = 0.01 * params_rv_0
-
-    #     d_phi_chi = nd.Jacobian(phi_chi, step=step)
-    #     dd_phi_chi = nd.Hessian(phi_chi, step=step)
-
-    #     d_phi_0, d_chi_0 = unpack_phi_chi(d_phi_chi(params_rv_0, **params_fixed_0), phi_0.size)
-    #     dd_phi_0, dd_chi_0 = unpack_phi_chi(dd_phi_chi(params_rv_0, **params_fixed_0), phi_0.size)
-
-    #     # Compose the matrix for the Hessian of L
-    #     # Size is # of flux correction components + # of free parames including RV
-    #     if not self.use_flux_corr:
-    #         s1, s2 = 1, params_rv_0.shape[0]
-    #         F = np.empty((s1 + s2, s1 + s2), dtype=phi_0.dtype)
-
-    #         F[:s1, :s1] = -chi_0
-    #         F[:s1, s1:] = d_phi_0 - a_0 * d_chi_0
-    #         F[s1:, :s1] = F[:s1, s1:].T
-    #         F[s1:, s1:] = a_0 * dd_phi_0 - 0.5 * a_0**2 * dd_chi_0
-    #     else:
-    #         s1, s2 = chi_0.shape[0], params_rv_0.shape[0]
-    #         F = np.empty((s1 + s2, s1 + s2), dtype=phi_0.dtype)
-
-    #         F[:s1, :s1] = -chi_0
-    #         F[:s1, s1:] = d_phi_0 - np.einsum('ijk,j->ik', d_chi_0, a_0)
-    #         F[s1:, :s1] = F[:s1, s1:].T
-    #         F[s1:, s1:] = np.einsum('i,ikl->kl', a_0, dd_phi_0) - 0.5 * np.einsum('i,ijkl,j->kl', a_0, dd_chi_0, a_0)
-
-    #     return F
-
-    # TODO: merge with base-class
-    # def calculate_F(self, spectra, rv_0, rv_bounds, rv_step, params_0, params_bounds, params_step, params_free, params_fixed):
-    #     """
-    #     Calculate the Fisher matrix around (rv_0, params_0), assumed to be the optimum
-    #     """
-
-    #     templates, _ = self.get_templates(spectra, **params_0)
-    #     phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
-
-    #     # Calculate the gradient of phi in (rv_0, params_0)
-    #     def phichi(x):
-    #         rv, params = self.pack_params(x, params_free, params_fixed)
-    #         templates, missing = self.get_templates(spectra, **params)
-    #         if missing:
-    #             return None
-    #         else:
-    #             phi, chi = self.eval_phi_chi(spectra, templates, rv_0)
-    #             return np.vstack([phi, chi]) #.flatten()
-        
-    #     # TODO: figure out step automatically
-    #     dphichi = Jacobian(phichi, step=[1, 0.01, 10, 0.01])      # RV, [M/H], T_eff, log_g
-    #     dpc = dphichi(self.unpack_params(rv_0, params_free, **params_0))
-    #     dpc = dpc.reshape((chi_0.shape[0] + 1, chi_0.shape[1], -1))
-    #     dphi = dpc[0]
-    #     dchi = dpc[1:]
-
-    #     ddphichi = Hessian(phichi, step=[1, 0.01, 10, 0.01])      # RV, [M/H], T_eff, log_g
-    #     ddpc = ddphichi(self.unpack_params(rv_0, params_free, **params_0))
-    #     ddpc = ddpc.reshape((chi_0.shape[0] + 1, chi_0.shape[1], -1))
-
-    #     # Calculate the Hessian of chi around rv_0 and params_0
-    #     return
 
     #endregion
             
@@ -347,8 +262,10 @@ class ModelGridRVFit(RVFit):
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
 
         params_0 = params_0 if params_0 is not None else self.params_0
-        params_bounds = params_bounds if params_bounds is not None else self.params_bounds
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
+        params_free = self.determine_free_params(params_fixed)
+        params_bounds = params_bounds if params_bounds is not None else self.params_bounds
+        params_bounds = self.determine_grid_bounds(params_bounds, params_free)
 
         if rv_0 is None:
             # TODO
@@ -358,13 +275,6 @@ class ModelGridRVFit(RVFit):
             # TODO
             raise NotImplementedError()
 
-        # Enumerate grid parameters in order and filter out values that should be kept fixed
-        # Order is important because arguments are passed by position to the cost function
-        for k in spectra:
-            grid = self.template_grids[k]
-            params_free = [p for i, p, ax in grid.enumerate_axes() if p not in params_fixed]
-            break
-
         def pack_params(rv, **params):
             x = np.array([ rv ] + [ params[k] for k in params_free ])
             return x
@@ -372,7 +282,7 @@ class ModelGridRVFit(RVFit):
         def pack_bounds(rv_bounds, params_bounds):
             bounds = [ rv_bounds ] 
             if params_bounds is not None:
-                bounds += [ params_bounds[k] if k in params_bounds else None for k in params_free ]
+                bounds += [ (params_bounds[0][k], params_bounds[1][k]) if k in params_bounds[0] else None for k in params_free ]
             else:
                 bounds += [ None for k in params_free ]
             
@@ -417,6 +327,8 @@ class ModelGridRVFit(RVFit):
         params_err = {}
         for i, p in enumerate(params_free):
             params_err[p] = err[i]
+        for i, p in enumerate(params_fixed):
+            params_err[p] = 0.0
         rv_err = err[-1]
 
         return rv_fit, rv_err, params_fit, params_err
