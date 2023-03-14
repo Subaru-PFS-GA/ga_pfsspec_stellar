@@ -82,7 +82,7 @@ class ModelGrid(PfsObject):
         grid = modelgrid_type(modelgrid_config_type(pca=is_pca), grid_type)
         grid.preload_arrays = preload_arrays
         if args is not None:
-            grid.init_from_args
+            grid.init_from_args(args)
         grid.load(filename, format='h5')
 
         return grid
