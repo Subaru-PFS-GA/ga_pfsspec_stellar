@@ -11,8 +11,8 @@ from pfs.ga.pfsspec.stellar.grid import ModelGridConverter
 from pfs.ga.pfsspec.learn.stellar import *
 
 from pfs.ga.pfsspec.learn.configurations import KERAS_DNN_MODEL_TYPES, TORCH_DNN_MODEL_TYPES
-from pfs.ga.pfsspec.learn.dnn import SimpleModelTrainer, AutoencodingModelTrainer
-from pfs.ga.pfsspec.learn.dnn import SimpleModelPredictor, AutoencodingModelPredictor
+from pfs.ga.pfsspec.learn.dnn import SimpleModelTrainer, ClassificationModelTrainer, AutoencodingModelTrainer
+from pfs.ga.pfsspec.learn.dnn import SimpleModelPredictor, ClassificationModelPredictor, AutoencodingModelPredictor
 
 
 DOWNLOAD_CONFIGURATIONS = {
@@ -112,6 +112,11 @@ TRAIN_CONFIGURATIONS = {
             'type': SimpleModelTrainer,
             'augmenter': ModelSpectrumGenerativeAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['gen']
+        },
+        'class': {
+            'type': ClassificationModelTrainer,
+            'augmenter': ModelSpectrumClassificationAugmenter,
+            'models': KERAS_DNN_MODEL_TYPES['class']
         },
         'ae': {
             'type': AutoencodingModelTrainer,
