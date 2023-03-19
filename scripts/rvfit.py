@@ -313,9 +313,6 @@ def rvfit_mc_worker(i, rv=180, rv_bounds=(100, 300), calib_bias=False, mag=22, n
     rv_fit, rv_err = rvfit.fit_rv([nspectra[arm] for arm in FIT_ARMS], [templates[arm] for arm in FIT_ARMS],
         rv_bounds=rv_bounds)
 
-    if False:
-        rvfit_mc_plot(nspectra[ARMS[0]], rvfit, rv_gt, rv_fit)
-
     return i, rv_gt, rv_fit, rv_err
 
 def rvfit_mc(mc_count=100, mag=22, **kwargs):

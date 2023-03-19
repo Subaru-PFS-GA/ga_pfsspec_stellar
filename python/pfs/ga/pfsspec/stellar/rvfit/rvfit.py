@@ -169,7 +169,7 @@ class RVFit():
 
         return spec
 
-    def process_template(self, template, spectrum, rv, psf=None, diff=False):
+    def process_template(self, template, spectrum, rv, psf=None, diff=False, flux_corr=False, a=None):
         # Preprocess the template to match the observation. This step
         # involves shifting the high resolution template the a given RV,
         # convolving it with the PSF, still at high resolution, and normalizing
@@ -238,6 +238,11 @@ class RVFit():
 
         # Resample template to the binning of the observation
         temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
+
+        # Optionally apply flux correction
+        if flux_corr:
+            basis = self.flux_corr_basis(temp.wave)
+            temp.multiply(np.dot(basis, a))
 
         if self.trace is not None:
             self.trace.on_resample_template(rv, spectrum, template, temp)
@@ -451,6 +456,23 @@ class RVFit():
         else:
             log_L = self.eval_log_L_a(phi, chi, a)
             return log_L, phi, chi
+        
+    def eval_flux_corr(self, spectra, templates, rv, a=None):
+        # Evaluate the basis for each spectrum
+        if self.flux_corr_basis_cache is None:
+            self.flux_corr_basis_cache, self.flux_corr_basis_size = self.eval_flux_corr_basis(spectra)
+
+        if a is None:
+            phi, chi = self.eval_phi_chi(spectra, templates, rv)
+            a = self.eval_a(phi, chi)
+        
+        flux_corr = {}
+        for k in spectra:
+            flux_corr[k] = []
+            for i, spec in enumerate(spectra[k] if isinstance(spectra[k], list) else [spectra[k]]):
+                flux_corr[k].append(np.dot(self.flux_corr_basis_cache[k][i], a))
+
+        return flux_corr
         
     #region Fisher matrix evaluation
 
@@ -842,7 +864,7 @@ class RVFit():
                 self.trace.on_fit_rv(rv_fit, spectra, tt)
         else:
             raise Exception(f"Could not fit RV using `{method}`")
-
+        
         # Calculate the error from the Fisher matrix
         _, C = self.eval_F(spectra, templates, rv_fit, mode='rv', method='hessian')
         rv_err = np.sqrt(C[-1, -1]) # sigma

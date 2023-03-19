@@ -47,7 +47,7 @@ class ModelGrid(PfsObject):
             self.wave_slice = orig.wave_slice
 
     @classmethod
-    def from_file(cls, filename, preload_arrays=False, args=None):
+    def from_file(cls, filename, preload_arrays=False, mmap_arrays=False, args=None):
         """
         Initializes a model grid from an HDF5 file by figuring out what configuration
         and grid type to be used. This includes the config class, PCA and RBF.
@@ -81,6 +81,7 @@ class ModelGrid(PfsObject):
         # Instantiate the class
         grid = modelgrid_type(modelgrid_config_type(pca=is_pca), grid_type)
         grid.preload_arrays = preload_arrays
+        grid.mmap_arrays = mmap_arrays
         if args is not None:
             grid.init_from_args(args)
         grid.load(filename, format='h5')
@@ -95,6 +96,14 @@ class ModelGrid(PfsObject):
     @preload_arrays.setter
     def preload_arrays(self, value):
         self.grid.preload_arrays = value
+
+    @property
+    def mmap_arrays(self):
+        return self.grid.mmap_arrays
+    
+    @mmap_arrays.setter
+    def mmap_arrays(self, value):
+        self.grid.mmap_arrays = value
 
     @property
     def array_grid(self):
@@ -395,7 +404,12 @@ class ModelGrid(PfsObject):
         return spec
 
     def interpolate_model(self, interpolation=None, **kwargs):
-        raise NotImplementedError()
+        if self.array_grid is not None:
+            return self.interpolate_model_linear(**kwargs)
+        elif self.rbf_grid is not None:
+            return self.interpolate_model_rbf(**kwargs)
+        else:
+            return NotImplementedError()
 
     def interpolate_model_linear(self, **kwargs):
         r = self.grid.interpolate_value_linear('flux', **kwargs)
@@ -407,9 +421,10 @@ class ModelGrid(PfsObject):
             spec = self.get_parameterized_spectrum(**kwargs)
             spec.flux = flux
 
-            r = self.grid.interpolate_value_linear('cont', **kwargs)
-            if r is not None:
-                spec.cont, _ = r
+            if self.grid.has_value('cont'):
+                r = self.grid.interpolate_value_linear('cont', **kwargs)
+                if r is not None:
+                    spec.cont, _ = r
 
             return spec
         else:

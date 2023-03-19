@@ -17,6 +17,16 @@ class TestModelGrid(StellarTestBase):
         self.assertIsNone(grid.rbf_grid)
         self.assertIsNone(grid.pca_grid)
 
+    def test_from_file_arraygrid_mmap(self):
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/bosz/bosz_50000/spectra.h5')
+        grid = ModelGrid.from_file(filename, mmap_arrays=True)
+        self.assertIsNotNone(grid.array_grid)
+        self.assertIsNone(grid.rbf_grid)
+        self.assertIsNone(grid.pca_grid)
+
+        spec = grid.get_nearest_model(M_H=0., T_eff=4500, log_g=4, C_M=0, a_M=0)
+        self.assertIsNotNone(spec)
+
     def test_from_file_rbf(self):
         filename = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/phoenix/phoenix_HiRes_GK/flux-rbf/spectra.h5')
         grid = ModelGrid.from_file(filename)

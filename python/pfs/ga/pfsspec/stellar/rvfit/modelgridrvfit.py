@@ -40,7 +40,7 @@ class ModelGridRVFit(RVFit):
         for k in spectra:
             # TODO: allow higher order interpolation
             grid = self.template_grids[k]
-            temp = grid.interpolate_model_linear(**params)
+            temp = grid.interpolate_model(**params)
 
             # Interpolation failed
             if temp is None:
@@ -321,6 +321,11 @@ class ModelGridRVFit(RVFit):
         else:
             raise Exception(f"Could not fit RV using `{method}`")
         
+        # Calculate the flux correction coefficients at best fit values
+        templates, missing = self.get_templates(spectra, params_fit)
+        phi_fit, chi_fit = self.eval_phi_chi(spectra, templates, rv_fit)
+        a_fit = self.eval_a(phi_fit, chi_fit)
+        
         # Calculate the error from the Fisher matrix
         _, C = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed, mode='params_rv', method='hessian')
         err = np.sqrt(np.diag(C)) # sigma
@@ -331,4 +336,4 @@ class ModelGridRVFit(RVFit):
             params_err[p] = 0.0
         rv_err = err[-1]
 
-        return rv_fit, rv_err, params_fit, params_err
+        return rv_fit, rv_err, params_fit, params_err, a_fit, None
