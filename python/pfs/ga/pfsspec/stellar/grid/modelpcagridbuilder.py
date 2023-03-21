@@ -94,7 +94,7 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
             self.weights_grid_index = np.array(np.where(index))
        
     def get_vector_shape(self):
-        return self.input_grid.get_wave().shape
+        return self.input_grid.get_wave()[0].shape
 
     def get_vector(self, i):
         # When fitting, the output fluxes will be already normalized, so

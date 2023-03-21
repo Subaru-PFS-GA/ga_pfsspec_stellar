@@ -104,7 +104,7 @@ class ModelGridBuilder():
                 self.continuum_model = self.params_grid.continuum_model
 
             if self.continuum_model.wave is None:
-                self.continuum_model.init_wave(self.params_grid.get_wave())
+                self.continuum_model.init_wave(self.params_grid.get_wave()[0])
         else:
             self.params_grid = None
             
@@ -114,7 +114,7 @@ class ModelGridBuilder():
             self.continuum_model = self.input_grid.continuum_model
         
         if self.continuum_model is not None and self.continuum_model.wave is None:
-            self.continuum_model.init_wave(self.input_grid.get_wave())
+            self.continuum_model.init_wave(self.input_grid.get_wave()[0])
 
         # This has to happen after loading the input grid because params_index
         # is combined with the input index with logical and

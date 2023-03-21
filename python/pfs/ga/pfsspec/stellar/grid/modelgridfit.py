@@ -179,7 +179,7 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         # comes out of continuum_model, hence we cannot use the wave_mask of the
         # model to slice down the input grid. Update the continuum_model here to
         # have the correct mask.
-        self.continuum_model.init_wave(self.input_grid.get_wave())
+        self.continuum_model.init_wave(self.input_grid.get_wave()[0])
 
         # Normalize every spectrum
         t = tqdm(total=input_count)
