@@ -1,6 +1,7 @@
 import os
 
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
+from pfs.ga.pfsspec.core.obsmod.psf import PcaPsf
 from ..stellartestbase import StellarTestBase
 
 class TestModelGrid(StellarTestBase):
@@ -9,6 +10,12 @@ class TestModelGrid(StellarTestBase):
         grid = self.get_bosz_grid()
         grid.init_from_args(args)
         return grid
+    
+    def get_test_psf(self):
+        filename = os.path.join(self.PFSSPEC_DATA_PATH, 'subaru/pfs/psf/import/mr.2/pca.h5')
+        psf = PcaPsf()
+        psf.load(filename)
+        return psf
 
     def test_from_file_arraygrid(self):
         filename = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/bosz/bosz_50000/spectra.h5')
@@ -135,10 +142,37 @@ class TestModelGrid(StellarTestBase):
         grid = self.get_test_grid(args)
         self.assertEqual((14, 6, 11, 6, 4, 1542), grid.get_flux_shape())
 
+    def test_get_model(self):
+        pass
+
+    def test_get_model_at(self):
+        args = {}
+        psf = self.get_test_psf()
+        grid = self.get_test_grid(args)
+        idx = grid.grid.get_index(M_H=0., T_eff=4500, log_g=4, C_M=0, a_M=0)
+        
+        spec = grid.get_model_at(idx)
+        self.assertEqual(spec.wave.shape, spec.flux.shape)
+
+        spec = grid.get_model_at(idx, wlim=(6000, 7000))
+        self.assertEqual(spec.wave.shape, spec.flux.shape)
+
+        spec = grid.get_model_at(idx, psf=psf)
+        self.assertEqual(spec.wave.shape, spec.flux.shape)
+
+        spec = grid.get_model_at(idx, wlim=(6000, 7000), psf=psf)
+        self.assertEqual(spec.wave.shape, spec.flux.shape)
+
     def test_get_nearest_model(self):
         args = {}
         grid = self.get_test_grid(args)
         spec = grid.get_nearest_model(M_H=0., T_eff=4500, log_g=4, C_M=0, a_M=0)
+        self.assertIsNotNone(spec)
+
+    def test_interpolate_model(self):
+        args = {}
+        grid = self.get_test_grid(args)
+        spec = grid.interpolate_model(M_H=-1.2, T_eff=4125, log_g=4.3, C_M=0, a_M=0)
         self.assertIsNotNone(spec)
 
     def test_interpolate_model_linear(self):

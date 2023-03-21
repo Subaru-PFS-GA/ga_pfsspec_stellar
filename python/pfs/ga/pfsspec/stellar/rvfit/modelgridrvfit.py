@@ -4,6 +4,7 @@ from scipy.optimize import minimize_scalar
 import numdifftools as nd
 import emcee
 
+from pfs.ga.pfsspec.core import Physics
 from .rvfit import RVFit, RVFitTrace
 
 class ModelGridRVFitTrace(RVFitTrace):
@@ -20,31 +21,41 @@ class ModelGridRVFit(RVFit):
         super().__init__(trace=trace, orig=orig)
 
         if not isinstance(orig, ModelGridRVFit):
-            self.template_grids = None
+            self.template_grids = None       # Model grids for each spectrograph arm
+            self.template_wlim = None       # Model wavelength limits for each spectrograph arm
+            self.template_wlim_buffer = 5    # Wavelength buffer in A, depends on line spread function
             
             self.params_0 = None             # Dict of initial template parameters
             self.params_fixed = None         # List of names of template params not fitted
             self.params_bounds = None        # Template parameter bounds
         else:
             self.template_grids = orig.template_grids
+            self.template_wlim = orig.template_wlims
+            self.template_wlim_buffer = orig.template_wlim_buffer
 
             self.params_0 = orig.params_0
             self.params_bounds = orig.params_bounds
 
-    def get_templates(self, spectra, params):
+    def get_templates(self, spectra, params, rv):
         # Return the templates corresponding to the parameters.
         # Different grids are used for the different arms
 
         templates = {}
         missing = False
         for k in spectra:
-            # TODO: allow higher order interpolation
             grid = self.template_grids[k]
+
             if self.template_psf is not None:
                 psf = self.template_psf[k]
             else:
                 psf = None 
-            temp = grid.interpolate_model(psf=psf, **params)
+
+            # TODO: allow higher order interpolation
+            if self.template_wlim is not None:
+                wlim = self.template_wlim[k]
+            else:
+                wlim = None
+            temp = grid.interpolate_model(psf=psf, wlim=wlim, **params)
 
             # Interpolation failed
             if temp is None:
@@ -77,6 +88,28 @@ class ModelGridRVFit(RVFit):
             raise Exception("Template parameters are outside the grid.")
         else:
             return super().get_normalization(spectra, templates)
+        
+    def determine_wlim(self, spectra, rv_bounds=None):
+        # Determine wavelength limits necessary for the template LSF convolution
+
+        if rv_bounds is not None:
+            zmin = Physics.vel_to_z(rv_bounds[0])
+            zmax = Physics.vel_to_z(rv_bounds[1])
+        else:
+            zmin = zmax = 1
+
+        self.template_wlim = {}
+        for k in spectra:
+            wmin, wmax = None, None
+            for s in spectra[k] if isinstance(spectra[k], list) else [ spectra[k] ]:
+                w = s.wave[0] * (1 + zmin)
+                wmin = w if wmin is None else min(wmin, w)
+
+                w = s.wave[-1] * (1 + zmax)
+                wmax = w if wmax is None else max(wmax, w)
+
+            # Buffer the wave limits a little bit
+            self.template_wlim[k] = (wmin - self.template_wlim_buffer, wmax + self.template_wlim_buffer)
         
     def process_template_impl(self, template, spectrum, rv, psf=None):
         # 1. Make a copy, not in-place update
@@ -226,7 +259,7 @@ class ModelGridRVFit(RVFit):
             
             def log_L(params_rv):
                 params, rv = unpack_params(params_rv)
-                templates, missing = self.get_templates(spectra, params)
+                templates, missing = self.get_templates(spectra, params, rv)
 
                 if missing:
                     # Trying to extrapolate outside the grid
@@ -297,6 +330,9 @@ class ModelGridRVFit(RVFit):
         if params_0 is None:
             # TODO
             raise NotImplementedError()
+        
+        if self.template_wlim is None:
+            self.determine_wlim(spectra, rv_bounds=rv_bounds)
 
         def pack_params(rv, **params):
             x = np.array([ rv ] + [ params[k] for k in params_free ])
@@ -325,7 +361,7 @@ class ModelGridRVFit(RVFit):
         def llh(x):
             # Gather the various parameters
             rv, params = unpack_params(x)
-            templates, missing = self.get_templates(spectra, params)
+            templates, missing = self.get_templates(spectra, params, rv)
 
             if missing:
                 return np.inf
@@ -345,7 +381,7 @@ class ModelGridRVFit(RVFit):
             raise Exception(f"Could not fit RV using `{method}`")
         
         # Calculate the flux correction coefficients at best fit values
-        templates, missing = self.get_templates(spectra, params_fit)
+        templates, missing = self.get_templates(spectra, params_fit, rv_fit)
         phi_fit, chi_fit = self.eval_phi_chi(spectra, templates, rv_fit)
         a_fit = self.eval_a(phi_fit, chi_fit)
         
