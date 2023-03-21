@@ -168,6 +168,34 @@ class RVFit():
             self.trace.on_process_spectrum(spectrum, spec)
 
         return spec
+    
+    def process_template_impl(self, template, spectrum, rv, psf=None):
+        # 1. Make a copy, not in-place update
+        t = template.copy()
+
+        # 2. Shift template to the desired RV
+        t.set_rv(rv)
+
+        # 3. If a PSF if provided, convolve down template to the instruments
+        #    resolution. Otherwise assume the template is already convolved.
+        if psf is not None:
+            # Only process template within interesting limits
+            size = psf.get_size()
+            buffer = 5
+            wlim = (
+                template.wave[max(0, np.digitize(spectrum.wave[0], template.wave) - size - buffer)],
+                template.wave[min(template.wave.size - 1, np.digitize(spectrum.wave[-1], template.wave) + size + buffer)],
+            )
+            t.convolve_psf(psf, wlim=wlim)
+
+        # 4. Normalize
+        if self.temp_norm is not None:
+            t.multiply(1.0 / self.temp_norm)
+
+        if self.trace is not None:
+            self.trace.on_process_template(rv, template, t)
+            
+        return t
 
     def process_template(self, template, spectrum, rv, psf=None, diff=False, flux_corr=False, a=None):
         # Preprocess the template to match the observation. This step
@@ -183,27 +211,6 @@ class RVFit():
         # The template is always kept at high resolution during transformations
         # until it's resampled to the spectrum pixels using a flux-conserving
         # resampler.
-
-        def process_template_impl(rv):
-            # 1. Make a copy, not in-place update
-            t = template.copy()
-
-            # 2. Shift template to the desired RV
-            t.set_rv(rv)
-
-            # 3. If a PSF if provided, convolve down template to the instruments
-            #    resolution. Otherwise assume the template is already convolved.
-            if psf is not None:
-                t.convolve_psf(psf)
-
-            # 4. Normalize
-            if self.temp_norm is not None:
-                t.multiply(1.0 / self.temp_norm)
-
-            if self.trace is not None:
-                self.trace.on_process_template(rv, template, t)
-                
-            return t
 
         temp = None
 
@@ -221,7 +228,7 @@ class RVFit():
                 if self.trace is not None:
                     self.trace.on_template_cache_hit(template, rv_q, rv)
             else:
-                temp = process_template_impl(rv_q)
+                temp = self.process_template_impl(template, spectrum, rv_q, psf=psf)
                 if self.trace is not None:
                     self.trace.on_template_cache_miss(template, rv_q, rv)
 
@@ -234,7 +241,7 @@ class RVFit():
             temp.set_redshift(Physics.vel_to_z(rv))
         else:
             # Compute convolved template from scratch
-            temp = process_template_impl(rv)
+            temp = self.process_template_impl(template, spectrum, rv, psf=psf)
 
         # Resample template to the binning of the observation
         temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)

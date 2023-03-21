@@ -40,7 +40,11 @@ class ModelGridRVFit(RVFit):
         for k in spectra:
             # TODO: allow higher order interpolation
             grid = self.template_grids[k]
-            temp = grid.interpolate_model(**params)
+            if self.template_psf is not None:
+                psf = self.template_psf[k]
+            else:
+                psf = None 
+            temp = grid.interpolate_model(psf=psf, **params)
 
             # Interpolation failed
             if temp is None:
@@ -73,6 +77,25 @@ class ModelGridRVFit(RVFit):
             raise Exception("Template parameters are outside the grid.")
         else:
             return super().get_normalization(spectra, templates)
+        
+    def process_template_impl(self, template, spectrum, rv, psf=None):
+        # 1. Make a copy, not in-place update
+        t = template.copy()
+
+        # 2. Shift template to the desired RV
+        t.set_rv(rv)
+
+        # 3. Skip convolution because convolution is pushed down to the
+        #    model interpolator to support caching
+
+        # 4. Normalize
+        if self.temp_norm is not None:
+            t.multiply(1.0 / self.temp_norm)
+
+        if self.trace is not None:
+            self.trace.on_process_template(rv, template, t)
+            
+        return t
         
     def calculate_log_L(self, spectra, templates, rv, params=None, a=None):
         # Calculate log_L using a provided set of templates or templates

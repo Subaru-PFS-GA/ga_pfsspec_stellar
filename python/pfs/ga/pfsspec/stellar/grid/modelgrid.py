@@ -9,6 +9,7 @@ from scipy.interpolate import RegularGridInterpolator, CubicSpline
 from scipy.interpolate import interp1d, interpn
 
 from pfs.ga.pfsspec.core import PfsObject
+from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.util.array import *
 from pfs.ga.pfsspec.core.grid import ArrayGrid, RbfGrid, PcaGrid
 
@@ -22,22 +23,25 @@ class ModelGrid(PfsObject):
         super(ModelGrid, self).__init__(orig=orig)
 
         if not isinstance(orig, ModelGrid):
-            self.config = config
-            self.grid = self.create_grid(grid_type)
-            self.continuum_model = None
-            self.wave = None
+            self.config = config                        # Model grid configuration
+            self.grid = self.create_grid(grid_type)     # Underlying grid implementation (Array, PCA, Rbf...)
+            self.wave = None                            # Wavelength bin centers
+            self.wave_edges = None                      # Wavelength bin edges
             self.is_wave_regular = None
             self.is_wave_lin = None
             self.is_wave_log = None
             self.resolution = None
 
-            self.wave_lim = None
-            self.wave_slice = None      # Limits wavelength range when reading the grid
+            self.wave_lim = None                        # Wavelength limits then reading the grid
+            self.wave_slice = None                      # Limits wavelength range when reading the grid
+
+            self.continuum_model = None                 # Continuum model
+            self.psf = None                             # Convolution kernel, apply before returning the model
         else:
             self.config = config if config is not None else orig.config
             self.grid = self.create_grid(grid_type) if grid_type is not None else orig.grid
-            self.continuum_model = orig.continuum_model
             self.wave = orig.wave
+            self.wave_edges = orig.wave_edges
             self.is_wave_regular = orig.is_wave_regular
             self.is_wave_lin = orig.is_wave_lin
             self.is_wave_log = orig.is_wave_log
@@ -46,8 +50,11 @@ class ModelGrid(PfsObject):
             self.wave_lim = orig.wave_lim
             self.wave_slice = orig.wave_slice
 
+            self.continuum_model = orig.continuum_model
+            self.psf = orig.psf
+
     @classmethod
-    def from_file(cls, filename, preload_arrays=False, mmap_arrays=False, args=None):
+    def from_file(cls, filename, preload_arrays=False, mmap_arrays=False, cache_values=True, args=None):
         """
         Initializes a model grid from an HDF5 file by figuring out what configuration
         and grid type to be used. This includes the config class, PCA and RBF.
@@ -82,12 +89,13 @@ class ModelGrid(PfsObject):
         grid = modelgrid_type(modelgrid_config_type(pca=is_pca), grid_type)
         grid.preload_arrays = preload_arrays
         grid.mmap_arrays = mmap_arrays
+        if cache_values and grid.array_grid is not None:
+            grid.array_grid.value_cache = ReadOnlyCache()
         if args is not None:
             grid.init_from_args(args)
         grid.load(filename, format='h5')
 
         return grid
-
 
     @property
     def preload_arrays(self):
@@ -158,7 +166,7 @@ class ModelGrid(PfsObject):
     def get_constants(self):
         constants = self.grid.get_constants()
         if self.continuum_model is not None:
-            constants.update(self.continuum_model.get_constants(self.get_wave()))
+            constants.update(self.continuum_model.get_constants(self.get_wave()[0]))
         return constants
 
     def set_constants(self, constants):
@@ -183,7 +191,7 @@ class ModelGrid(PfsObject):
         return self.grid.get_shape(s=s, squeeze=squeeze)
 
     def allocate_values(self):
-        self.config.allocate_values(self.grid, self.wave)
+        self.config.allocate_values(self.grid, self.wave, self.wave_edges)
         if self.continuum_model is not None:
             self.continuum_model.allocate_values(self.grid)
 
@@ -200,7 +208,7 @@ class ModelGrid(PfsObject):
         # model will be loaded at a later step.
         if self.config.normalized:
             self.continuum_model = self.config.create_continuum_model()
-            self.continuum_model.init_wave(self.get_wave())
+            self.continuum_model.init_wave(self.get_wave()[0])
             self.continuum_model.init_values(self.grid)
 
         self.grid.load(filename, s=s, format=format)
@@ -217,6 +225,7 @@ class ModelGrid(PfsObject):
 
         self.save_params()
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'wave')), self.wave)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'wave_edges')), self.wave_edges)
 
     def save_params(self):
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'type')), type(self).__name__)
@@ -240,12 +249,13 @@ class ModelGrid(PfsObject):
 
         self.load_params()
         self.wave = self.load_item('/'.join((self.PREFIX_MODELGRID, 'wave')), np.ndarray)
+        self.wave_edges = self.load_item('/'.join((self.PREFIX_MODELGRID, 'wave_edges')), np.ndarray)
 
         name = self.load_item('/'.join((self.PREFIX_MODELGRID, 'continuum_model')), str)
         if name is not None:
             self.config.continuum_model_type = self.config.CONTINUUM_MODEL_TYPES[name]
             self.continuum_model = self.config.create_continuum_model()
-            self.continuum_model.init_wave(self.get_wave())
+            self.continuum_model.init_wave(self.get_wave()[0])
             
             self.continuum_model.filename = self.filename
             self.continuum_model.fileformat = self.fileformat
@@ -272,11 +282,25 @@ class ModelGrid(PfsObject):
     def get_index(self, **kwargs):
         return self.grid.get_index(**kwargs)
 
-    def get_wave(self):
-        return self.wave[self.get_wave_slice() or slice(None)]
+    def get_wave(self, s=None):
+        if s is None:
+            s = self.get_wave_slice() or slice(None)
+        wave = self.wave[s]
+        
+        if self.wave_edges is not None:
+            if s != slice(None):
+                # TODO: Implement slicing of wave edges
+                raise NotImplementedError()
+            else:
+                wave_edges = self.wave_edges
+        else:
+            wave_edges = None
 
-    def set_wave(self, wave):
+        return wave, wave_edges
+
+    def set_wave(self, wave, wave_edges=None):
         self.wave = wave
+        self.wave_edges = wave_edges
 
     def set_flux(self, flux, cont=None, **kwargs):
         self.grid.set_flux(flux, cont=cont, **kwargs)
@@ -330,7 +354,7 @@ class ModelGrid(PfsObject):
     def get_parameterized_spectrum(self, idx=None, s=None, **kwargs):
         spec = self.config.create_spectrum()
         self.grid.set_object_params(spec, idx=idx, **kwargs)
-        spec.wave = self.get_wave()
+        spec.wave, spec.wave_edges = self.get_wave(s=s)
         spec.resolution = self.resolution
         return spec
 
@@ -344,14 +368,27 @@ class ModelGrid(PfsObject):
         params = self.grid.get_values_at(idx, names=names)
         return params
 
-    def get_model(self, denormalize=True, **kwargs):
-        flux = self.grid.get_value('flux', s=self.get_wave_slice(), **kwargs)
+    def get_model(self, denormalize=True, psf=None, **kwargs):
+        # Perform the kernel convolution in a post-process step. This way the results will
+        # be cached by the ArrayGrid and reused in further interpolations
+        psf = psf if psf is not None else self.psf
+        if psf is not None:
+            cache_key_prefix = (psf,)
+            def post_process(value):
+                # TODO: Use wave limits
+                wave, value, _, _ = self.psf.convolve(self.wave, values=[value], errors=[], size=None, normalize=True)
+                return value
+        else:
+            cache_key_prefix = ()
+            post_process = None
+
+        flux = self.grid.get_value('flux', s=self.get_wave_slice(), **kwargs, post_process=post_process, cache_key_prefix=cache_key_prefix)
         
         # In case the interpolation didn't work
         if flux is not None:
             s = self.get_wave_slice()
 
-            spec = self.get_parameterized_spectrum(s=self, **kwargs)
+            spec = self.get_parameterized_spectrum(s=self.get_wave_slice(), **kwargs)
             spec.flux = copy_array(flux)
 
             if self.grid.has_error('flux'):
@@ -402,17 +439,41 @@ class ModelGrid(PfsObject):
         idx = self.grid.get_nearest_index(**kwargs)
         spec = self.get_model_at(idx, denormalize=denormalize)
         return spec
-
-    def interpolate_model(self, interpolation=None, **kwargs):
+    
+    def interpolate_model(self, interpolation=None, psf=None, **kwargs):
         if self.array_grid is not None:
-            return self.interpolate_model_linear(**kwargs)
+            return self.interpolate_model_linear(psf=psf, **kwargs)
         elif self.rbf_grid is not None:
-            return self.interpolate_model_rbf(**kwargs)
+            return self.interpolate_model_rbf(psf=pst, **kwargs)
         else:
             return NotImplementedError()
 
-    def interpolate_model_linear(self, **kwargs):
-        r = self.grid.interpolate_value_linear('flux', **kwargs)
+    def interpolate_model_linear(self, psf=None, **kwargs):
+        # Interpolate models over an array grid using linear interpolation
+        # Optionally convolve with a kernel. When using and interp_cache,
+        # convolution is done before interpolation so that the convolved
+        # vectors can be reused.
+
+        if self.array_grid is None:
+            raise NotImplementedError("Linear interpolation is supported on ArrayGrid only.")
+        
+        # Perform the kernel convolution in a post-process step. This way the results will
+        # be cached by the ArrayGrid and reused in further interpolations
+        psf = psf if psf is not None else self.psf
+        if psf is not None:
+            cache_key_prefix = (psf, )
+            def post_process(value):
+                # TODO: Use wave limits
+                # TODO: wouldn't it be better to look up the neighbors one by one and do the convolution?
+                for i in np.ndindex(value.shape[:-1]):
+                    _, vv, _, shift = psf.convolve(self.wave, values=[value[i]], errors=[], size=None, normalize=True)
+                    value[i, shift:-shift] = vv[0]
+                return value
+        else:
+            cache_key_prefix = ()
+            post_process = None
+        
+        r = self.grid.interpolate_value_linear('flux', post_process=post_process, cache_key_prefix=cache_key_prefix, **kwargs)
         if r is None:
             return None
         flux, kwargs = r
@@ -430,7 +491,7 @@ class ModelGrid(PfsObject):
         else:
             return None
 
-    def interpolate_model_spline(self, free_param, **kwargs):
+    def interpolate_model_spline(self, free_param, psf=None, **kwargs):
         r = self.grid.interpolate_value_spline('flux', free_param, **kwargs)
         if r is None:
             return None
