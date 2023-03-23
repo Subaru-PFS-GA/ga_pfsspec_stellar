@@ -22,16 +22,12 @@ class ModelGridRVFit(RVFit):
 
         if not isinstance(orig, ModelGridRVFit):
             self.template_grids = None       # Model grids for each spectrograph arm
-            self.template_wlim = None       # Model wavelength limits for each spectrograph arm
-            self.template_wlim_buffer = 5    # Wavelength buffer in A, depends on line spread function
             
             self.params_0 = None             # Dict of initial template parameters
             self.params_fixed = None         # List of names of template params not fitted
             self.params_bounds = None        # Template parameter bounds
         else:
             self.template_grids = orig.template_grids
-            self.template_wlim = orig.template_wlims
-            self.template_wlim_buffer = orig.template_wlim_buffer
 
             self.params_0 = orig.params_0
             self.params_bounds = orig.params_bounds
@@ -89,29 +85,7 @@ class ModelGridRVFit(RVFit):
         else:
             return super().get_normalization(spectra, templates)
         
-    def determine_wlim(self, spectra, rv_bounds=None):
-        # Determine wavelength limits necessary for the template LSF convolution
-
-        if rv_bounds is not None:
-            zmin = Physics.vel_to_z(rv_bounds[0])
-            zmax = Physics.vel_to_z(rv_bounds[1])
-        else:
-            zmin = zmax = 1
-
-        self.template_wlim = {}
-        for k in spectra:
-            wmin, wmax = None, None
-            for s in spectra[k] if isinstance(spectra[k], list) else [ spectra[k] ]:
-                w = s.wave[0] * (1 + zmin)
-                wmin = w if wmin is None else min(wmin, w)
-
-                w = s.wave[-1] * (1 + zmax)
-                wmax = w if wmax is None else max(wmax, w)
-
-            # Buffer the wave limits a little bit
-            self.template_wlim[k] = (wmin - self.template_wlim_buffer, wmax + self.template_wlim_buffer)
-        
-    def process_template_impl(self, template, spectrum, rv, psf=None):
+    def process_template_impl(self, template, spectrum, rv, psf=None, wlim=None):
         # 1. Make a copy, not in-place update
         t = template.copy()
 
@@ -173,7 +147,7 @@ class ModelGridRVFit(RVFit):
             params_free = [p for i, p, ax in grid.enumerate_axes() if params_fixed is None or p not in params_fixed]
             return params_free  # return from loop after very first iter!
         
-    def get_objective_function(self, spectra, rv_0, params_0, params_free, params_fixed=None, mode='full'):
+    def get_objective_function(self, spectra, params_0, params_free, params_fixed=None, mode='full'):
         # Return the objection function and parameter packing/unpacking for optimizers
         # pack_params: convert individual arguments into a single 1d array
         # unpack_params: get individual arguments from 1d array
@@ -302,7 +276,7 @@ class ModelGridRVFit(RVFit):
 
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, rv_0, params_0, params_free, params_fixed=params_fixed, mode=mode)
+            spectra, params_0, params_free, params_fixed=params_fixed, mode=mode)
 
         if mode == 'full' or mode == 'a_params_rv':               
             # Calculate a_0

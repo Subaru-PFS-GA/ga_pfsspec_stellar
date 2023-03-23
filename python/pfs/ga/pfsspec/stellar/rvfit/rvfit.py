@@ -80,6 +80,9 @@ class RVFit():
             self.template_psf = None        # Dict of psf to downgrade templates with
             self.template_resampler = FluxConservingResampler()  # Resample template to instrument pixels
             self.template_cache_resolution = 50  # Cache templates with this resolution in RV
+            self.template_wlim = None        # Model wavelength limits for each spectrograph arm
+            self.template_wlim_buffer = 5    # Wavelength buffer in A, depends on line spread function
+            
             self.cache_templates = True    # Cache PSF-convolved templates
 
             self.rv_0 = None                # RV initial guess
@@ -103,6 +106,9 @@ class RVFit():
             self.template_psf = orig.template_psf
             self.template_resampler = orig.template_resampler
             self.template_cache_resolution = orig.template_cache_resolution
+            self.template_wlim = orig.template_wlims
+            self.template_wlim_buffer = orig.template_wlim_buffer
+
             self.cache_templates = orig.cache_templates
 
             self.rv_0 = orig.rv_0
@@ -145,15 +151,17 @@ class RVFit():
             
             if self.template_psf is not None:
                 psf = self.template_psf[k]
+                wlim = self.template_wlim[k]
             else:
                 psf = None
+                wlim = None
             
             if rv_0 is not None:
                 rv = rv_0
             else:
                 rv = 0.0
 
-            temp = self.process_template(templates[k], spec, rv, psf)
+            temp = self.process_template(templates[k], spec, rv, psf=psf, wlim=wlim)
             t.append(temp.flux)
 
         spec_flux = np.concatenate(s)
@@ -174,7 +182,29 @@ class RVFit():
 
         return spec
     
-    def process_template_impl(self, template, spectrum, rv, psf=None):
+    def determine_wlim(self, spectra, rv_bounds=None):
+        # Determine wavelength limits necessary for the template LSF convolution
+
+        if rv_bounds is not None:
+            zmin = Physics.vel_to_z(rv_bounds[0])
+            zmax = Physics.vel_to_z(rv_bounds[1])
+        else:
+            zmin = zmax = 1
+
+        self.template_wlim = {}
+        for k in spectra:
+            wmin, wmax = None, None
+            for s in spectra[k] if isinstance(spectra[k], list) else [ spectra[k] ]:
+                w = s.wave[0] * (1 + zmin)
+                wmin = w if wmin is None else min(wmin, w)
+
+                w = s.wave[-1] * (1 + zmax)
+                wmax = w if wmax is None else max(wmax, w)
+
+            # Buffer the wave limits a little bit
+            self.template_wlim[k] = (wmin - self.template_wlim_buffer, wmax + self.template_wlim_buffer)
+    
+    def process_template_impl(self, template, spectrum, rv, psf=None, wlim=None):
         # 1. Make a copy, not in-place update
         t = template.copy()
 
@@ -184,13 +214,6 @@ class RVFit():
         # 3. If a PSF if provided, convolve down template to the instruments
         #    resolution. Otherwise assume the template is already convolved.
         if psf is not None:
-            # Only process template within interesting limits
-            size = psf.get_size()
-            buffer = 5
-            wlim = (
-                template.wave[max(0, np.digitize(spectrum.wave[0], template.wave) - size - buffer)],
-                template.wave[min(template.wave.size - 1, np.digitize(spectrum.wave[-1], template.wave) + size + buffer)],
-            )
             t.convolve_psf(psf, wlim=wlim)
 
         # 4. Normalize
@@ -202,7 +225,7 @@ class RVFit():
             
         return t
 
-    def process_template(self, template, spectrum, rv, psf=None, diff=False, flux_corr=False, a=None):
+    def process_template(self, template, spectrum, rv, psf=None, wlim=None, diff=False, flux_corr=False, a=None):
         # Preprocess the template to match the observation. This step
         # involves shifting the high resolution template the a given RV,
         # convolving it with the PSF, still at high resolution, and normalizing
@@ -233,7 +256,7 @@ class RVFit():
                 if self.trace is not None:
                     self.trace.on_template_cache_hit(template, rv_q, rv)
             else:
-                temp = self.process_template_impl(template, spectrum, rv_q, psf=psf)
+                temp = self.process_template_impl(template, spectrum, rv_q, psf=psf, wlim=wlim)
                 if self.trace is not None:
                     self.trace.on_template_cache_miss(template, rv_q, rv)
 
@@ -246,7 +269,7 @@ class RVFit():
             temp.set_redshift(Physics.vel_to_z(rv))
         else:
             # Compute convolved template from scratch
-            temp = self.process_template_impl(template, spectrum, rv, psf=psf)
+            temp = self.process_template_impl(template, spectrum, rv, psf=psf, wlim=wlim)
 
         # Resample template to the binning of the observation
         temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
@@ -360,10 +383,11 @@ class RVFit():
                     specs = spectra[k]
 
                 psf = self.template_psf[k] if self.template_psf is not None else None
+                wlim = self.template_wlim[k] if self.template_wlim is not None else None
                 
                 for ei in range(len(specs)):
                     spec = self.process_spectrum(specs[ei])
-                    temp = self.process_template(templates[k], spec, rvv[i], psf=psf, diff=True)
+                    temp = self.process_template(templates[k], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
                     trace_temp[k].append(temp)
 
                     # Determine mask
@@ -495,12 +519,12 @@ class RVFit():
     # _hessian depend on the numerical evaluation of the Hessian with respect
     # to the parameters of the fitted model.
 
-    def eval_F(self, spectra, templates, rv_0, step=None, mode='full', method='hessian'):
-        # Evaluate the Fisher matrix around the provided rv_0. The corresponding
-        # a_0 best fit flux correction will be evaluated at the optimum.
-        # The Hessian will be calculated wrt either RV only, or rv and the
-        # flux correction coefficients. Alternatively, the covariance
-        # matrix will be determined using MCMC.
+    def get_objective_function(self, spectra, templates, rv_0, mode='full'):
+        # Return the objection function and parameter packing/unpacking for optimizers
+        # pack_params: convert individual arguments into a single 1d array
+        # unpack_params: get individual arguments from 1d array
+        # pack_bounds: pack parameters bounds into a list of tuples
+        # log_L: evaluate the log likelihood
 
         if mode == 'full' or mode == 'a_rv':
             def pack_params(a, rv):
@@ -511,16 +535,21 @@ class RVFit():
                 a = a_rv[:-1]
                 rv = a_rv[-1]
                 return a, rv
+            
+            def pack_bounds(a_bounds, rv_bounds):
+                if a_bounds is None:
+                    raise NotImplementedError()
+                else:
+                    bounds = a_bounds
+
+                bounds += [ rv_bounds ]
+
+                return bounds
 
             def log_L(a_rv):
                 a, rv = unpack_params(a_rv)
                 log_L, _, _ = self.calculate_log_L(spectra, templates, rv, a=a)
                 return log_L.item()
-            
-            # Calculate a_0
-            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
-            a_0 = self.eval_a(phi_0, chi_0)
-            x_0 = pack_params(a_0, rv_0)
         elif mode == 'rv':
             def pack_params(rv):
                 return np.atleast_1d(rv)
@@ -528,17 +557,45 @@ class RVFit():
             def unpack_params(params):
                 rv = params[0]
                 return rv
+            
+            def pack_bounds(rv_bounds):
+                return [ rv_bounds ]
 
             def log_L(params):
                 rv = unpack_params(params)
                 log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
                 return log_L
-            
-            x_0 = pack_params(rv_0)
         else:
             raise NotImplementedError()
         
-        return self.eval_F_dispatch(x_0, log_L, step, method)
+        return log_L, pack_params, unpack_params, pack_bounds
+
+    def eval_F(self, spectra, templates, rv_0, step=None, mode='full', method='hessian'):
+        # Evaluate the Fisher matrix around the provided rv_0. The corresponding
+        # a_0 best fit flux correction will be evaluated at the optimum.
+        # The Hessian will be calculated wrt either RV only, or rv and the
+        # flux correction coefficients. Alternatively, the covariance
+        # matrix will be determined using MCMC.
+
+        rv_bounds = self.rv_bounds
+
+        # Get objective function
+        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            spectra, templates, rv_0, mode=mode)
+
+        if mode == 'full' or mode == 'a_rv':
+            # Calculate a_0
+            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+            a_0 = self.eval_a(phi_0, chi_0)
+            x_0 = pack_params(a_0, rv_0)
+            bounds = pack_bounds(a_0.size * [(-np.inf, np.inf)], rv_bounds)
+        elif mode == 'rv':
+            x_0 = pack_params(rv_0)
+            bounds = pack_bounds(rv_bounds)
+        else:
+            raise NotImplementedError()
+                
+        return self.eval_F_dispatch(x_0, log_L, step, method, bounds)
 
     def eval_F_dispatch(self, x_0, log_L_fun, step, method, bounds):
         if method == 'hessian':
@@ -714,9 +771,11 @@ class RVFit():
                 spec = self.process_spectrum(spec)
 
                 psf = self.template_psf[k] if self.template_psf is not None else None
-                temp0 = self.process_template(temp, spec, rv, psf=psf)
-                temp1 = self.process_template(temp, spec, rv + step, psf=psf)
-                temp2 = self.process_template(temp, spec, rv - step, psf=psf)
+                wlim = self.template_wlim[k] if self.template_wlim is not None else None
+
+                temp0 = self.process_template(temp, spec, rv, psf=psf, wlim=wlim)
+                temp1 = self.process_template(temp, spec, rv + step, psf=psf, wlim=wlim)
+                temp2 = self.process_template(temp, spec, rv - step, psf=psf, wlim=wlim)
 
                 # Calculate the centered diffence of the flux
                 d1  = 0.5 * (temp2.flux - temp1.flux) / step
@@ -882,9 +941,11 @@ class RVFit():
                 for k in spectra:
                     for spec in spectra[k] if isinstance(spectra[k], list) else [spectra[k]]:
                         temp = templates[k]
+                        
                         psf = self.template_psf[k] if self.template_psf is not None else None
+                        wlim = self.template_wlim[k] if self.template_wlim is not None else None
                     
-                        t = self.process_template(temp, spec, rv_fit, psf=psf)
+                        t = self.process_template(temp, spec, rv_fit, psf=psf, wlim=wlim)
                         tt[k] = t
                 self.trace.on_fit_rv(rv_fit, spectra, tt)
         else:
@@ -929,10 +990,11 @@ class RVFit():
                 specs = spectra[k]
 
             psf = self.template_psf[k] if self.template_psf is not None else None
+            wlim = self.template_wlim[k] if self.template_wlim is not None else None
             
             for ei in range(len(specs)):
                 spec = self.process_spectrum(specs[ei])
-                temp = self.process_template(templates[k], spec, rv_0, psf=psf, diff=True)
+                temp = self.process_template(templates[k], spec, rv_0, psf=psf, wlim=wlim, diff=True)
 
                 if self.use_mask:
                     mask = ~spec.mask if spec.mask is not None else np.s_[:]

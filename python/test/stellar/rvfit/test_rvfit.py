@@ -46,6 +46,7 @@ class TestRVFit(RVFitTestBase):
         spec = self.get_observation(arm='mr')
         
         rvfit = self.get_rvfit()
+        rvfit.determine_wlim({ 'mr': spec }, (-300, 300))
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         tm = rvfit.process_template(temp, spec, 100)
 
