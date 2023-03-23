@@ -149,6 +149,11 @@ PREDICT_CONFIGURATIONS = {
             'augmenter': ModelSpectrumGenerativeAugmenter,
             'models': KERAS_DNN_MODEL_TYPES['gen']
         },
+        'class': {
+            'type': ClassificationModelPredictor,
+            'augmenter': ModelSpectrumClassificationAugmenter,
+            'models': KERAS_DNN_MODEL_TYPES['class']
+        },
         'ae': {
             'type': AutoencodingModelPredictor,
             'augmenter': ModelSpectrumAutoencodingAugmenter,
