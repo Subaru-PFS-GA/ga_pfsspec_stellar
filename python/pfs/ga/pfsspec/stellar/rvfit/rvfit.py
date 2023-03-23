@@ -72,8 +72,6 @@ class RVFit():
     The class supports various methods to determine the uncertainty of estimated parameters.
     """
 
-    # TODO: add cache flush logic
-
     def __init__(self, trace=None, orig=None):
         
         if not isinstance(orig, RVFit):
@@ -96,6 +94,9 @@ class RVFit():
             self.use_mask = True            # Use mask from spectrum, if available
             self.use_error = True           # Use flux error from spectrum, if available
             self.use_weight = True          # Use weight from template, if available
+
+            self.mcmc_burnin = 1000
+            self.mcmc_steps = 1000
         else:
             self.trace = orig.trace
 
@@ -114,7 +115,11 @@ class RVFit():
             self.temp_norm = orig.temp_norm
 
             self.use_mask = orig.use_mask
+            self.use_error = orig.use_error
             self.use_weight = orig.use_weight
+
+            self.mcmc_burnin = orig.mcmc_burnin
+            self.mcmc_steps = orig.mcmc_steps
 
         self.reset()
 
@@ -510,7 +515,7 @@ class RVFit():
             def log_L(a_rv):
                 a, rv = unpack_params(a_rv)
                 log_L, _, _ = self.calculate_log_L(spectra, templates, rv, a=a)
-                return np.asscalar(log_L)
+                return log_L.item()
             
             # Calculate a_0
             phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
@@ -561,10 +566,23 @@ class RVFit():
         if step is None:
             step = 0.025
 
+        # Bounds is a list of tuples, convert to an array
+        if bounds is not None:
+            bb = []
+            for b in bounds:
+                if b is None:
+                    bb.append((-np.inf, np.inf))
+                else:
+                    bb.append((
+                        b[0] if b[0] is not None else -np.inf,
+                        b[1] if b[1] is not None else np.inf,
+                    ))
+            bounds = np.array(bb).T
+
         ndim = x_0.size
         nwalkers = 2 * x_0.size + 1
-        burnin = 1000
-        samples = 1000
+        burnin = self.mcmc_burnin
+        samples = self.mcmc_steps
         
         # Generate an initial state a little bit off of x_0
         # TODO: randomizing this ways is not the best when RV is close to 0

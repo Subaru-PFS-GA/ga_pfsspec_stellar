@@ -36,7 +36,7 @@ class ModelGridRVFit(RVFit):
             self.params_0 = orig.params_0
             self.params_bounds = orig.params_bounds
 
-    def get_templates(self, spectra, params, rv):
+    def get_templates(self, spectra, params):
         # Return the templates corresponding to the parameters.
         # Different grids are used for the different arms
 
@@ -148,58 +148,38 @@ class ModelGridRVFit(RVFit):
     #region Fisher matrix evaluation
 
     def determine_grid_bounds(self, params_bounds, params_free):
-        if params_bounds is not None:
-            params_bounds = (
-                { p: params_bounds[p][0] for p in params_free },
-                { p: params_bounds[p][1] for p in params_free },
-            )
-        else:
-            # Param bounds are taken from grid limits, which is not the best solution
-            # with grids having jagged edges
-            grid = self.template_grids[list(self.template_grids.keys())[0]]
+        # Param bounds are taken from grid limits, which is not the best solution
+        # with grids having jagged edges
 
-            params_bounds = (
-                { p: grid.get_axis(p).values.min() for p in params_free },
-                { p: grid.get_axis(p).values.max() for p in params_free }
-            )
+        # Silently assume that grids have the same axis for each arm
+        grid = self.template_grids[list(self.template_grids.keys())[0]]
 
-        return params_bounds
+        bounds = {}
+        for p in params_free:
+            # Use grid bounds if params_bounds is None
+            if params_bounds is None or p not in params_bounds or params_bounds[p] is None:
+                # Use axis limits from the grid
+                bounds[p] = (grid.get_axis(p).values.min(), grid.get_axis(p).values.max())
+            else:
+                bounds[p] = params_bounds[p]
+
+        return bounds
     
     def determine_free_params(self, params_fixed):
         # Enumerate grid parameters in order and filter out values that should be kept fixed
         # Order is important because arguments are passed by position to the cost function
 
         for k, grid in self.template_grids.items():
-            params_free = [p for i, p, ax in grid.enumerate_axes() if p not in params_fixed]
+            params_free = [p for i, p, ax in grid.enumerate_axes() if params_fixed is None or p not in params_fixed]
             return params_free  # return from loop after very first iter!
-
-    def eval_F(self, spectra, rv_0, params_0, params_fixed=None, step=None, mode='full', method='hessian'):
-        # Evaluate the Fisher matrix around the provided rv_0 and params_0
-        # values. The corresponding a_0 best fit flux correction will be
-        # evaluated at the optimum. The Hessian will be calculated wrt either
-        # RV only, or rv and the template parameters or rv, the template parameters
-        # and the flux correction coefficients. Alternatively, the covariance
-        # matrix will be determined using MCMC.
-
-        # Collect fixed template parameters
-        params_fixed = params_fixed if params_fixed is not None else self.params_fixed
-        params_free = self.determine_free_params(params_fixed)
-
-        params_bounds = self.determine_grid_bounds(self.params_bounds, params_free)
-
-        if self.rv_bounds is not None:
-            rv_bounds = self.rv_bounds
-        else:
-            rv_bounds = np.array([-np.inf, np.inf])
-
-        if self.params_bounds and self.rv_bounds:
-            bounds = (
-                pack_params(np.full_like(a_0, -np.inf), self.params_bounds[0], self.rv_bounds[0])
-            )
-            bounds = (
-                np.concatenate()
-            )
-
+        
+    def get_objective_function(self, spectra, rv_0, params_0, params_free, params_fixed=None, mode='full'):
+        # Return the objection function and parameter packing/unpacking for optimizers
+        # pack_params: convert individual arguments into a single 1d array
+        # unpack_params: get individual arguments from 1d array
+        # pack_bounds: pack parameters bounds into a list of tuples
+        # log_L: evaluate the log likelihood
+        
         if mode == 'full' or mode == 'a_params_rv':
             def pack_params(a, params, rv):
                 return np.concatenate([
@@ -208,7 +188,7 @@ class ModelGridRVFit(RVFit):
                     np.atleast_1d(rv)])
         
             def unpack_params(a_params_rv):
-                rv = np.asscalar(a_params_rv[-1])
+                rv = a_params_rv[-1].item()
                 a = a_params_rv[:-len(params_free) - 1]
 
                 params = {}
@@ -218,6 +198,21 @@ class ModelGridRVFit(RVFit):
                     params[p] = params_fixed[p]
 
                 return a, params, rv
+
+            def pack_bounds(a_bounds, params_bounds, rv_bounds):
+                if a_bounds is None:
+                    raise NotImplementedError()
+                else:
+                    bounds = a_bounds
+
+                if params_bounds is None:
+                    bounds += [ params_bounds[k] if k in params_bounds else None for k in params_free ]
+                else:
+                    bounds += [ None for k in params_free ]
+                    
+                bounds += [ rv_bounds ]
+                
+                return bounds
             
             def log_L(a_params_rv):
                 a, params, rv = unpack_params(a_params_rv)
@@ -228,18 +223,7 @@ class ModelGridRVFit(RVFit):
                     return -np.inf
                 else:
                     log_L, phi, chi = self.calculate_log_L(spectra, templates, rv, a=a)
-                    return np.asscalar(log_L)
-                
-            # Calculate a_0
-            templates, missing = self.get_templates(spectra, params_0)
-            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
-            a_0 = self.eval_a(phi_0, chi_0)
-            x_0 = pack_params(a_0, params_0, rv_0)
-
-            bounds = (
-                pack_params(np.full_like(a_0, -np.inf), params_bounds[0], rv_bounds[0]),
-                pack_params(np.full_like(a_0, np.inf), params_bounds[1], rv_bounds[1])
-            )
+                    return log_L.item()
         elif mode == 'params_rv':
             def pack_params(params, rv):
                 return np.concatenate([
@@ -247,7 +231,7 @@ class ModelGridRVFit(RVFit):
                     np.atleast_1d(rv)])
             
             def unpack_params(params_rv):
-                rv = np.asscalar(params_rv[-1])
+                rv = params_rv[-1].item()
 
                 params = {}
                 for i, p in enumerate(params_free):
@@ -257,33 +241,38 @@ class ModelGridRVFit(RVFit):
 
                 return params, rv
             
+            def pack_bounds(params_bounds, rv_bounds):
+                if params_bounds is not None:
+                    bounds = [ params_bounds[k] if k in params_bounds else None for k in params_free ]
+                else:
+                    bounds = [ None for k in params_free ]
+                bounds += [ rv_bounds ] 
+                
+                return bounds
+            
             def log_L(params_rv):
                 params, rv = unpack_params(params_rv)
-                templates, missing = self.get_templates(spectra, params, rv)
+                templates, missing = self.get_templates(spectra, params)
 
                 if missing:
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
                     log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
-                    return np.asscalar(log_L)
-                
-            x_0 = pack_params(params_0, rv_0)
-
-            bounds = (
-                pack_params(params_bounds[0], rv_bounds[0]),
-                pack_params(params_bounds[1], rv_bounds[1])
-            )
+                    return log_L.item()
         elif mode == 'rv':
             def pack_params(rv):
                 return np.atleast_1d(rv)
             
-            def unpack_params(params):
-                rv = params[0]
-                return rv
+            def unpack_params(rv):
+                rv = rv[0]
+                return params_0, rv
             
-            def log_L(params):
-                rv = unpack_params(params)
+            def pack_bounds(rv_bounds):
+                return [ rv_bounds ]
+            
+            def log_L(rv):
+                params_0, rv = unpack_params(rv)
                 templates, missing = self.get_templates(spectra, params_0)
 
                 if missing:
@@ -291,22 +280,55 @@ class ModelGridRVFit(RVFit):
                     return -np.inf
                 else:
                     log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
-                    return np.asscalar(log_L)
-                
-            x_0 = np.atleast_1d(rv_0)
-            bounds = rv_bounds
+                    return log_L.item()
+        else:
+            raise NotImplementedError()  
+        
+        return log_L, pack_params, unpack_params, pack_bounds
+
+    def eval_F(self, spectra, rv_0, params_0, params_fixed=None, step=None, mode='full', method='hessian'):
+        # Evaluate the Fisher matrix around the provided rv_0 and params_0
+        # values. The corresponding a_0 best fit flux correction will be
+        # evaluated at the optimum. The Hessian will be calculated wrt either
+        # RV only, or rv and the template parameters or rv, the template parameters
+        # and the flux correction coefficients. Alternatively, the covariance
+        # matrix will be determined using MCMC.
+
+        # Collect fixed and free template parameters
+        params_fixed = params_fixed if params_fixed is not None else self.params_fixed
+        params_free = self.determine_free_params(params_fixed)
+        params_bounds = self.determine_grid_bounds(self.params_bounds, params_free)
+        rv_bounds = self.rv_bounds
+
+        # Get objective function
+        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            spectra, rv_0, params_0, params_free, params_fixed=params_fixed, mode=mode)
+
+        if mode == 'full' or mode == 'a_params_rv':               
+            # Calculate a_0
+            templates, missing = self.get_templates(spectra, params_0)
+            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+            a_0 = self.eval_a(phi_0, chi_0)
+            x_0 = pack_params(a_0, params_0, rv_0)
+            bounds = pack_bounds(a_0.size * [(-np.inf, np.inf)], params_bounds, rv_bounds)
+        elif mode == 'params_rv':                
+            x_0 = pack_params(params_0, rv_0)
+            bounds = pack_bounds(params_bounds, rv_bounds)
+        elif mode == 'rv':                
+            x_0 = pack_params(rv_0)
+            bounds = pack_bounds(rv_bounds)
         else:
             raise NotImplementedError()
 
         return self.eval_F_dispatch(x_0, log_L, step, method, bounds)
-    
+
     def calculate_F(self, spectra, rv_0, params_0, params_fixed=None, step=None, mode='full', method='hessian'):
         # Calculate the Fisher matrix using different methods
 
         return self.eval_F(spectra, rv_0, params_0, params_fixed=params_fixed, step=step, mode=mode, method=method)
 
     #endregion
-            
+
     def fit_rv(self, spectra, rv_0=None, rv_bounds=(-500, 500), params_0=None, params_bounds=None, params_fixed=None, method="Nelder-Mead"):
         """
         :param params_0: Dictionary of initial values.
@@ -334,54 +356,27 @@ class ModelGridRVFit(RVFit):
         if self.template_wlim is None:
             self.determine_wlim(spectra, rv_bounds=rv_bounds)
 
-        def pack_params(rv, **params):
-            x = np.array([ rv ] + [ params[k] for k in params_free ])
-            return x
-        
-        def pack_bounds(rv_bounds, params_bounds):
-            bounds = [ rv_bounds ] 
-            if params_bounds is not None:
-                bounds += [ (params_bounds[0][k], params_bounds[1][k]) if k in params_bounds[0] else None for k in params_free ]
-            else:
-                bounds += [ None for k in params_free ]
-            
-            return bounds
-
-        def unpack_params(x):
-            rv = x[0]
-            params = {}
-            for i, p in enumerate(params_free):
-                params[p] = x[1 + i]
-            for p in params_fixed:
-                params[p] = params_fixed[p]
-
-            return rv, params
+        # Get objective function
+        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            spectra, rv_0, params_0, params_free, params_fixed=params_fixed, mode='params_rv')
 
         # Cost function
-        def llh(x):
-            # Gather the various parameters
-            rv, params = unpack_params(x)
-            templates, missing = self.get_templates(spectra, params, rv)
-
-            if missing:
-                return np.inf
-            else:
-                log_L, phi, chi = self.calculate_log_L(spectra, templates, rv)
-                return -log_L
+        def llh(params_rv):
+            return -log_L(params_rv)
 
         # Initial values and bounds for optimization
-        x0 = pack_params(rv_0, **params_0)
-        bounds = pack_bounds(rv_bounds, params_bounds)
+        x0 = pack_params(params_0, rv_0)
+        bounds = pack_bounds(params_bounds, rv_bounds)
         
         out = minimize(llh, x0=x0, bounds=bounds, method=method)
 
         if out.success:
-            rv_fit, params_fit = unpack_params(out.x)
+            params_fit, rv_fit = unpack_params(out.x)
         else:
             raise Exception(f"Could not fit RV using `{method}`")
         
         # Calculate the flux correction coefficients at best fit values
-        templates, missing = self.get_templates(spectra, params_fit, rv_fit)
+        templates, missing = self.get_templates(spectra, params_fit)
         phi_fit, chi_fit = self.eval_phi_chi(spectra, templates, rv_fit)
         a_fit = self.eval_a(phi_fit, chi_fit)
         

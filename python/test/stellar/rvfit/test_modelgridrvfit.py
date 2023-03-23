@@ -28,7 +28,7 @@ class ModelGridRVFitTraceTest(ModelGridRVFitTrace):
         self.mcmc_log_L = None
 
     def on_eval_F_mcmc(self, x_0, x, log_L):
-        super().on_eval_F_mcmc(x_0, x)
+        super().on_eval_F_mcmc(x_0, x, log_L)
 
         self.mcmc_x_0 = x_0
         self.mcmc_x = x
@@ -39,6 +39,8 @@ class TestModelGridRVFit(RVFitTestBase):
     def get_rvfit(self, flux_correction=False, **kwargs):
         trace = ModelGridRVFitTraceTest()
         rvfit = ModelGridRVFit(trace=trace)
+        rvfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
+        rvfit.mcmc_steps = 5
         rvfit.params_0 = kwargs
         rvfit.template_resampler = FluxConservingResampler()
         rvfit.template_grids = {
@@ -129,7 +131,7 @@ class TestModelGridRVFit(RVFitTestBase):
 
         ax.axvline(rv_real, color='r', label='rv real')
 
-        rv, rv_err, params, params_err = rvfit.fit_rv(specs,
+        rv, rv_err, params, params_err, a, a_err = rvfit.fit_rv(specs,
                                   rv_0=rv_real + 10, rv_bounds=(rv_real - 100, rv_real + 100),
                                   params_0=params_0)
         
@@ -161,6 +163,7 @@ class TestModelGridRVFit(RVFitTestBase):
         self.save_fig(f)
 
     def test_calculate_fisher(self):
+
         configs = [
             dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
             dict(flux_correction=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
@@ -170,7 +173,7 @@ class TestModelGridRVFit(RVFitTestBase):
 
         for ax, config in zip(axs[:, 0], configs):
             rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
-            rv, rv_err, params, params_err = rvfit.fit_rv(specs, rv_0=rv_real)
+            rv, rv_err, params, params_err, a, a_err = rvfit.fit_rv(specs, rv_0=rv_real)
             
             F = {}
             C = {}
@@ -202,7 +205,7 @@ class TestModelGridRVFit(RVFitTestBase):
     def test_eval_F_emcee(self):
         config = dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
-        rv, rv_err, params, params_err = rvfit.fit_rv(specs, rv_0=rv_real)
+        rv, rv_err, params, params_err, a, a_err = rvfit.fit_rv(specs, rv_0=rv_real)
 
         rvfit.calculate_F(specs, rv, params, mode='params_rv', method='emcee')
 
