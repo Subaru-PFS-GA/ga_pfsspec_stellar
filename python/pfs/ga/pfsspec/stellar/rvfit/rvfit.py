@@ -87,6 +87,7 @@ class RVFit():
 
             self.rv_0 = None                # RV initial guess
             self.rv_bounds = None           # Find RV between these bounds
+            self.rv_prior = None
 
             self.use_flux_corr = False      # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
             self.flux_corr_basis = None     # Callable that provides the basis functions for flux correction / continuum fitting.
@@ -113,6 +114,7 @@ class RVFit():
 
             self.rv_0 = orig.rv_0
             self.rv_bounds = orig.rv_bounds
+            self.rv_prior = orig.rv_prior
 
             self.use_flux_corr = orig.use_flux_corr
             self.flux_corr_basis = orig.flux_corr_basis
@@ -481,17 +483,23 @@ class RVFit():
         
         return log_L
     
-    def calculate_log_L(self, spectra, templates, rv, a=None):
+    def calculate_log_L(self, spectra, templates, rv, rv_prior=None, a=None):
+        
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        
         # Depending on whether the flux correction coefficients `a`
         # are supplied, calculate the log likelihood at the optimum of
         # flux correction or at the specified flux correction values.
         phi, chi = self.eval_phi_chi(spectra, templates, rv)
         if a is None:
             log_L = self.eval_log_L(phi, chi)
-            return log_L, phi, chi
         else:
             log_L = self.eval_log_L_a(phi, chi, a)
-            return log_L, phi, chi
+        
+        if rv_prior is not None:
+            log_L += rv_prior(rv)
+
+        return log_L, phi, chi
         
     def eval_flux_corr(self, spectra, templates, rv, a=None):
         # Evaluate the basis for each spectrum
@@ -519,7 +527,7 @@ class RVFit():
     # _hessian depend on the numerical evaluation of the Hessian with respect
     # to the parameters of the fitted model.
 
-    def get_objective_function(self, spectra, templates, rv_0, mode='full'):
+    def get_objective_function(self, spectra, templates, rv_prior, mode='full'):
         # Return the objection function and parameter packing/unpacking for optimizers
         # pack_params: convert individual arguments into a single 1d array
         # unpack_params: get individual arguments from 1d array
@@ -548,8 +556,8 @@ class RVFit():
 
             def log_L(a_rv):
                 a, rv = unpack_params(a_rv)
-                log_L, _, _ = self.calculate_log_L(spectra, templates, rv, a=a)
-                return log_L.item()
+                log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
+                return log_L
         elif mode == 'rv':
             def pack_params(rv):
                 return np.atleast_1d(rv)
@@ -563,25 +571,27 @@ class RVFit():
 
             def log_L(params):
                 rv = unpack_params(params)
-                log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
+                log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
                 return log_L
         else:
             raise NotImplementedError()
         
         return log_L, pack_params, unpack_params, pack_bounds
 
-    def eval_F(self, spectra, templates, rv_0, step=None, mode='full', method='hessian'):
+    def eval_F(self, spectra, templates, rv_0=None, rv_bounds=None, rv_prior=None, step=None, mode='full', method='hessian'):
         # Evaluate the Fisher matrix around the provided rv_0. The corresponding
         # a_0 best fit flux correction will be evaluated at the optimum.
         # The Hessian will be calculated wrt either RV only, or rv and the
         # flux correction coefficients. Alternatively, the covariance
         # matrix will be determined using MCMC.
 
-        rv_bounds = self.rv_bounds
+        rv_0 = rv_0 if rv_0 is not None else self.rv_0
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_0, mode=mode)
+            spectra, templates, rv_prior, mode=mode)
 
         if mode == 'full' or mode == 'a_rv':
             # Calculate a_0
@@ -852,13 +862,13 @@ class RVFit():
         bb = [
             (
                 0,
-                rv[0],
+                rv[0] - 1,
                 0.2 * (rv[-1] - rv[0]),
                 y0.min()
             ),
             (
                 5 * np.max(y0),
-                rv[-1],
+                rv[-1] + 1,
                 5.0 * (rv[-1] - rv[0]),
                 y0.min() + 4 * (y0.max() - y0.min())
             )
@@ -868,15 +878,17 @@ class RVFit():
 
         return pp, pcov
 
-    def guess_rv(self, spectra, templates, rv_bounds=(-500, 500), rv_steps=31):
+    def guess_rv(self, spectra, templates, rv_bounds=(-500, 500), rv_prior=None, rv_steps=31):
         """
         Given a spectrum and a template, make a good initial guess for RV where a minimization
         algorithm can be started from.
         """
 
-        rv = np.linspace(*rv_bounds, rv_steps)
-        log_L, phi, chi = self.calculate_log_L(spectra, templates, rv)
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
+        rv = np.linspace(*rv_bounds, rv_steps)
+        log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
         pp, pcov = self.fit_lorentz(rv, log_L)
 
         if self.trace is not None:
@@ -884,7 +896,7 @@ class RVFit():
 
         return pp[1]
 
-    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), guess_rv_steps=31, method='bounded'):
+    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, method='bounded'):
         """
         Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
         Spectra are assumed to be of the same object in different wavelength ranges.
@@ -897,18 +909,15 @@ class RVFit():
 
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
-        # No initial RV estimate provided, try to guess it and save it for later
+        # Get objective function
+        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            spectra, templates, rv_prior, mode='rv')
 
-        # if rv_0 is None:
-        #     rv_0 = self.guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_steps=guess_rv_steps)
-        #     self.rv_0 = rv_0
-
-        # Run optimization for log_L
-
+        # Cost function
         def llh(rv):
-            log_L, phi, chi = self.calculate_log_L(spectra, templates, rv)
-            return -log_L
+            return -log_L(pack_params(rv))
 
         # Multivariate method
         #out = minimize(llh, [rv0], method=method)
@@ -952,7 +961,7 @@ class RVFit():
             raise Exception(f"Could not fit RV using `{method}`")
         
         # Calculate the error from the Fisher matrix
-        _, C = self.eval_F(spectra, templates, rv_fit, mode='rv', method='hessian')
+        _, C = self.eval_F(spectra, templates, rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, mode='rv', method='hessian')
         rv_err = np.sqrt(C[-1, -1]) # sigma
 
         return rv_fit, rv_err

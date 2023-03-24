@@ -16,6 +16,10 @@ from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
 from test.pfs.ga.pfsspec.stellar.stellartestbase import StellarTestBase
 
 class RVFitTestBase(StellarTestBase):
+    def __init__(self, methodName):
+        super().__init__(methodName)
+
+        self.rv_real = 100
 
     @staticmethod
     def flux_correction_polys(wave):
@@ -109,12 +113,11 @@ class RVFitTestBase(StellarTestBase):
 
         return spec
     
-    def get_initialized_rvfit(self, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, **kwargs):
-        rv_real = 100
+    def get_initialized_rvfit(self, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors, **kwargs):
         if kwargs is None or len(kwargs) == 0:
             params_0 = dict(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         
-        rvfit = self.get_rvfit(flux_correction=flux_correction, **params_0)
+        rvfit = self.get_rvfit(flux_correction=flux_correction, use_priors=use_priors, **params_0)
        
         if flux_correction:
             phi_shape = (5,)
@@ -129,9 +132,9 @@ class RVFitTestBase(StellarTestBase):
             arms = ['mr']
 
         if multiple_exp:
-            specs = { k: [self.get_observation(arm=k, rv=rv_real, **params_0) for _ in range(2)] for k in arms }
+            specs = { k: [self.get_observation(arm=k, rv=self.rv_real, **params_0) for _ in range(2)] for k in arms }
         else:
-            specs = { k: self.get_observation(arm=k, rv=rv_real, **params_0) for k in arms }
+            specs = { k: self.get_observation(arm=k, rv=self.rv_real, **params_0) for k in arms }
         temps = { k: self.get_template(**params_0) for k in arms}
         psfs = { k: self.get_test_psf(k) for k in arms}
 
@@ -143,4 +146,4 @@ class RVFitTestBase(StellarTestBase):
         if normalize:
             rvfit.spec_norm, rvfit.temp_norm = rvfit.get_normalization(specs, temps)
 
-        return rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0
+        return rvfit, self.rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0

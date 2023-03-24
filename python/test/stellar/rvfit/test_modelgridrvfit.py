@@ -36,7 +36,7 @@ class ModelGridRVFitTraceTest(ModelGridRVFitTrace):
 
 class TestModelGridRVFit(RVFitTestBase):
     
-    def get_rvfit(self, flux_correction=False, **kwargs):
+    def get_rvfit(self, flux_correction=False, use_priors=False, **kwargs):
         trace = ModelGridRVFitTraceTest()
         rvfit = ModelGridRVFit(trace=trace)
         rvfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
@@ -51,6 +51,15 @@ class TestModelGridRVFit(RVFitTestBase):
         if flux_correction:
             rvfit.use_flux_corr = True
             rvfit.flux_corr_basis = RVFitTestBase.flux_correction_polys
+
+        if use_priors:
+            rvfit.rv_prior = lambda rv: -(rv - self.rv_real)**2 / 100**2
+            rvfit.params_priors = {
+                'T_eff': lambda T_eff: -(T_eff - 4500)**2 / 300**2
+            }
+        else:
+            rvfit.rv_prior = None
+            rvfit.params_priors = None
 
         rvfit.params_fixed = {
             'C_M': 0,
@@ -70,8 +79,8 @@ class TestModelGridRVFit(RVFitTestBase):
         # Provide the template parameters
         spec_norm, temp_norm = rvfit.get_normalization({'mr': spec}, M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
 
-    def rvfit_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, calculate_log_L=False, fit_lorentz=False, guess_rv=False, fit_rv=False, calculate_error=False):
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp)
+    def rvfit_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors=False, calculate_log_L=False, fit_lorentz=False, guess_rv=False, fit_rv=False, calculate_error=False):
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -115,8 +124,9 @@ class TestModelGridRVFit(RVFitTestBase):
 
     def test_calculate_log_L(self):
         configs = [
-            dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         ]
 
         f, ax = plt.subplots(1, 1)
@@ -126,8 +136,8 @@ class TestModelGridRVFit(RVFitTestBase):
 
         self.save_fig(f)
 
-    def rvfit_fit_rv_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp):
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp)
+    def rvfit_fit_rv_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -151,8 +161,9 @@ class TestModelGridRVFit(RVFitTestBase):
 
     def test_fit_rv(self):
         configs = [
-            dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         ]
 
         f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
@@ -165,8 +176,9 @@ class TestModelGridRVFit(RVFitTestBase):
     def test_calculate_fisher(self):
 
         configs = [
-            dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         ]
 
         f, axs = plt.subplots(len(configs), 1, squeeze=False)
@@ -203,7 +215,7 @@ class TestModelGridRVFit(RVFitTestBase):
         self.save_fig(f)
 
     def test_eval_F_emcee(self):
-        config = dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        config = dict(flux_correction=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
         rv, rv_err, params, params_err, a, a_err = rvfit.fit_rv(specs, rv_0=rv_real)
 

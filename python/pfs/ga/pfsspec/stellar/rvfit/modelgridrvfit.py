@@ -26,11 +26,14 @@ class ModelGridRVFit(RVFit):
             self.params_0 = None             # Dict of initial template parameters
             self.params_fixed = None         # List of names of template params not fitted
             self.params_bounds = None        # Template parameter bounds
+            self.params_priors = None        # Dict of callables for each parameter
         else:
             self.template_grids = orig.template_grids
 
             self.params_0 = orig.params_0
+            self.params_fixed = orig.params_fixed
             self.params_bounds = orig.params_bounds
+            self.params_priors = orig.params_priors
 
     def get_templates(self, spectra, params):
         # Return the templates corresponding to the parameters.
@@ -104,11 +107,14 @@ class ModelGridRVFit(RVFit):
             
         return t
         
-    def calculate_log_L(self, spectra, templates, rv, params=None, a=None):
+    def calculate_log_L(self, spectra, templates, rv, rv_prior=None, params=None, params_priors=None, a=None):
         # Calculate log_L using a provided set of templates or templates
         # at the provided parameters
 
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         params = params if params is not None else self.params_0
+        params_priors = params_priors if params_priors is not None else self.params_priors
+
         if templates is None:
             templates, missing = self.get_templates(spectra, params)
         else:
@@ -117,7 +123,12 @@ class ModelGridRVFit(RVFit):
         if missing:
             raise Exception("Template parameters are outside the grid.")
         else:
-            return super().calculate_log_L(spectra, templates, rv, a=a)
+            log_L, phi, chi = super().calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
+            if params_priors is not None:
+                for p in params_priors.keys():
+                    if p in params and params_priors[p] is not None:
+                        log_L += params_priors[p](params[p])
+            return log_L, phi, chi
         
     #region Fisher matrix evaluation
 
@@ -147,7 +158,7 @@ class ModelGridRVFit(RVFit):
             params_free = [p for i, p, ax in grid.enumerate_axes() if params_fixed is None or p not in params_fixed]
             return params_free  # return from loop after very first iter!
         
-    def get_objective_function(self, spectra, params_0, params_free, params_fixed=None, mode='full'):
+    def get_objective_function(self, spectra, rv_prior, params_0, params_priors, params_free, params_fixed=None, mode='full'):
         # Return the objection function and parameter packing/unpacking for optimizers
         # pack_params: convert individual arguments into a single 1d array
         # unpack_params: get individual arguments from 1d array
@@ -196,7 +207,7 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, phi, chi = self.calculate_log_L(spectra, templates, rv, a=a)
+                    log_L, phi, chi = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors, a=a)
                     return log_L.item()
         elif mode == 'params_rv':
             def pack_params(params, rv):
@@ -232,7 +243,7 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
+                    log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors)
                     return log_L.item()
         elif mode == 'rv':
             def pack_params(rv):
@@ -253,14 +264,14 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, _, _ = self.calculate_log_L(spectra, templates, rv)
+                    log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors)
                     return log_L.item()
         else:
             raise NotImplementedError()  
         
         return log_L, pack_params, unpack_params, pack_bounds
 
-    def eval_F(self, spectra, rv_0, params_0, params_fixed=None, step=None, mode='full', method='hessian'):
+    def eval_F(self, spectra, rv_0, params_0, rv_bounds=None, rv_prior=None, params_bounds=None, params_priors=None, params_fixed=None, step=None, mode='full', method='hessian'):
         # Evaluate the Fisher matrix around the provided rv_0 and params_0
         # values. The corresponding a_0 best fit flux correction will be
         # evaluated at the optimum. The Hessian will be calculated wrt either
@@ -269,14 +280,20 @@ class ModelGridRVFit(RVFit):
         # matrix will be determined using MCMC.
 
         # Collect fixed and free template parameters
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+
+        params_priors = params_priors if params_priors is not None else self.params_priors
+        
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
         params_free = self.determine_free_params(params_fixed)
+        
+        params_bounds = params_bounds if params_bounds is not None else self.params_bounds
         params_bounds = self.determine_grid_bounds(self.params_bounds, params_free)
-        rv_bounds = self.rv_bounds
-
+        
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, params_0, params_free, params_fixed=params_fixed, mode=mode)
+            spectra, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode=mode)
 
         if mode == 'full' or mode == 'a_params_rv':               
             # Calculate a_0
@@ -296,14 +313,14 @@ class ModelGridRVFit(RVFit):
 
         return self.eval_F_dispatch(x_0, log_L, step, method, bounds)
 
-    def calculate_F(self, spectra, rv_0, params_0, params_fixed=None, step=None, mode='full', method='hessian'):
+    def calculate_F(self, spectra, rv_0, params_0, rv_bounds=None, rv_prior=None, params_bounds=None, params_priors=None, params_fixed=None, step=None, mode='full', method='hessian'):
         # Calculate the Fisher matrix using different methods
 
-        return self.eval_F(spectra, rv_0, params_0, params_fixed=params_fixed, step=step, mode=mode, method=method)
+        return self.eval_F(spectra, rv_0, params_0, rv_bounds=rv_bounds, rv_prior=rv_prior, params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed, step=step, mode=mode, method=method)
 
     #endregion
 
-    def fit_rv(self, spectra, rv_0=None, rv_bounds=(-500, 500), params_0=None, params_bounds=None, params_fixed=None, method="Nelder-Mead"):
+    def fit_rv(self, spectra, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, params_0=None, params_bounds=None, params_priors=None, params_fixed=None, method="Nelder-Mead"):
         """
         :param params_0: Dictionary of initial values.
         :param params_bounds: Dictionary of tuples, parameters bounds.
@@ -312,12 +329,14 @@ class ModelGridRVFit(RVFit):
 
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
         params_0 = params_0 if params_0 is not None else self.params_0
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
         params_free = self.determine_free_params(params_fixed)
         params_bounds = params_bounds if params_bounds is not None else self.params_bounds
         params_bounds = self.determine_grid_bounds(params_bounds, params_free)
+        params_priors = params_priors if params_priors is not None else self.params_priors
 
         if rv_0 is None:
             # TODO
@@ -332,7 +351,7 @@ class ModelGridRVFit(RVFit):
 
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, rv_0, params_0, params_free, params_fixed=params_fixed, mode='params_rv')
+            spectra, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode='params_rv')
 
         # Cost function
         def llh(params_rv):
