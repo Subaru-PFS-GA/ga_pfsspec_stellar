@@ -206,7 +206,7 @@ class ModelGrid(PfsObject):
         self.continuum_model.init_values(self.grid)
 
     def load(self, filename, s=None, format=None):
-        super(ModelGrid, self).load(filename=filename, s=s, format=format)
+        super().load(filename=filename, s=s, format=format)
 
         # We need to initialize the continuum model here because calling
         # `init_values` will configure the underlying grid to load the fitted
@@ -357,11 +357,32 @@ class ModelGrid(PfsObject):
         if cont is not None:
             self.grid.set_value_at('cont', index, cont)
 
-    def get_parameterized_spectrum(self, idx=None, s=None, **kwargs):
+    def get_parameterized_spectrum(self, idx=None, wlim=None, **kwargs):
         spec = self.config.create_spectrum()
         self.grid.set_object_params(spec, idx=idx, **kwargs)
-        spec.wave, spec.wave_edges = self.get_wave(s=s)
+        spec.wave, spec.wave_edges = self.get_wave(s=wlim)
         spec.resolution = self.resolution
+
+        # Process history
+        spec.append_history(f'Spectrum object of `{type(spec).__name__}` created.')
+        spec.append_history(f'Nearest model taken from `{type(self.grid).__name__}` with config: `{type(self.grid.config).__name__}`, filename: `{self.filename}`')
+                
+        if wlim is not None and wlim != slice(None):
+            spec.append_history(f'Wavelength range limited by request to {spec.wave[0], spec.wave[-1]}.')
+        else:
+            spec.append_history(f'Wavelength range limited by grid coverage to {spec.wave[0], spec.wave[-1]}.')
+
+        if spec.wave is not None:
+            spec.append_history(f'Wave vector assigned from grid.')
+        
+        if spec.wave_edges is not None:
+            spec.append_history(f'Wave_edges vector assigned from grid.')
+        
+        if spec.resolution is not None:
+            spec.append_history(f'Resolution is assumed as R={spec.resolution} from grid.')
+        else:
+            spec.append_history(f'Resolution is not assumed from grid.')
+
         return spec
 
     def get_continuum_parameters(self, **kwargs):
@@ -402,44 +423,14 @@ class ModelGrid(PfsObject):
         else:
             raise NotImplementedError()
 
-    def get_model_at(self, idx, denormalize=True, wlim=None, psf=None,):
-        # Determine the wavelength limits
-        wlim = wlim if wlim is not None else self.get_wave_slice()
-        if isinstance(wlim, tuple):
-            wlim = self.get_wave_slice_impl(wlim)
-
-        cache_key_prefix, post_process = self.get_model_post_process(wlim=wlim, psf=psf)
-
-        if self.grid.has_value_at('flux', idx):
-            flux = self.grid.get_value_at('flux', idx, s=wlim, post_process=post_process, cache_key_prefix=cache_key_prefix)
-            if flux is not None:
-                spec = self.get_parameterized_spectrum(idx, s=wlim)
-                spec.flux = copy_array(flux)
-                
-                if self.grid.has_error('flux'):
-                    # TODO: convolution?
-                    spec.flux_err = copy_array(self.grid.get_error_at('flux', idx, s=wlim))
-                
-                if self.grid.has_value('cont'):
-                    spec.cont = copy_array(self.grid.get_value_at('cont', idx, s=wlim, post_process=post_process, cache_key_prefix=cache_key_prefix))
-
-                if denormalize and self.continuum_model is not None:
-                    params = self.get_continuum_parameters_at(idx)
-                    self.continuum_model.denormalize(spec, params, s=wlim)
-                
-                return spec
-            else:
-                return None
-        else:
-            return None
-
-    def get_nearest_model(self, denormalize=True, wlim=None, psf=None, **kwargs):
+    def get_model_at(self, idx, denormalize=True, wlim=None, psf=None):
         """
-        Finds grid point closest to the parameters specified
+        Return the model at exact grid coordinates.
         """
-        idx = self.grid.get_nearest_index(**kwargs)
-        spec = self.get_model_at(idx, denormalize=denormalize, wlim=wlim, psf=psf)
-        return spec
+        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
+            params = self.grid.get_params_at(idx, **kwargs)
+            return self.grid.get_value_at(name, idx, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim), params
+        return self.interpolate_model_impl('grid', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, idx=idx)
     
     def interpolate_model(self, denormalize=True, interpolation=None, wlim=None, psf=None, **kwargs):
         if self.array_grid is not None:
@@ -449,66 +440,98 @@ class ModelGrid(PfsObject):
         else:
             return NotImplementedError()
 
+    def get_nearest_model(self, denormalize=True, wlim=None, psf=None, **kwargs):
+        """
+        Finds grid point closest to the parameters specified
+        """
+        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
+            idx = self.grid.get_nearest_index(**kwargs)
+            params = self.grid.get_params_at(idx, **kwargs)
+            return self.grid.get_value_at(name, idx, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim), params
+        return self.interpolate_model_impl('nearest', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
+        
     def interpolate_model_linear(self, denormalize=True, wlim=None, psf=None, **kwargs):
-        # Interpolate models over an array grid using linear interpolation
-        # Optionally convolve with a kernel. When using and interp_cache,
-        # convolution is done before interpolation so that the convolved
-        # vectors can be reused.
-
-        if self.array_grid is None:
-            raise NotImplementedError("Linear interpolation is supported on ArrayGrid only.")
-        
-        wlim = wlim if wlim is not None else self.get_wave_slice()
-        if isinstance(wlim, tuple):
-            wlim = self.get_wave_slice_impl(wlim)
-                            
-        cache_key_prefix, post_process = self.get_model_post_process(wlim=wlim, psf=psf)
-        
-        r = self.grid.interpolate_value_linear('flux', post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
-        if r is None:
-            return None
-        flux, kwargs = r
-
-        if flux is not None:
-            spec = self.get_parameterized_spectrum(s=wlim, **kwargs)
-            spec.flux = flux
-
-            # if self.grid.has_value('cont'):
-            #     r = self.grid.interpolate_value_linear('cont', post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
-            #     if r is not None:
-            #         spec.cont, _ = r
-
-            return spec
-        else:
-            return None
+        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
+            return self.grid.interpolate_value_linear(name, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
+        return self.interpolate_model_impl('linear', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
 
     def interpolate_model_spline(self, free_param, denormalize=True, wlim=None, psf=None, **kwargs):
-        # TODO: update
-        raise NotImplementedError()
-
-        r = self.grid.interpolate_value_spline('flux', free_param, **kwargs)
-        if r is None:
-            return None
-        flux, bestargs = r
-
-        if flux is not None:
-            spec = self.get_parameterized_spectrum(**bestargs)
-            spec.interp_param = free_param
-            spec.flux = flux
-            if self.grid.has_value('cont'):
-                spec.cont, _ = self.grid.interpolate_value_spline('cont', free_param, **kwargs)
-            return spec
-        else:
-            return None
-
-    def interpolate_model_rbf(self, denormalize=True, wlim=None, psf=None, **kwargs):
-        # TODO: update
-        raise NotImplementedError()
+        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
+            return self.grid.interpolate_value_spline(name, free_param, post_process=post_process, cache_key_prefix=cache_key_prefix, wlim=wlim, **kwargs)
+        spec = self.interpolate_model_impl('linear', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
+        spec.interp_param = free_param
+        return spec
     
+    def interpolate_model_rbf(self, denormalize=True, wlim=None, psf=None, **kwargs):
         if isinstance(self.grid, RbfGrid) or \
            isinstance(self.grid, PcaGrid) and isinstance(self.grid.grid, RbfGrid):
                 return self.get_nearest_model(**kwargs)
         else:
             raise Exception("Operation not supported.")
+            
+    def interpolate_model_impl(self, method, interp_fun, denormalize=True, wlim=None, psf=None, idx=None, **kwargs):
+        # Generic model interpolation using any interpolation function supported by the
+        # underlying grid implementation. Optionally convolve with a kernel.
+        # Optional convolution is passed on to the grid class so results can be cached.
+        
+        if method in ['grid', 'nearest']:
+            msg_method = 'assigned from grid'
+        else:
+            if self.array_grid is None:
+                raise NotImplementedError("General interpolation is supported on ArrayGrid only.")
+        
+            msg_method = 'calculated from {method} interpolation'
+
+        if psf is not None:
+            msg_psf = f' and convolved with of PSF of type `{type(psf).__name__}`'
+        else:
+            msg_psf = ''
+        
+        # Determine the wave limits, convert to slice from (wmin, wmax)
+        wlim = wlim if wlim is not None else self.get_wave_slice()
+        if isinstance(wlim, tuple):
+            wlim = self.get_wave_slice_impl(wlim)
+
+        # Get post-processing function to be passed to the grid. The grid object will
+        # execute this before interpolation and optinally cache the results for
+        # further interpolations.
+        cache_key_prefix, post_process = self.get_model_post_process(wlim=wlim, psf=psf)
+    
+        r = interp_fun('flux', post_process=post_process, cache_key_prefix=cache_key_prefix, wlim=wlim, idx=idx, **kwargs)
+        if r is None:
+            return None
+        flux, params = r
+
+        if flux is not None:
+            spec = self.get_parameterized_spectrum(wlim=wlim, **params)
+            spec.flux = flux
+            spec.append_history(f'Flux vector {msg_method}{msg_psf}.')
+
+            if self.grid.has_error('flux'):
+                # TODO: how to interpolate and convolve the error?
+                raise NotImplementedError()
+            else:
+                spec.append_history('Flux error vector is not found in grid.')
+
+            if self.grid.has_value('cont'):
+                r = interp_fun('cont', post_process=post_process, cache_key_prefix=cache_key_prefix, wlim=wlim, idx=idx, **kwargs)
+                if r is not None:
+                    spec.cont, _ = r
+                    spec.append_history(f'Continuum model vector {msg_method}{msg_psf}.')
+            else:
+                spec.append_history('Continuum model vector is not found in grid.')
+
+            if denormalize and self.continuum_model is not None:
+                # TODO: Use same interpolation here as above!
+                raise NotImplementedError()
+                cont_params = self.get_continuum_parameters(**params)
+                self.continuum_model.denormalize(spec, cont_params, s=wlim)
+
+            spec.append_history(f'Interpolated model with actual model parameters: {params}, requested model parameters: {kwargs}')
+
+            return spec
+        else:
+            logging.warn(f'Spectrum cannot be interpolated to parameters {kwargs} using {method} interpolation on grid of type `{type(self.grid).__name__}` with config `{type(self.config).__name__}`')
+            return None
    
     #endregion

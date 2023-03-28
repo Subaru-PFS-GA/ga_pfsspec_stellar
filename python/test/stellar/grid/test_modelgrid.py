@@ -180,3 +180,9 @@ class TestModelGrid(StellarTestBase):
         grid = self.get_test_grid(args)
         spec = grid.interpolate_model_linear(M_H=-1.2, T_eff=4125, log_g=4.3, C_M=0, a_M=0)
         self.assertIsNotNone(spec)
+
+    def test_interpolate_model_spline(self):
+        args = {}
+        grid = self.get_test_grid(args)
+        spec = grid.interpolate_model_spline(free_param='T_eff', M_H=-1.2, T_eff=4125, log_g=4.3, C_M=0, a_M=0)
+        self.assertIsNotNone(spec)
