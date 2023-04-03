@@ -230,6 +230,8 @@ class Piecewise(ContinuumModel):
         spec.flux_err = normalize_vector(spec.flux_err, model)
         spec.cont = normalize_vector(spec.cont, model)
 
+        spec.append_history(f'Spectrum is normalized using model `{type(self).__name__}`.')
+
     def denormalize(self, spec, params, s=None):
         def denormalize_vector(data, model):
             return data * model if data is not None else None
@@ -237,6 +239,10 @@ class Piecewise(ContinuumModel):
         _, model = self.eval(params)
         model = model[s or ()]
 
+        # TODO: pass these to the spectrum class instead, here we
+        #       don't know what vectors to normalize
         spec.flux = denormalize_vector(spec.flux, model)
         spec.flux_err = denormalize_vector(spec.flux_err, model)
         spec.cont = denormalize_vector(spec.cont, model)
+
+        spec.append_history(f'Spectrum is denormalized using model `{type(self).__name__}`.')

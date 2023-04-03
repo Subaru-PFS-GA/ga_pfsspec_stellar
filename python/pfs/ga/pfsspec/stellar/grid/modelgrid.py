@@ -465,7 +465,7 @@ class ModelGrid(PfsObject):
     def interpolate_model_rbf(self, denormalize=True, wlim=None, psf=None, **kwargs):
         if isinstance(self.grid, RbfGrid) or \
            isinstance(self.grid, PcaGrid) and isinstance(self.grid.grid, RbfGrid):
-                return self.get_nearest_model(**kwargs)
+                return self.get_nearest_model(denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         else:
             raise Exception("Operation not supported.")
             
@@ -527,7 +527,9 @@ class ModelGrid(PfsObject):
                 cont_params = self.get_continuum_parameters(**params)
                 self.continuum_model.denormalize(spec, cont_params, s=wlim)
 
-            spec.append_history(f'Interpolated model with actual model parameters: {params}, requested model parameters: {kwargs}')
+            act_params = { k: params[k] for _, k, _ in self.grid.enumerate_axes() }
+            req_params = { k: kwargs[k] for _, k, _ in self.grid.enumerate_axes() }
+            spec.append_history(f'Interpolated model with actual model parameters: {act_params}, requested model parameters: {req_params}')
 
             return spec
         else:

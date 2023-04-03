@@ -72,3 +72,4 @@ class Planck(ContinuumModel):
         else:
             spec.cont = np.exp(n)
 
+        spec.append_history(f'Spectrum is normalized using model `{type(self).__name__}`.')

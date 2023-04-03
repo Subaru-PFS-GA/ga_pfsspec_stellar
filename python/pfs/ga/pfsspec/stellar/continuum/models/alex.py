@@ -269,6 +269,8 @@ class Alex(ContinuumModel):
         spec.flux = norm_flux
         spec.flux = norm_flux_err
 
+        spec.append_history(f'Spectrum is normalized using model `{type(self).__name__}`.')
+
     def normalize_use_flux(self, spec, params):
         # Do not take the log of flux at the end
         # Models are always fitted to the log flux so take exp
@@ -303,6 +305,8 @@ class Alex(ContinuumModel):
         spec.flux = norm_flux
         spec.flux_err = norm_flux_err
 
+        spec.append_history(f'Spectrum is normalized using model `{type(self).__name__}`.')
+
     def denormalize(self, spec, params, s=None):
         self.denormalize_use_flux(spec, params, s=s)
 
@@ -326,6 +330,8 @@ class Alex(ContinuumModel):
             self.trace.norm_flux = spec.flux
             self.trace.norm_cont = spec.cont
 
+        # TODO: pass the model to the spectrum class instead because
+        #       we don't know the vectors that need to be multiplied here
         model_full = self.safe_exp(model_cont + model_blended)
         spec.flux *= model_full
         if spec.flux_err is not None:
@@ -333,6 +339,8 @@ class Alex(ContinuumModel):
 
         # TODO: what if we know the theoretical continuum?
         spec.cont = cont
+
+        spec.append_history(f'Spectrum is denormalized using model `{type(self).__name__}`.')
 
     def denormalize_use_log_flux(self, spec, params, s=None):
         # Denormalize the spectrum given the fit params
@@ -355,6 +363,8 @@ class Alex(ContinuumModel):
             self.trace.norm_flux = spec.flux
             self.trace.norm_cont = spec.cont
 
+        # TODO: pass the model to the spectrum class instead because
+        #       we don't know the vectors that need to be multiplied here
         flux = self.safe_exp(spec.flux + model_cont + model_blended)
 
         if spec.flux_err is not None:
@@ -367,6 +377,8 @@ class Alex(ContinuumModel):
         spec.flux = flux
         spec.flux_err = flux_err
         spec.cont = cont
+
+        spec.append_history(f'Spectrum is denormalized using model `{type(self).__name__}`.')
 
     def fill_params(self, name, params):
         # Fill in the holes in a parameter grid

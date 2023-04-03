@@ -5,7 +5,7 @@ from pfs.ga.pfsspec.stellar import ModelSpectrum
 
 class PhoenixSpectrum(ModelSpectrum):
     def __init__(self, orig=None):
-        super(PhoenixSpectrum, self).__init__(orig=orig)
+        super().__init__(orig=orig)
 
         if not isinstance(orig, PhoenixSpectrum):
             pass

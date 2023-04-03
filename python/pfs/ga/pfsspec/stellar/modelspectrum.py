@@ -6,7 +6,7 @@ class ModelSpectrum(StellarSpectrum):
     # TODO: Make StellarSpectrum a mixin
 
     def __init__(self, orig=None):
-        super(ModelSpectrum, self).__init__(orig=orig)
+        super().__init__(orig=orig)
         
         if isinstance(orig, ModelSpectrum):
             self.N_He = orig.N_He
@@ -20,7 +20,7 @@ class ModelSpectrum(StellarSpectrum):
             self.interp_param = ''
 
     def get_param_names(self):
-        params = super(ModelSpectrum, self).get_param_names()
+        params = super().get_param_names()
         params = params + ['N_He',
                            'v_turb',
                            'L_H',
