@@ -62,7 +62,7 @@ class ModelGridConverter(GridBuilder, ModelGridBuilder):
     def create_pipeline(self, config, args=None):
         pipeline = config()
         if args is not None:
-            pipeline.init_from_args(args)
+            pipeline.init_from_args(config, args)
         return pipeline
 
     def create_input_grid(self):

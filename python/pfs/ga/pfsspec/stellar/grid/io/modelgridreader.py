@@ -58,7 +58,7 @@ class ModelGridReader(GridReader):
         super(ModelGridReader, self).init_from_args(config, args)
 
         self.pipeline = config['pipelines'][args[self.CONFIG_PIPELINE]]()
-        self.pipeline.init_from_args(args)
+        self.pipeline.init_from_args(config, args)
 
         if self.reader is None:
             self.reader = self.create_reader(None, None)
