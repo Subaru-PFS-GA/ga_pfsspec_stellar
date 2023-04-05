@@ -95,7 +95,7 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
                     # We do not want to calculate and save the normalized spectra in
                     # this step (because the fitted parameters might be smoothed first),
                     # so set the output wave vector to a dummy value
-                    self.output_grid.set_wave(np.array([0]))    # Dummy size
+                    self.output_grid.set_wave(np.array([0]), wave_edges=np.array([0, 0]))    # Dummy size
 
                     # Shapes of the model parameters
                     for k in params:
@@ -105,7 +105,8 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
                     self.output_grid.build_axis_indexes()
 
                     # Reset wave vector
-                    self.output_grid.set_wave(self.continuum_model.wave)
+                    # TODO: wave edges?
+                    self.output_grid.set_wave(self.continuum_model.wave, wave_edges=None)
 
                     output_initialized = True
                 self.store_item(output_idx, spec, params)
@@ -122,12 +123,12 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         
         # We do not save the continuum and flux at this step, so temporarily set
         # the wave vector to a dummy value to avoid allocating large arrays
-        self.output_grid.set_wave(np.array([0]))
+        self.output_grid.set_wave(np.array([0]), wave_edges=np.array([0, 0]))
         self.output_grid.allocate_values()
         self.output_grid.build_axis_indexes()
 
         # Set wave vector back to real value
-        self.output_grid.set_wave(self.params_grid.wave)
+        self.output_grid.set_wave(self.params_grid.wave, wave_edges=self.params_grid.wave_edges)
         self.output_grid.grid.set_constants(self.params_grid.grid.get_constants())
 
         for p in self.continuum_model.get_interpolated_params():
@@ -179,7 +180,8 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         # comes out of continuum_model, hence we cannot use the wave_mask of the
         # model to slice down the input grid. Update the continuum_model here to
         # have the correct mask.
-        self.continuum_model.init_wave(self.input_grid.get_wave()[0])
+        wave = self.input_grid.get_wave()
+        self.continuum_model.init_wave(wave)
 
         # Normalize every spectrum
         t = tqdm(total=input_count)
@@ -188,7 +190,8 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
                 if not output_initialized:
                     for k in params:
                         self.output_grid.grid.value_shapes[k] = params[k].shape
-                    self.output_grid.set_wave(self.continuum_model.wave)
+                    # TODO: wave_edges
+                    self.output_grid.set_wave(self.continuum_model.wave, wave_edges=None)
                     self.output_grid.allocate_values()
                     self.output_grid.build_axis_indexes()
                     output_initialized = True

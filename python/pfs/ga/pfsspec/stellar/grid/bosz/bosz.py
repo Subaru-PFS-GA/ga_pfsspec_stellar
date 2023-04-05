@@ -5,7 +5,7 @@ from .boszspectrum import BoszSpectrum
 
 class Bosz(ModelGridConfig):
     def __init__(self, orig=None, normalized=False, pca=False):
-        super(Bosz, self).__init__(orig=orig, normalized=normalized, pca=pca)
+        super().__init__(orig=orig, normalized=normalized, pca=pca)
 
         if isinstance(orig, Bosz):
             pass
@@ -13,10 +13,10 @@ class Bosz(ModelGridConfig):
             pass
 
     def add_args(self, parser):
-        super(Bosz, self).add_args(parser)
+        super().add_args(parser)
 
     def init_from_args(self, args):
-        super(Bosz, self).init_from_args(args)
+        super().init_from_args(args)
 
     def init_axes(self, grid):
         grid.init_axis('M_H', np.arange(-2.5, 1.0, 0.25))
@@ -30,10 +30,10 @@ class Bosz(ModelGridConfig):
         grid.build_axis_indexes()
 
     def init_values(self, grid):
-        super(Bosz, self).init_values(grid)
+        super().init_values(grid)
       
-    def allocate_values(self, grid, wave):
-        super(Bosz, self).allocate_values(grid, wave)
+    def allocate_values(self, grid, wave, wave_edges=None):
+        super().allocate_values(grid, wave, wave_edges=wave_edges)
 
     def create_spectrum(self):
         spec = BoszSpectrum()

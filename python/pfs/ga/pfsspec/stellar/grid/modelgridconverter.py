@@ -109,7 +109,7 @@ class ModelGridConverter(GridBuilder, ModelGridBuilder):
         with SmartParallel(initializer=self.init_process, verbose=False, parallel=self.parallel, threads=self.threads) as p:
             for i, input_idx, output_idx, spec in p.map(self.process_item, range(input_count)):
                 if not output_initialized:
-                    self.output_grid.set_wave(spec.wave)
+                    self.output_grid.set_wave(spec.wave, wave_edges=spec.wave_edges)
                     self.output_grid.allocate_values()
                     self.output_grid.build_axis_indexes()
                     output_initialized = True

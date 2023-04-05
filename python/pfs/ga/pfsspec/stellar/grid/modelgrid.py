@@ -172,7 +172,8 @@ class ModelGrid(PfsObject):
     def get_constants(self):
         constants = self.grid.get_constants()
         if self.continuum_model is not None:
-            constants.update(self.continuum_model.get_constants(self.get_wave()[0]))
+            wave, _, _ = self.get_wave()
+            constants.update(self.continuum_model.get_constants(wave))
         return constants
 
     def set_constants(self, constants):
@@ -197,7 +198,7 @@ class ModelGrid(PfsObject):
         return self.grid.get_shape(s=s, squeeze=squeeze)
 
     def allocate_values(self):
-        self.config.allocate_values(self.grid, self.wave, self.wave_edges)
+        self.config.allocate_values(self.grid, self.wave, wave_edges=self.wave_edges)
         if self.continuum_model is not None:
             self.continuum_model.allocate_values(self.grid)
 
@@ -259,9 +260,10 @@ class ModelGrid(PfsObject):
 
         name = self.load_item('/'.join((self.PREFIX_MODELGRID, 'continuum_model')), str)
         if name is not None:
+            wave = self.get_wave()[0]
             self.config.continuum_model_type = self.config.CONTINUUM_MODEL_TYPES[name]
             self.continuum_model = self.config.create_continuum_model()
-            self.continuum_model.init_wave(self.get_wave()[0])
+            self.continuum_model.init_wave(wave)
             
             self.continuum_model.filename = self.filename
             self.continuum_model.fileformat = self.fileformat
@@ -302,7 +304,7 @@ class ModelGrid(PfsObject):
         else:
             wave_edges = None
 
-        return wave, wave_edges
+        return wave, wave_edges, None
 
     def set_wave(self, wave, wave_edges=None):
         self.wave = wave
@@ -360,7 +362,8 @@ class ModelGrid(PfsObject):
     def get_parameterized_spectrum(self, idx=None, wlim=None, **kwargs):
         spec = self.config.create_spectrum()
         self.grid.set_object_params(spec, idx=idx, **kwargs)
-        spec.wave, spec.wave_edges = self.get_wave(s=wlim)
+        # TODO: deal with mask
+        spec.wave, spec.wave_edges, wave_mask = self.get_wave(s=wlim)
         spec.resolution = self.resolution
 
         # Process history

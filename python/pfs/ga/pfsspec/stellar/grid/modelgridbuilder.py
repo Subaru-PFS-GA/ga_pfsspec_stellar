@@ -83,7 +83,9 @@ class ModelGridBuilder():
         input_slice = g.get_slice()
         output_axes = { p: axis for i, p, axis in g.enumerate_axes(s=input_slice, squeeze=False) }
         self.output_grid.set_axes(output_axes)
-        self.output_grid.set_wave(g.get_wave())
+
+        wave, wave_edges, wave_mask = g.get_wave()
+        self.output_grid.set_wave(wave, wave_edges=wave_edges)
         self.output_grid.build_axis_indexes()
         
         # DEBUG
@@ -104,7 +106,8 @@ class ModelGridBuilder():
                 self.continuum_model = self.params_grid.continuum_model
 
             if self.continuum_model.wave is None:
-                self.continuum_model.init_wave(self.params_grid.get_wave()[0])
+                wave, _, _ = self.params_grid.get_wave()
+                self.continuum_model.init_wave(wave)
         else:
             self.params_grid = None
             
@@ -114,7 +117,8 @@ class ModelGridBuilder():
             self.continuum_model = self.input_grid.continuum_model
         
         if self.continuum_model is not None and self.continuum_model.wave is None:
-            self.continuum_model.init_wave(self.input_grid.get_wave()[0])
+            wave, _, _ = self.input_grid.get_wave()
+            self.continuum_model.init_wave(wave)
 
         # This has to happen after loading the input grid because params_index
         # is combined with the input index with logical and
@@ -235,7 +239,8 @@ class ModelGridBuilder():
         output_grid.set_value(name, rbf)
 
     def copy_wave(self, params_grid, output_grid):
-        output_grid.set_wave(params_grid.get_wave())
+        wave, wave_edges, wave_mask = params_grid.get_wave()
+        output_grid.set_wave(wave, wave_edges=wave_edges)
 
     def copy_constants(self, params_grid, output_grid):
         output_grid.set_constants(params_grid.get_constants())

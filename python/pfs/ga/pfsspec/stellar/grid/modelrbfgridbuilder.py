@@ -152,7 +152,9 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
         # Copy RBF interpolation of continuum fit parameters from an existing grid
 
         output_grid.set_constants(params_grid.get_constants())
-        output_grid.set_wave(params_grid.get_wave())
+
+        wave, wave_edges, wave_mask = params_grid.get_wave()
+        output_grid.set_wave(wave, wave_edges=wave_edges)
 
         for p in self.continuum_model.get_interpolated_params():
             self.copy_rbf(params_grid.grid, output_grid.grid.grid, p.name)
@@ -160,7 +162,9 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
     def fit_flux(self, input_grid, output_grid):
         # Calculate RBF interpolation in the flux vector directly
 
-        output_grid.set_wave(input_grid.get_wave())
+        # TODO: deal with wave edges
+        wave, wave_edges, wave_mask = input_grid.get_wave()
+        output_grid.set_wave(wave, wave_edges=wave_edges)
 
         for name in ['flux', 'cont']:
             if input_grid.grid.has_value(name):

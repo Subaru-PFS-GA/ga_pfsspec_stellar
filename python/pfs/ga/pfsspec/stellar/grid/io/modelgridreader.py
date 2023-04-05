@@ -164,7 +164,7 @@ class ModelGridReader(GridReader):
             self.grid.load(fn, format='h5')
         else:
             # Initialize the wavelength grid based on the first spectrum read
-            self.grid.set_wave(spec.wave)
+            self.grid.set_wave(spec.wave, wave_edges=spec.wave_edges)
 
             # TODO: Here we assume that all spectra of the grid have the
             #       same binning

@@ -49,7 +49,7 @@ class ModelGridConfig(GridConfig):
         grid.init_value('flux', pca=self.pca)
         grid.init_value('cont', pca=self.pca)
 
-    def allocate_values(self, grid, wave):
+    def allocate_values(self, grid, wave, wave_edges=None):
         if self.pca is not None and self.pca:
             raise NotImplementedError()
         else:

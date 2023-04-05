@@ -5,7 +5,7 @@ from .phoenixspectrum import PhoenixSpectrum
     
 class Phoenix(ModelGridConfig):
     def __init__(self, orig=None, normalized=False, pca=False):
-        super(Phoenix, self).__init__(orig=orig, normalized=normalized, pca=pca)
+        super().__init__(orig=orig, normalized=normalized, pca=pca)
 
         if isinstance(orig, Phoenix):
             pass
@@ -13,10 +13,10 @@ class Phoenix(ModelGridConfig):
             pass
 
     def add_args(self, parser):
-        super(Phoenix, self).add_args(parser)
+        super().add_args(parser)
 
     def init_from_args(self, args):
-        super(Phoenix, self).init_from_args(args)
+        super().init_from_args(args)
         
     def init_axes(self, grid):
         grid.init_axis('M_H', np.hstack((np.arange(-4.0, -2.0, 1),
@@ -29,10 +29,10 @@ class Phoenix(ModelGridConfig):
         grid.build_axis_indexes()
 
     def init_values(self, grid):
-        super(Phoenix, self).init_values(grid)
+        super().init_values(grid)
       
-    def allocate_values(self, grid, wave):
-        super(Phoenix, self).allocate_values(grid, wave)
+    def allocate_values(self, grid, wave, wave_edges=None):
+        super().allocate_values(grid, wave, wave_edges=wave_edges)
 
     def create_spectrum(self):
         spec = PhoenixSpectrum()

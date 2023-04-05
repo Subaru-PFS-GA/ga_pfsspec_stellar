@@ -22,7 +22,7 @@ class TestBoszGridReader(TestBase):
         
         grid = gridreader.grid = gridreader.create_grid()
         grid.preload_arrays = True
-        grid.set_wave(spec.wave)
+        grid.set_wave(spec.wave, wave_edges=spec.wave_edges)
         grid.grid.init_values()
         grid.build_axis_indexes()
 
