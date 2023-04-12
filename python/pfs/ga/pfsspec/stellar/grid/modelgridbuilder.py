@@ -32,8 +32,9 @@ class ModelGridBuilder():
             self.grid_config = grid_config
             self.continuum_model = None
 
-    def add_args(self, parser):
-        self.grid_config.add_args(parser)
+    def add_args(self, parser, config):
+        self.grid_config.add_args(parser, config)
+        
         parser.add_argument('--pca', action='store_true', help='Run on a PCA input grid.')
         parser.add_argument('--rbf', action='store_true', help='Run on an RBF params grid.')
 

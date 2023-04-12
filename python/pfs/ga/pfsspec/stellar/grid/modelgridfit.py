@@ -36,9 +36,9 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         
         return pp
 
-    def add_args(self, parser):
-        GridBuilder.add_args(self, parser)
-        ModelGridBuilder.add_args(self, parser)
+    def add_args(self, parser, config):
+        GridBuilder.add_args(self, parser, config)
+        ModelGridBuilder.add_args(self, parser, config)
 
         parser.add_argument('--step', type=str, choices=ModelGridFit.STEPS, required=True, help='Fitting step to perform.\n')
 

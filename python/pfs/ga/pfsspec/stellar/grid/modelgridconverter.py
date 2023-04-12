@@ -46,9 +46,9 @@ class ModelGridConverter(GridBuilder, ModelGridBuilder):
         else:
             return None
 
-    def add_args(self, parser):
-        GridBuilder.add_args(self, parser)
-        ModelGridBuilder.add_args(self, parser)
+    def add_args(self, parser, config):
+        GridBuilder.add_args(self, parser, config)
+        ModelGridBuilder.add_args(self, parser, config)
 
         parser.add_argument('--resolution', type=float, help='Input model resolution.')
 

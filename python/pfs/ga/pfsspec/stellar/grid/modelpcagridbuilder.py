@@ -32,9 +32,9 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
 
         # TODO: add continuum model parameters
 
-    def add_args(self, parser):
-        PcaGridBuilder.add_args(self, parser)
-        ModelGridBuilder.add_args(self, parser)
+    def add_args(self, parser, config):
+        PcaGridBuilder.add_args(self, parser, config)
+        ModelGridBuilder.add_args(self, parser, config)
 
     def init_from_args(self, config, args):
         PcaGridBuilder.init_from_args(self, config, args)

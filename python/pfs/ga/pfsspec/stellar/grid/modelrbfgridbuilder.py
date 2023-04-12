@@ -32,9 +32,9 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
 
         # TODO: add continuum model parameters
 
-    def add_args(self, parser):
-        RbfGridBuilder.add_args(self, parser)
-        ModelGridBuilder.add_args(self, parser)
+    def add_args(self, parser, config):
+        RbfGridBuilder.add_args(self, parser, config)
+        ModelGridBuilder.add_args(self, parser, config)
 
         parser.add_argument('--step', type=str, choices=ModelRbfGridBuilder.STEPS, help='RBF step to perform.\n')
 

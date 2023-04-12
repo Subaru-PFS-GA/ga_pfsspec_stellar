@@ -37,8 +37,8 @@ class ModelGridDownloader(Downloader):
     def add_subparsers(self, configurations, parser):
         return None
             
-    def add_args(self, parser):
-        super(ModelGridDownloader, self).add_args(parser)
+    def add_args(self, parser, config):
+        super(ModelGridDownloader, self).add_args(parser, config)
 
         parser.add_argument('--top', type=int, default=None, help='Limit number of results')
 

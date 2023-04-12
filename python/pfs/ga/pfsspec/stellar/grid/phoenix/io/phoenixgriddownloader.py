@@ -17,8 +17,8 @@ class PhoenixGridDownloader(ModelGridDownloader):
         else:
             self.version = orig.version
 
-    def add_args(self, parser):
-        super().add_args(parser)
+    def add_args(self, parser, config):
+        super().add_args(parser, config)
 
         parser.add_argument('--phoenix-version', type=str, default="1.0", help='PHOENIX grid version')
 
