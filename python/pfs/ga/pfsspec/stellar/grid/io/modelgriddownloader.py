@@ -17,30 +17,17 @@ class ModelGridDownloader(Downloader):
         super(ModelGridDownloader, self).__init__(orig=orig)
         
         if not isinstance(orig, ModelGridDownloader):
-            self.args = None
-            self.parallel = True
-            self.threads = multiprocessing.cpu_count() // 2
-
-            self.top = None
-
             self.grid = grid
             self.reader = None
         else:
-            self.args = orig.args
-            self.parallel = orig.parallel
-            self.threads = orig.threads
-
-            self.top = orig.top
-
             self.grid = grid if grid is not None else orig.grid
+            self.reader = orig.reader
 
     def add_subparsers(self, configurations, parser):
         return None
             
     def add_args(self, parser, config):
-        super(ModelGridDownloader, self).add_args(parser, config)
-
-        parser.add_argument('--top', type=int, default=None, help='Limit number of results')
+        super().add_args(parser, config)
 
         # Add spectrum reader parameters
         reader = self.create_reader(None, None)
@@ -51,10 +38,8 @@ class ModelGridDownloader(Downloader):
         grid.add_args(parser)
 
     def init_from_args(self, config, args):
-        super(ModelGridDownloader, self).init_from_args(config, args)
+        super().init_from_args(config, args)
         
-        self.top = self.get_arg('top', self.top, args)
-
         self.grid = self.create_grid()
         self.grid.init_from_args(args)
 
