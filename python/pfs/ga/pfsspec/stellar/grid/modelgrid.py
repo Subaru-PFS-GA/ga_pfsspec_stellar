@@ -531,7 +531,7 @@ class ModelGrid(PfsObject):
                 self.continuum_model.denormalize(spec, cont_params, s=wlim)
 
             act_params = { k: params[k] for _, k, _ in self.grid.enumerate_axes() }
-            req_params = { k: kwargs[k] for _, k, _ in self.grid.enumerate_axes() }
+            req_params = { k: kwargs[k] for _, k, _ in self.grid.enumerate_axes() if k in kwargs }
             spec.append_history(f'Interpolated model with actual model parameters: {act_params}, requested model parameters: {req_params}')
 
             return spec
