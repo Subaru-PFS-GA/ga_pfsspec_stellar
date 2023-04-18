@@ -44,10 +44,10 @@ class TestRVFit(RVFitTestBase):
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation()
 
-        sp = rvfit.process_spectrum(spec)
+        sp = rvfit.process_spectrum('', 0, spec)
 
         rvfit.spec_norm, rvfit.temp_norm = rvfit.get_normalization({'mr': spec}, {'mr': temp})
-        sp = rvfit.process_spectrum(spec)
+        sp = rvfit.process_spectrum('', 0, spec)
 
     def test_process_template(self):
         spec = self.get_observation(arm='mr')
@@ -55,15 +55,15 @@ class TestRVFit(RVFitTestBase):
         rvfit = self.get_rvfit()
         rvfit.determine_wlim({ 'mr': spec }, (-300, 300))
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
-        tm = rvfit.process_template(temp, spec, 100)
+        tm = rvfit.process_template('mr', temp, spec, 100)
 
         psf = self.get_test_psf(arm='mr')
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
-        tm = rvfit.process_template(temp, spec, 100, psf=psf)
+        tm = rvfit.process_template('mr', temp, spec, 100, psf=psf)
 
         rvfit.spec_norm, rvfit.temp_norm = rvfit.get_normalization({'mr': spec}, {'mr': temp})
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
-        tm = rvfit.process_template(temp, spec, 100, psf=psf)
+        tm = rvfit.process_template('mr', temp, spec, 100, psf=psf)
 
     def test_diff_template(self):
         rvfit = self.get_rvfit()

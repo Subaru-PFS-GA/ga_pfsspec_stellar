@@ -2,7 +2,6 @@ import numpy as np
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 import numdifftools as nd
-import emcee
 
 from pfs.ga.pfsspec.core import Physics
 from .rvfit import RVFit, RVFitTrace
@@ -88,7 +87,7 @@ class ModelGridRVFit(RVFit):
         else:
             return super().get_normalization(spectra, templates)
         
-    def process_template_impl(self, template, spectrum, rv, psf=None, wlim=None):
+    def process_template_impl(self, arm, template, spectrum, rv, psf=None, wlim=None):
         # 1. Make a copy, not in-place update
         t = template.copy()
 
@@ -98,12 +97,14 @@ class ModelGridRVFit(RVFit):
         # 3. Skip convolution because convolution is pushed down to the
         #    model interpolator to support caching
 
-        # 4. Normalize
+        # 4. Normalize by a factor
         if self.temp_norm is not None:
             t.multiply(1.0 / self.temp_norm)
 
+        # TODO: add continuum normalization?
+
         if self.trace is not None:
-            self.trace.on_process_template(rv, template, t)
+            self.trace.on_process_template(arm, rv, template, t)
             
         return t
         

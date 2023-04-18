@@ -1,3 +1,5 @@
+import os
+import logging
 import numpy as np
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
@@ -5,18 +7,30 @@ from scipy.ndimage import binary_dilation
 from scipy.interpolate import interp1d
 import numdifftools as nd
 from collections.abc import Iterable
-import emcee
 
+try:
+    import emcee
+except ModuleNotFoundError as ex:
+    logging.warn(ex.msg)
+    emcee = None
+
+from pfs.ga.pfsspec.core.plotting import TracePlots
+import pfs.ga.pfsspec.core.plotting.styles as styles
 from pfs.ga.pfsspec.core import Physics
+from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 
-class RVFitTrace():
+class RVFitTrace(TracePlots):
     """
     Implements call-back function to profile and debug RV fitting. Allows for
     generating plots of intermediate steps.
     """
 
-    def __init__(self):
+    def __init__(self, outdir='.', plot=False, log=False):
+        super().__init__(outdir=os.path.join(outdir, 'rvfit'), plot_level=plot)
+
+        self.log = log
+        
         self.reset()
 
     def reset(self):
@@ -29,13 +43,65 @@ class RVFitTrace():
         self.eval_log_L_count = 0
         self.eval_log_L_a_count = 0
 
-    def on_process_spectrum(self, spectrum, processed_spectrum):
+    def save_history(self, filename, spectrum):
+        if spectrum.history is not None:
+            with open(os.path.join(self.outdir, filename), "w") as f:
+                f.writelines([ s + '\n' for s in spectrum.history ])
+
+    def plot_spectrum(self, key, arm, wave, flux=None, error=None, cont=None, model=None, label=None):
+        def plot(ax, mask=()):
+            if flux is not None:
+                ax.plot(wave[mask], flux[mask], label=label, **styles.solid_line())
+            if error is not None:
+                ax.plot(wave[mask], error[mask], **styles.solid_line())
+            if cont is not None:
+                ax.plot(wave[mask], cont[mask], **styles.solid_line())
+            if model is not None:
+                ax.plot(wave[mask], model[mask], **styles.solid_line())
+
+        (f, axs) = self.get_figure(key, 2, 1)
+        plot(axs[0])
+        plot(axs[1], (np.abs(wave - wave.mean()) < 20.0))
+
+    def on_process_spectrum(self, arm, i, spectrum, processed_spectrum):
+        if self.process_spectrum_count == 0:
+            if self.plot_level:
+                self.plot_spectrum(f'spectrum_{arm}_{i}', arm, spectrum.wave, spectrum.flux)
+                self.plot_spectrum(f'processed_spectrum_{arm}_{i}', arm, processed_spectrum.wave, processed_spectrum.flux)
+
+                self.format_figures()
+                self.save_figures()
+                self.flush_figures()
+
+            if self.log:
+                self.save_history(f'spectrum_{arm}_{i}.log', spectrum)
+
         self.process_spectrum_count += 1
 
-    def on_process_template(self, rv, template, processed_template):
+    def on_process_template(self, arm, rv, template, processed_template):
+        if self.process_template_count == 0:
+            if self.plot_level:
+                self.plot_spectrum(f'template_{arm}', arm, template.wave, template.flux)
+                self.plot_spectrum(f'processed_template_{arm}', arm, processed_template.wave, processed_template.flux)
+
+                self.format_figures()
+                self.save_figures()
+                self.flush_figures()
+
         self.process_template_count += 1
 
-    def on_resample_template(self, rv, spectrum, template, processed_template):
+    def on_resample_template(self, arm, rv, spectrum, template, resampled_template):
+        if self.resample_template_count == 0:
+            if self.plot_level:
+                self.plot_spectrum(f'resampled_template_{arm}', arm, resampled_template.wave, resampled_template.flux)
+
+                self.format_figures()
+                self.save_figures()
+                self.flush_figures()
+
+            if self.log:
+                self.save_history(f'resampled_template_{arm}.log', spectrum)
+
         self.resample_template_count += 1
 
     def on_template_cache_hit(self, template, rv_q, rv):
@@ -60,7 +126,13 @@ class RVFitTrace():
         pass
 
     def on_guess_rv(self, rv, log_L, fit, function, pp, pcov):
-        pass
+        if self.plot_level:
+            (f, ax) = self.get_figure('guess_rv', 1, 1)
+            ax.plot(rv, log_L, **styles.solid_line())
+
+            self.format_figures()
+            self.save_figures()
+            self.flush_figures()
 
     def on_fit_rv(self, rv, spectra, templates):
         pass
@@ -80,10 +152,10 @@ class RVFit():
             self.template_psf = None        # Dict of psf to downgrade templates with
             self.template_resampler = FluxConservingResampler()  # Resample template to instrument pixels
             self.template_cache_resolution = 50  # Cache templates with this resolution in RV
-            self.template_wlim = None        # Model wavelength limits for each spectrograph arm
-            self.template_wlim_buffer = 5    # Wavelength buffer in A, depends on line spread function
+            self.template_wlim = None       # Model wavelength limits for each spectrograph arm
+            self.template_wlim_buffer = 5   # Wavelength buffer in A, depends on line spread function
             
-            self.cache_templates = True    # Cache PSF-convolved templates
+            self.cache_templates = False    # Cache PSF-convolved templates
 
             self.rv_0 = None                # RV initial guess
             self.rv_bounds = None           # Find RV between these bounds
@@ -132,7 +204,7 @@ class RVFit():
         self.reset()
 
     def reset(self):
-        self.template_cache = {}
+        self.template_cache = ReadOnlyCache()
         self.flux_corr_basis_cache = None
         self.flux_corr_basis_size = None
 
@@ -146,14 +218,14 @@ class RVFit():
 
         s = []
         t = []
-        for k in spectra:
-            for spec in spectra[k] if isinstance(spectra[k], list) else [spectra[k]]:
-                spec = self.process_spectrum(spec)
+        for arm in spectra:
+            for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
+                spec = self.process_spectrum(arm, ei, spec)
                 s.append(spec.flux)
             
             if self.template_psf is not None:
-                psf = self.template_psf[k]
-                wlim = self.template_wlim[k]
+                psf = self.template_psf[arm]
+                wlim = self.template_wlim[arm]
             else:
                 psf = None
                 wlim = None
@@ -163,7 +235,7 @@ class RVFit():
             else:
                 rv = 0.0
 
-            temp = self.process_template(templates[k], spec, rv, psf=psf, wlim=wlim)
+            temp = self.process_template(arm, templates[arm], spec, rv, psf=psf, wlim=wlim)
             t.append(temp.flux)
 
         spec_flux = np.concatenate(s)
@@ -171,7 +243,7 @@ class RVFit():
 
         return np.median(spec_flux), np.median(temp_flux)
 
-    def process_spectrum(self, spectrum):
+    def process_spectrum(self, arm, i, spectrum):
         # Preprocess the spectrum to calculate the likelihood. This step
         # currently consist only of normalizing the flux with a factor.
 
@@ -180,7 +252,7 @@ class RVFit():
             spec.multiply(1.0 / self.spec_norm)
 
         if self.trace is not None:
-            self.trace.on_process_spectrum(spectrum, spec)
+            self.trace.on_process_spectrum(arm, i, spectrum, spec)
 
         return spec
     
@@ -206,7 +278,7 @@ class RVFit():
             # Buffer the wave limits a little bit
             self.template_wlim[k] = (wmin - self.template_wlim_buffer, wmax + self.template_wlim_buffer)
     
-    def process_template_impl(self, template, spectrum, rv, psf=None, wlim=None):
+    def process_template_impl(self, arm, template, spectrum, rv, psf=None, wlim=None):
         # 1. Make a copy, not in-place update
         t = template.copy()
 
@@ -218,16 +290,18 @@ class RVFit():
         if psf is not None:
             t.convolve_psf(psf, wlim=wlim)
 
-        # 4. Normalize
+        # 4. Normalize by a factor
         if self.temp_norm is not None:
             t.multiply(1.0 / self.temp_norm)
 
+        # TODO: add continuum normalization?
+
         if self.trace is not None:
-            self.trace.on_process_template(rv, template, t)
+            self.trace.on_process_template(arm, rv, template, t)
             
         return t
 
-    def process_template(self, template, spectrum, rv, psf=None, wlim=None, diff=False, flux_corr=False, a=None):
+    def process_template(self, arm, template, spectrum, rv, psf=None, wlim=None, diff=False, flux_corr=False, a=None):
         # Preprocess the template to match the observation. This step
         # involves shifting the high resolution template the a given RV,
         # convolving it with the PSF, still at high resolution, and normalizing
@@ -253,17 +327,16 @@ class RVFit():
             key = (template, rv_q)
 
             # Look up template in cache and shift to from quantized RV to actual RV
-            if key in self.template_cache:
-                temp = self.template_cache[key]
+            if self.template_cache.is_cached(key):
+                temp = self.template_cache.get(key)
                 if self.trace is not None:
                     self.trace.on_template_cache_hit(template, rv_q, rv)
             else:
-                temp = self.process_template_impl(template, spectrum, rv_q, psf=psf, wlim=wlim)
+                temp = self.process_template_impl(arm, template, spectrum, rv_q, psf=psf, wlim=wlim)
                 if self.trace is not None:
                     self.trace.on_template_cache_miss(template, rv_q, rv)
 
-            if key not in self.template_cache:
-                self.template_cache[key] = temp
+                self.template_cache.push(key, temp)
 
             # Shift from quantized RV to requested RV
             temp = temp.copy()
@@ -271,7 +344,7 @@ class RVFit():
             temp.set_redshift(Physics.vel_to_z(rv))
         else:
             # Compute convolved template from scratch
-            temp = self.process_template_impl(template, spectrum, rv, psf=psf, wlim=wlim)
+            temp = self.process_template_impl(arm, template, spectrum, rv, psf=psf, wlim=wlim)
 
         # Resample template to the binning of the observation
         temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
@@ -282,7 +355,7 @@ class RVFit():
             temp.multiply(np.dot(basis, a))
 
         if self.trace is not None:
-            self.trace.on_resample_template(rv, spectrum, template, temp)
+            self.trace.on_resample_template(arm, rv, spectrum, template, temp)
 
         return temp
     
@@ -372,55 +445,55 @@ class RVFit():
             trace_sigma2 = {}
             trace_weight = {}
 
-            for k in spectra:
-                trace_temp[k] = []
-                trace_bases[k] = []
-                trace_mask[k] = []
-                trace_sigma2[k] = []
-                trace_weight[k] = []
+            for arm in spectra:
+                trace_temp[arm] = []
+                trace_bases[arm] = []
+                trace_mask[arm] = []
+                trace_sigma2[arm] = []
+                trace_weight[arm] = []
 
-                if not isinstance(spectra[k], list):
-                    specs = [spectra[k]]
+                if not isinstance(spectra[arm], list):
+                    specs = [spectra[arm]]
                 else:
-                    specs = spectra[k]
+                    specs = spectra[arm]
 
-                psf = self.template_psf[k] if self.template_psf is not None else None
-                wlim = self.template_wlim[k] if self.template_wlim is not None else None
+                psf = self.template_psf[arm] if self.template_psf is not None else None
+                wlim = self.template_wlim[arm] if self.template_wlim is not None else None
                 
                 for ei in range(len(specs)):
-                    spec = self.process_spectrum(specs[ei])
-                    temp = self.process_template(templates[k], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
-                    trace_temp[k].append(temp)
+                    spec = self.process_spectrum(arm, ei, specs[ei])
+                    temp = self.process_template(arm, templates[arm], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
+                    trace_temp[arm].append(temp)
 
                     # Determine mask
                     if self.use_mask:
                         mask = ~spec.mask if spec.mask is not None else np.s_[:]
                     else:
                         mask = np.s_[:]
-                    trace_mask[k].append(mask)
+                    trace_mask[arm].append(mask)
 
                     # Flux error
                     sigma2 = spec.flux_err ** 2
-                    trace_sigma2[k].append(sigma2)
+                    trace_sigma2[arm].append(sigma2)
 
                     # Weight (optional)
                     if self.use_weight and temp.weight is not None:
                         weight = temp.weight / temp.weight.sum() * temp.weight.size
                     else:
                         weight = np.ones_like(spec.flux)
-                    trace_weight[k].append(weight)
+                    trace_weight[arm].append(weight)
                     
                     if bases is None:
                         phi[i] += np.sum(weight[mask] * spec.flux[mask] * temp.flux[mask] / sigma2[mask])
                         chi[i] += np.sum(weight[mask] * temp.flux[mask] ** 2 / sigma2[mask])
                     else:
-                        basis = bases[k][ei]
+                        basis = bases[arm][ei]
                         try:
                             phi[i] += np.sum(weight[mask, None] * spec.flux[mask, None] * temp.flux[mask, None] * basis[mask, :] / sigma2[mask, None], axis=0)
                             chi[i] += np.sum(weight[mask, None, None] * (temp.flux[mask, None, None] ** 2 * np.matmul(basis[mask, :, None], basis[mask, None, :])) / sigma2[mask, None, None], axis=0)
                         except Exception as ex:
                             raise ex
-                        trace_bases[k].append(basis)
+                        trace_bases[arm].append(basis)
 
             # Only trace when all arms are fitted but for each rv
             if self.trace is not None:
@@ -472,8 +545,6 @@ class RVFit():
         if not self.use_flux_corr:
             log_L = a * phi - 0.5 * a * a * chi
         else:
-            #log_L = np.empty(phi.shape[:-1])
-            #for i in np.ndindex(log_L.shape):
             log_L = np.squeeze(
                 np.matmul(a[..., None, :], phi[..., :, None]) - 
                 0.5 * np.matmul(a[..., None, :], np.matmul(chi, a[..., :, None])))
@@ -775,17 +846,17 @@ class RVFit():
         phi02 = 0.0
         phi00 = 0.0
 
-        for k in spectra:
-            temp = templates[k]
-            for spec in spectra[k] if isinstance(spectra[k], list) else [spectra[k]]:
-                spec = self.process_spectrum(spec)
+        for arm in spectra:
+            temp = templates[arm]
+            for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
+                spec = self.process_spectrum(arm, ei, spec)
 
-                psf = self.template_psf[k] if self.template_psf is not None else None
-                wlim = self.template_wlim[k] if self.template_wlim is not None else None
+                psf = self.template_psf[arm] if self.template_psf is not None else None
+                wlim = self.template_wlim[arm] if self.template_wlim is not None else None
 
-                temp0 = self.process_template(temp, spec, rv, psf=psf, wlim=wlim)
-                temp1 = self.process_template(temp, spec, rv + step, psf=psf, wlim=wlim)
-                temp2 = self.process_template(temp, spec, rv - step, psf=psf, wlim=wlim)
+                temp0 = self.process_template(arm, temp, spec, rv, psf=psf, wlim=wlim)
+                temp1 = self.process_template(arm, temp, spec, rv + step, psf=psf, wlim=wlim)
+                temp2 = self.process_template(arm, temp, spec, rv - step, psf=psf, wlim=wlim)
 
                 # Calculate the centered diffence of the flux
                 d1  = 0.5 * (temp2.flux - temp1.flux) / step
@@ -943,35 +1014,49 @@ class RVFit():
         if out.success:
             rv_fit = out.x
 
+            # Calculate the flux correction coefficients at best fit values
+            phi_fit, chi_fit = self.eval_phi_chi(spectra, templates, rv_fit)
+            a_fit = self.eval_a(phi_fit, chi_fit)
+
             # If tracing, evaluate the template at the best fit RV.
             # TODO: can we cache this for better performance?
             if self.trace is not None:
                 tt = {}
-                for k in spectra:
-                    for spec in spectra[k] if isinstance(spectra[k], list) else [spectra[k]]:
-                        temp = templates[k]
+                for arm in spectra:
+                    for spec in spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]:
+                        temp = templates[arm]
                         
-                        psf = self.template_psf[k] if self.template_psf is not None else None
-                        wlim = self.template_wlim[k] if self.template_wlim is not None else None
+                        psf = self.template_psf[arm] if self.template_psf is not None else None
+                        wlim = self.template_wlim[arm] if self.template_wlim is not None else None
                     
-                        t = self.process_template(temp, spec, rv_fit, psf=psf, wlim=wlim)
-                        tt[k] = t
+                        t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
+                        tt[arm] = t
                 self.trace.on_fit_rv(rv_fit, spectra, tt)
         else:
             raise Exception(f"Could not fit RV using `{method}`")
         
         # Calculate the error from the Fisher matrix
         _, C = self.eval_F(spectra, templates, rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, mode='rv', method='hessian')
-        rv_err = np.sqrt(C[-1, -1]) # sigma
 
-        return rv_fit, rv_err
+        with np.errstate(invalid='warn'):
+            rv_err = np.sqrt(C[-1, -1])         # sigma
+
+        return rv_fit, rv_err, a_fit, np.full_like(a_fit, np.nan)
     
     @staticmethod
     def minimize_gridsearch(fun, bounds, nstep=100):
         # Find minimum with direct grid search. For testing only
 
         x = np.linspace(bounds[0], bounds[1], nstep)
-        y = fun(x)
+
+        # TODO: rewrite log_l function to take vectorized input
+        # raise NotImplementedError
+        # y = fun(x)
+
+        y = np.empty_like(x)
+        for i in range(x.size):
+            y[i] = fun(x[i])
+
         mi = np.argmin(y)
         
         class Result(): pass
@@ -992,18 +1077,18 @@ class RVFit():
         den = 0
         sumw = 0
 
-        for k in spectra:
-            if not isinstance(spectra[k], list):
-                specs = [spectra[k]]
+        for arm in spectra:
+            if not isinstance(spectra[arm], list):
+                specs = [spectra[arm]]
             else:
-                specs = spectra[k]
+                specs = spectra[arm]
 
-            psf = self.template_psf[k] if self.template_psf is not None else None
-            wlim = self.template_wlim[k] if self.template_wlim is not None else None
+            psf = self.template_psf[arm] if self.template_psf is not None else None
+            wlim = self.template_wlim[arm] if self.template_wlim is not None else None
             
             for ei in range(len(specs)):
-                spec = self.process_spectrum(specs[ei])
-                temp = self.process_template(templates[k], spec, rv_0, psf=psf, wlim=wlim, diff=True)
+                spec = self.process_spectrum(arm, ei, specs[ei])
+                temp = self.process_template(arm, templates[arm], spec, rv_0, psf=psf, wlim=wlim, diff=True)
 
                 if self.use_mask:
                     mask = ~spec.mask if spec.mask is not None else np.s_[:]
