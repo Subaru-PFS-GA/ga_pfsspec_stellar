@@ -162,7 +162,7 @@ class RVFit():
             self.rv_prior = None
 
             self.use_flux_corr = False      # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
-            self.flux_corr_basis = None     # Callable that provides the basis functions for flux correction / continuum fitting.
+            self.flux_corr = None           # Flux correction model
 
             self.spec_norm = None           # Spectrum (observation) normalization factor
             self.temp_norm = None           # Template normalization factor
@@ -189,7 +189,7 @@ class RVFit():
             self.rv_prior = orig.rv_prior
 
             self.use_flux_corr = orig.use_flux_corr
-            self.flux_corr_basis = orig.flux_corr_basis
+            self.flux_corr = orig.flux_corr
 
             self.spec_norm = orig.spec_norm
             self.temp_norm = orig.temp_norm
@@ -398,10 +398,11 @@ class RVFit():
 
         basis = {}
         basis_size = None
+        f = self.flux_corr.get_basis_callable()
         for k in spectra:
             basis[k] = []
             for spec in spectra[k] if isinstance(spectra[k], list) else [spectra[k]]:
-                basis[k].append(self.flux_corr_basis(spec.wave))
+                basis[k].append(f(spec.wave))
                 if basis_size is None:
                     basis_size = basis[k][-1].shape[-1]
                 elif basis_size != basis[k][-1].shape[-1]:
@@ -467,9 +468,10 @@ class RVFit():
 
                     # Determine mask
                     if self.use_mask:
-                        mask = ~spec.mask if spec.mask is not None else np.s_[:]
+                        mask = spec.mask_as_bool() if spec.mask is not None else np.s_[:]
                     else:
                         mask = np.s_[:]
+
                     trace_mask[arm].append(mask)
 
                     # Flux error
