@@ -486,7 +486,7 @@ class ModelGrid(PfsObject):
             msg_method = 'calculated from {method} interpolation'
 
         if psf is not None:
-            msg_psf = f' and convolved with of PSF of type `{type(psf).__name__}`'
+            msg_psf = f' and convolved with PSF of type `{type(psf).__name__}`'
         else:
             msg_psf = ''
         
@@ -531,8 +531,11 @@ class ModelGrid(PfsObject):
                 self.continuum_model.denormalize(spec, cont_params, s=wlim)
 
             act_params = { k: params[k] for _, k, _ in self.grid.enumerate_axes() }
-            req_params = { k: kwargs[k] for _, k, _ in self.grid.enumerate_axes() if k in kwargs }
-            spec.append_history(f'Interpolated model with actual model parameters: {act_params}, requested model parameters: {req_params}')
+            if idx is not None:
+                spec.append_history(f'Interpolated model with actual model parameters: {act_params}, requested model index: {idx}')
+            else:
+                req_params = { k: kwargs[k] for _, k, _ in self.grid.enumerate_axes() if k in kwargs }
+                spec.append_history(f'Interpolated model with actual model parameters: {act_params}, requested model parameters: {req_params}')
 
             return spec
         else:
