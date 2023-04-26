@@ -14,22 +14,21 @@ except ModuleNotFoundError as ex:
     logging.warn(ex.msg)
     emcee = None
 
-from pfs.ga.pfsspec.core.plotting import TracePlots
+from pfs.ga.pfsspec.core import Trace
+from pfs.ga.pfsspec.core import Spectrum
 import pfs.ga.pfsspec.core.plotting.styles as styles
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 
-class RVFitTrace(TracePlots):
+class RVFitTrace(Trace):
     """
     Implements call-back function to profile and debug RV fitting. Allows for
     generating plots of intermediate steps.
     """
 
-    def __init__(self, outdir='.', plot=False, log=False):
-        super().__init__(outdir=os.path.join(outdir, 'rvfit'), plot_level=plot)
-
-        self.log = log
+    def __init__(self, outdir='.', plot_inline=False, plot_level=Trace.PLOT_LEVEL_NONE, log_level=Trace.LOG_LEVEL_NONE):
+        super().__init__(outdir=os.path.join(outdir, 'rvfit'), plot_inline=plot_inline, plot_level=plot_level, log_level=log_level)
         
         self.reset()
 
@@ -64,29 +63,21 @@ class RVFitTrace(TracePlots):
         plot(axs[1], (np.abs(wave - wave.mean()) < 20.0))
 
     def on_process_spectrum(self, arm, i, spectrum, processed_spectrum):
-        if self.process_spectrum_count == 0:
-            if self.plot_level:
-                self.plot_spectrum(f'spectrum_{arm}_{i}', arm, spectrum.wave, spectrum.flux)
-                self.plot_spectrum(f'processed_spectrum_{arm}_{i}', arm, processed_spectrum.wave, processed_spectrum.flux)
+        if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
+            self.plot_spectrum(f'spectrum_{arm}_{i}', arm, spectrum.wave, spectrum.flux)
+            self.plot_spectrum(f'processed_spectrum_{arm}_{i}', arm, processed_spectrum.wave, processed_spectrum.flux)
+            self.flush_figures()
 
-                self.format_figures()
-                self.save_figures()
-                self.flush_figures()
-
-            if self.log:
-                self.save_history(f'spectrum_{arm}_{i}.log', spectrum)
+        if self.log_level >= Trace.LOG_LEVEL_NONE:
+            self.save_history(f'spectrum_{arm}_{i}.log', spectrum)
 
         self.process_spectrum_count += 1
 
     def on_process_template(self, arm, rv, template, processed_template):
-        if self.process_template_count == 0:
-            if self.plot_level:
-                self.plot_spectrum(f'template_{arm}', arm, template.wave, template.flux)
-                self.plot_spectrum(f'processed_template_{arm}', arm, processed_template.wave, processed_template.flux)
-
-                self.format_figures()
-                self.save_figures()
-                self.flush_figures()
+        if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
+            self.plot_spectrum(f'template_{arm}', arm, template.wave, template.flux)
+            self.plot_spectrum(f'processed_template_{arm}', arm, processed_template.wave, processed_template.flux)
+            self.flush_figures()
 
         self.process_template_count += 1
 
@@ -94,13 +85,10 @@ class RVFitTrace(TracePlots):
         if self.resample_template_count == 0:
             if self.plot_level:
                 self.plot_spectrum(f'resampled_template_{arm}', arm, resampled_template.wave, resampled_template.flux)
-
-                self.format_figures()
-                self.save_figures()
                 self.flush_figures()
 
-            if self.log:
-                self.save_history(f'resampled_template_{arm}.log', spectrum)
+            if self.log_level >= Trace.LOG_LEVEL_NONE:
+                self.save_history(f'resampled_template_{arm}.log', resampled_template)
 
         self.resample_template_count += 1
 
@@ -126,12 +114,12 @@ class RVFitTrace(TracePlots):
         pass
 
     def on_guess_rv(self, rv, log_L, fit, function, pp, pcov):
-        if self.plot_level:
+        if self.plot_level >= Trace.PLOT_LEVEL_INFO:
             (f, ax) = self.get_figure('guess_rv', 1, 1)
-            ax.plot(rv, log_L, **styles.solid_line())
+            ax.plot(rv, log_L, '.')
+            ax.plot(rv, fit, **styles.solid_line())
+            ax.axvline(pp[1], c='r')
 
-            self.format_figures()
-            self.save_figures()
             self.flush_figures()
 
     def on_fit_rv(self, rv, spectra, templates):
@@ -221,7 +209,10 @@ class RVFit():
         for arm in spectra:
             for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
                 spec = self.process_spectrum(arm, ei, spec)
-                s.append(spec.flux)
+
+                # TODO: use mask from spectrum
+
+                s.append(spec.flux[~np.isnan(spec.flux)])
             
             if self.template_psf is not None:
                 psf = self.template_psf[arm]
@@ -287,6 +278,8 @@ class RVFit():
 
         # 3. If a PSF if provided, convolve down template to the instruments
         #    resolution. Otherwise assume the template is already convolved.
+        #    Not that psf is often None when the convolution is pushed down to
+        #    the ModelGrid object for better cache performance.
         if psf is not None:
             t.convolve_psf(psf, wlim=wlim)
 
@@ -350,9 +343,12 @@ class RVFit():
         temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
 
         # Optionally apply flux correction
-        if flux_corr:
-            basis = self.flux_corr_basis(temp.wave)
-            temp.multiply(np.dot(basis, a))
+        if a is not None:
+            if flux_corr:
+                basis = self.flux_corr_basis(temp.wave)
+                temp.multiply(np.dot(basis, a))
+            else:
+                temp.multiply(a)
 
         if self.trace is not None:
             self.trace.on_resample_template(arm, rv, spectrum, template, temp)
@@ -430,6 +426,7 @@ class RVFit():
             bases = None
             phi = np.zeros(rvv.shape)
             chi = np.zeros(rvv.shape)
+            ndf = np.zeros(rvv.shape)
         else:
             # Evaluate the basis for each spectrum
             if self.flux_corr_basis_cache is None:
@@ -437,21 +434,26 @@ class RVFit():
             bases, basis_size = self.flux_corr_basis_cache, self.flux_corr_basis_size            
             phi = np.zeros(rvv.shape + (basis_size,))
             chi = np.zeros(rvv.shape + (basis_size, basis_size))
+            ndf = np.zeros(rvv.shape)
                 
         # For each value of rv0, sum up log_L contributions from spectrum - template pairs
         for i in range(rvv.size):
-            trace_temp = {}         # Collect preprocessed templates for tracing
-            trace_bases = {}         # Collect continuum basis functions for tracing
-            trace_mask = {}
-            trace_sigma2 = {}
-            trace_weight = {}
+            if self.trace is not None:
+                trace_spec = {}
+                trace_temp = {}         # Collect preprocessed templates for tracing
+                trace_bases = {}         # Collect continuum basis functions for tracing
+                trace_mask = {}
+                trace_sigma2 = {}
+                trace_weight = {}
 
             for arm in spectra:
-                trace_temp[arm] = []
-                trace_bases[arm] = []
-                trace_mask[arm] = []
-                trace_sigma2[arm] = []
-                trace_weight[arm] = []
+                if self.trace is not None:
+                    trace_spec[arm] = []
+                    trace_temp[arm] = []
+                    trace_bases[arm] = []
+                    trace_mask[arm] = []
+                    trace_sigma2[arm] = []
+                    trace_weight[arm] = []
 
                 if not isinstance(spectra[arm], list):
                     specs = [spectra[arm]]
@@ -464,57 +466,72 @@ class RVFit():
                 for ei in range(len(specs)):
                     spec = self.process_spectrum(arm, ei, specs[ei])
                     temp = self.process_template(arm, templates[arm], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
-                    trace_temp[arm].append(temp)
-
+                    
                     # Determine mask
                     if self.use_mask:
-                        mask = spec.mask_as_bool() if spec.mask is not None else np.s_[:]
+                        mask = spec.mask_as_bool() if spec.mask is not None else np.full_like(spec.wave, True, dtype=bool)
                     else:
-                        mask = np.s_[:]
+                        mask = np.full_like(spec.wave, True, dtype=bool)
+                    
+                    # Mask out nan values which might occur if spectrum mask is not properly defined
+                    mask &= ~np.isnan(spec.flux)
+                    mask &= ~np.isnan(spec.flux_err)
 
-                    trace_mask[arm].append(mask)
-
-                    # Flux error
+                    # Flux, flux error error
                     sigma2 = spec.flux_err ** 2
-                    trace_sigma2[arm].append(sigma2)
+
+                    # Mask out bins where sigma2 is unusually small
+                    mask &= sigma2 > 0.01 * sigma2[mask].mean()
 
                     # Weight (optional)
                     if self.use_weight and temp.weight is not None:
                         weight = temp.weight / temp.weight.sum() * temp.weight.size
+                        mask &= ~np.isnan(weight)
                     else:
                         weight = np.ones_like(spec.flux)
-                    trace_weight[arm].append(weight)
-                    
+
                     if bases is None:
+                        basis = None
                         phi[i] += np.sum(weight[mask] * spec.flux[mask] * temp.flux[mask] / sigma2[mask])
                         chi[i] += np.sum(weight[mask] * temp.flux[mask] ** 2 / sigma2[mask])
                     else:
                         basis = bases[arm][ei]
-                        try:
-                            phi[i] += np.sum(weight[mask, None] * spec.flux[mask, None] * temp.flux[mask, None] * basis[mask, :] / sigma2[mask, None], axis=0)
-                            chi[i] += np.sum(weight[mask, None, None] * (temp.flux[mask, None, None] ** 2 * np.matmul(basis[mask, :, None], basis[mask, None, :])) / sigma2[mask, None, None], axis=0)
-                        except Exception as ex:
-                            raise ex
+                        mask &= ~np.any(np.isnan(basis), axis=-1)
+                        phi[i] += np.sum(weight[mask, None] * spec.flux[mask, None] * temp.flux[mask, None] * basis[mask, :] / sigma2[mask, None], axis=0)
+                        chi[i] += np.sum(weight[mask, None, None] * (temp.flux[mask, None, None] ** 2 * np.matmul(basis[mask, :, None], basis[mask, None, :])) / sigma2[mask, None, None], axis=0)
+
+                    # Degrees of freedom
+                    ndf[i] += mask.sum()
+
+                    if self.trace is not None:
+                        trace_spec[arm].append(spec)
+                        trace_temp[arm].append(temp)
+                        trace_sigma2[arm].append(sigma2)
+                        trace_weight[arm].append(weight)
+                        trace_mask[arm].append(mask)
                         trace_bases[arm].append(basis)
 
             # Only trace when all arms are fitted but for each rv
             if self.trace is not None:
                 # First dimension must index rv items
                 log_L = self.eval_log_L(phi[np.newaxis, i], chi[np.newaxis, i])
-                self.trace.on_eval_phi_chi(rvv[i], spectra, trace_temp, trace_bases, trace_sigma2, trace_weight, trace_mask, log_L[0], phi[i], chi[i])
+                self.trace.on_eval_phi_chi(rvv[i], trace_spec, trace_temp, trace_bases, trace_sigma2, trace_weight, trace_mask, log_L[0], phi[i], chi[i])
 
         if not isinstance(rv, np.ndarray):
             phi = phi[0]
             chi = chi[0]
+            ndf = ndf[0]
         else:
             if bases is None:
                 phi = phi.reshape(rv.shape)
                 chi = chi.reshape(rv.shape)
+                ndf = ndf.reshape(rv.shape)
             else:
                 phi = phi.reshape(rv.shape + (basis_size,))
                 chi = chi.reshape(rv.shape + (basis_size, basis_size))
+                ndf = ndf.reshape(rv.shape)
 
-        return phi, chi
+        return phi, chi, ndf
     
     def eval_a(self, phi, chi):
         if not self.use_flux_corr:
@@ -563,7 +580,7 @@ class RVFit():
         # Depending on whether the flux correction coefficients `a`
         # are supplied, calculate the log likelihood at the optimum of
         # flux correction or at the specified flux correction values.
-        phi, chi = self.eval_phi_chi(spectra, templates, rv)
+        phi, chi, ndf = self.eval_phi_chi(spectra, templates, rv)
         if a is None:
             log_L = self.eval_log_L(phi, chi)
         else:
@@ -572,7 +589,7 @@ class RVFit():
         if rv_prior is not None:
             log_L += rv_prior(rv)
 
-        return log_L, phi, chi
+        return log_L, phi, chi, ndf
         
     def eval_flux_corr(self, spectra, templates, rv, a=None):
         # Evaluate the basis for each spectrum
@@ -580,7 +597,7 @@ class RVFit():
             self.flux_corr_basis_cache, self.flux_corr_basis_size = self.eval_flux_corr_basis(spectra)
 
         if a is None:
-            phi, chi = self.eval_phi_chi(spectra, templates, rv)
+            phi, chi, ndf = self.eval_phi_chi(spectra, templates, rv)
             a = self.eval_a(phi, chi)
         
         flux_corr = {}
@@ -629,7 +646,7 @@ class RVFit():
 
             def log_L(a_rv):
                 a, rv = unpack_params(a_rv)
-                log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
+                log_L, _, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
                 return log_L
         elif mode == 'rv':
             def pack_params(rv):
@@ -644,7 +661,7 @@ class RVFit():
 
             def log_L(params):
                 rv = unpack_params(params)
-                log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
+                log_L, _, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
                 return log_L
         else:
             raise NotImplementedError()
@@ -668,7 +685,7 @@ class RVFit():
 
         if mode == 'full' or mode == 'a_rv':
             # Calculate a_0
-            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+            phi_0, chi_0, ndf_0 = self.eval_phi_chi(spectra, templates, rv_0)
             a_0 = self.eval_a(phi_0, chi_0)
             x_0 = pack_params(a_0, rv_0)
             bounds = pack_bounds(a_0.size * [(-np.inf, np.inf)], rv_bounds)
@@ -794,11 +811,11 @@ class RVFit():
                 return phi_chi[:size], phi_chi[size:].reshape((size, size))
 
         def phi_chi(rv):
-            phi, chi = self.eval_phi_chi(spectra, templates, rv)
+            phi, chi, ndf = self.eval_phi_chi(spectra, templates, rv)
             return pack_phi_chi(phi, chi)
 
         # Calculate a_0
-        phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+        phi_0, chi_0, ndf_0 = self.eval_phi_chi(spectra, templates, rv_0)
         a_0 = self.eval_a(phi_0, chi_0)
 
         # First and second derivatives of the matrix elements by RV
@@ -901,7 +918,7 @@ class RVFit():
         """
 
         def nu(rv):
-            phi, chi = self.eval_phi_chi(spectra, templates, rv)
+            phi, chi, ndf = self.eval_phi_chi(spectra, templates, rv)
             return np.sqrt(self.eval_nu2(phi, chi))
 
         # Second derivative by RV
@@ -961,13 +978,14 @@ class RVFit():
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
         rv = np.linspace(*rv_bounds, rv_steps)
-        log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
+        log_L, phi, chi, ndf = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
+        a = self.eval_a(phi, chi)
         pp, pcov = self.fit_lorentz(rv, log_L)
 
         if self.trace is not None:
             self.trace.on_guess_rv(rv, log_L, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
 
-        return pp[1]
+        return rv, log_L, a, pp[1]
 
     def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, method='bounded'):
         """
@@ -1017,7 +1035,7 @@ class RVFit():
             rv_fit = out.x
 
             # Calculate the flux correction coefficients at best fit values
-            phi_fit, chi_fit = self.eval_phi_chi(spectra, templates, rv_fit)
+            phi_fit, chi_fit, ndf_fit = self.eval_phi_chi(spectra, templates, rv_fit)
             a_fit = self.eval_a(phi_fit, chi_fit)
 
             # If tracing, evaluate the template at the best fit RV.
@@ -1072,7 +1090,7 @@ class RVFit():
         # Calculate a delta V correction by the method of Bouchy (2001)
         # TODO: we might need the flux correction coefficients here
 
-        phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+        phi_0, chi_0, ndf_0 = self.eval_phi_chi(spectra, templates, rv_0)
         a_0 = self.eval_a(phi_0, chi_0)
 
         nom = 0
