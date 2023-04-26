@@ -124,12 +124,12 @@ class ModelGridRVFit(RVFit):
         if missing:
             raise Exception("Template parameters are outside the grid.")
         else:
-            log_L, phi, chi = super().calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
+            log_L, phi, chi, ndf = super().calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
             if params_priors is not None:
                 for p in params_priors.keys():
                     if p in params and params_priors[p] is not None:
                         log_L += params_priors[p](params[p])
-            return log_L, phi, chi
+            return log_L, phi, chi, ndf
         
     #region Fisher matrix evaluation
 
@@ -208,7 +208,7 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, phi, chi = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors, a=a)
+                    log_L, phi, chi, ndf = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors, a=a)
                     return log_L.item()
         elif mode == 'params_rv':
             def pack_params(params, rv):
@@ -244,7 +244,7 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors)
+                    log_L, _, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors)
                     return log_L.item()
         elif mode == 'rv':
             def pack_params(rv):
@@ -265,7 +265,7 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors)
+                    log_L, _, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors)
                     return log_L.item()
         else:
             raise NotImplementedError()  
@@ -299,7 +299,7 @@ class ModelGridRVFit(RVFit):
         if mode == 'full' or mode == 'a_params_rv':               
             # Calculate a_0
             templates, missing = self.get_templates(spectra, params_0)
-            phi_0, chi_0 = self.eval_phi_chi(spectra, templates, rv_0)
+            phi_0, chi_0, ndf_0 = self.eval_phi_chi(spectra, templates, rv_0)
             a_0 = self.eval_a(phi_0, chi_0)
             x_0 = pack_params(a_0, params_0, rv_0)
             bounds = pack_bounds(a_0.size * [(-np.inf, np.inf)], params_bounds, rv_bounds)
@@ -371,7 +371,7 @@ class ModelGridRVFit(RVFit):
         
         # Calculate the flux correction coefficients at best fit values
         templates, missing = self.get_templates(spectra, params_fit)
-        phi_fit, chi_fit = self.eval_phi_chi(spectra, templates, rv_fit)
+        phi_fit, chi_fit, ndf_fit = self.eval_phi_chi(spectra, templates, rv_fit)
         a_fit = self.eval_a(phi_fit, chi_fit)
         
         # Calculate the error from the Fisher matrix

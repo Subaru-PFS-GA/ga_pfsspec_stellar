@@ -86,7 +86,7 @@ class TestRVFit(RVFitTestBase):
 
         if calculate_log_L:
             def calculate_log_L_helper(rv, shape):
-                log_L, phi, chi = rvfit.calculate_log_L(specs, temps, rv)
+                log_L, phi, chi, ndf = rvfit.calculate_log_L(specs, temps, rv)
                 a = rvfit.eval_a(phi, chi)
 
                 self.assertEqual(shape, log_L.shape)
@@ -95,7 +95,7 @@ class TestRVFit(RVFitTestBase):
 
                 ax.plot(rv, log_L, 'o')
 
-                log_L, _, _ = rvfit.calculate_log_L(specs, temps, rv, a=a)
+                log_L, _, _, _ = rvfit.calculate_log_L(specs, temps, rv, a=a)
         
             # Test with scalar
             calculate_log_L_helper(100, ())
@@ -106,7 +106,7 @@ class TestRVFit(RVFitTestBase):
 
         if fit_lorentz or guess_rv or fit_rv or calculate_error:
             rv = np.linspace(-300, 300, 31)
-            log_L, phi, chi = rvfit.calculate_log_L(specs, temps, rv)
+            log_L, phi, chi, ndf = rvfit.calculate_log_L(specs, temps, rv)
             pp, _ = rvfit.fit_lorentz(rv, log_L)
 
             y1 = rvfit.lorentz(rv, *pp)
@@ -115,7 +115,7 @@ class TestRVFit(RVFitTestBase):
             ax.plot(rv, y1, '-')
   
         if guess_rv or fit_rv or calculate_error:
-            rv0 = rvfit.guess_rv(specs, temps)
+            _, _, _, rv0 = rvfit.guess_rv(specs, temps)
             ax.axvline(rv0, color='k', label='rv guess')
 
     def test_eval_flux_corr_basis(self):
@@ -179,7 +179,7 @@ class TestRVFit(RVFitTestBase):
 
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
         rvv = np.linspace(rv - 0.001, rv + 0.001, 101)
-        log_L, phi, chi = rvfit.calculate_log_L(specs, temps, rvv)
+        log_L, phi, chi, ndf = rvfit.calculate_log_L(specs, temps, rvv)
         if rvfit.rv_prior is not None:
             log_L += rvfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
