@@ -194,6 +194,8 @@ class RVFit():
             self.use_error = True           # Use flux error from spectrum, if available
             self.use_weight = True          # Use weight from template, if available
 
+            self.max_iter = 1000            # Maximum number of iterations to minimize significance
+
             self.mcmc_burnin = 1000
             self.mcmc_steps = 1000
         else:
@@ -220,6 +222,8 @@ class RVFit():
             self.use_mask = orig.use_mask
             self.use_error = orig.use_error
             self.use_weight = orig.use_weight
+
+            self.max_iter = orig.max_iter
 
             self.mcmc_burnin = orig.mcmc_burnin
             self.mcmc_steps = orig.mcmc_steps
@@ -251,9 +255,12 @@ class RVFit():
             
             if self.template_psf is not None:
                 psf = self.template_psf[arm]
-                wlim = self.template_wlim[arm]
             else:
                 psf = None
+
+            if self.template_wlim is not None:
+                wlim = self.template_wlim[arm]
+            else:
                 wlim = None
             
             if rv_0 is not None:
@@ -1020,7 +1027,7 @@ class RVFit():
 
         return pp, pcov
 
-    def guess_rv(self, spectra, templates, rv_bounds=(-500, 500), rv_prior=None, rv_steps=31, method='lorentz'):
+    def guess_rv(self, spectra, templates, /, rv_bounds=(-500, 500), rv_prior=None, rv_steps=31, method='lorentz'):
         """
         Given a spectrum and a template, make a good initial guess for RV where a minimization
         algorithm can be started from.

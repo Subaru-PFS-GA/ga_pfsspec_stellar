@@ -64,7 +64,7 @@ class ModelGridRVFit(RVFit):
 
         return templates, missing
 
-    def get_normalization(self, spectra, templates=None, params_0=None, **kwargs):
+    def get_normalization(self, spectra, templates=None, params_0=None, params_fixed=None, **kwargs):
         # Calculate a normalization factor for the spectra, as well as
         # the templates assuming an RV=0 and params_0 for the template.
         # This is just a factor to bring spectra to the same scale and avoid
@@ -88,25 +88,9 @@ class ModelGridRVFit(RVFit):
             return super().get_normalization(spectra, templates)
         
     def process_template_impl(self, arm, template, spectrum, rv, psf=None, wlim=None):
-        # 1. Make a copy, not in-place update
-        t = template.copy()
-
-        # 2. Shift template to the desired RV
-        t.set_rv(rv)
-
-        # 3. Skip convolution because convolution is pushed down to the
-        #    model interpolator to support caching
-
-        # 4. Normalize by a factor
-        if self.temp_norm is not None:
-            t.multiply(1.0 / self.temp_norm)
-
-        # TODO: add continuum normalization?
-
-        if self.trace is not None:
-            self.trace.on_process_template(arm, rv, template, t)
-            
-        return t
+        # Skip convolution because convolution is pushed down to the
+        # model interpolator to support caching            
+        return super().process_template_impl(arm, template, spectrum, rv, psf=None, wlim=wlim)
         
     def calculate_log_L(self, spectra, templates, rv, rv_prior=None, params=None, params_priors=None, a=None):
         # Calculate log_L using a provided set of templates or templates
@@ -321,7 +305,32 @@ class ModelGridRVFit(RVFit):
 
     #endregion
 
-    def fit_rv(self, spectra, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, params_0=None, params_bounds=None, params_priors=None, params_fixed=None, method="Nelder-Mead"):
+    def guess_rv(self, spectra, templates=None, /, rv_bounds=(-500, 500), rv_prior=None, params_0=None, params_fixed=None, rv_steps=31, method='lorentz'):
+        """
+        Guess an initial state to close best RV, either using the supplied set of templates or
+        initial model parameters.
+        """
+
+        # TODO: Maybe extend this to do a grid search in model parameters
+
+        params_0 = params_0 if params_0 is not None else self.params_0
+        params_fixed = params_fixed if params_fixed is not None else self.params_fixed
+
+        if templates is None:
+            # Look up the templates from the grid and pass those to the the parent class
+            params = params_0.copy()
+            if params_fixed is not None:
+                params.update(params_fixed)
+            templates, missing = self.get_templates(spectra, params)
+            if missing:
+                raise Exception('Cannot find an initial matching template to start RVFit.')
+
+        return super().guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_steps=rv_steps, method=method)
+
+    def fit_rv(self, spectra, /,
+               rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
+               params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
+               method="Nelder-Mead", max_iter=None):
         """
         :param params_0: Dictionary of initial values.
         :param params_bounds: Dictionary of tuples, parameters bounds.
@@ -339,13 +348,16 @@ class ModelGridRVFit(RVFit):
         params_bounds = self.determine_grid_bounds(params_bounds, params_free)
         params_priors = params_priors if params_priors is not None else self.params_priors
 
-        if rv_0 is None:
-            # TODO
-            raise NotImplementedError()
+        max_iter = max_iter if max_iter is not None else self.max_iter
 
         if params_0 is None:
             # TODO
             raise NotImplementedError()
+        
+        if rv_0 is None:
+            _, _, _, rv_0 = self.guess_rv(spectra, None, 
+                                          rv_bounds=rv_bounds, rv_prior=rv_prior, 
+                                          params_0=params_0, params_fixed=params_fixed)
         
         if self.template_wlim is None:
             self.determine_wlim(spectra, rv_bounds=rv_bounds)
@@ -362,12 +374,13 @@ class ModelGridRVFit(RVFit):
         x0 = pack_params(params_0, rv_0)
         bounds = pack_bounds(params_bounds, rv_bounds)
         
-        out = minimize(llh, x0=x0, bounds=bounds, method=method)
+        out = minimize(llh, x0=x0, bounds=bounds, method=method,
+                       options=dict(maxiter=self.max_iter))
 
         if out.success:
             params_fit, rv_fit = unpack_params(out.x)
         else:
-            raise Exception(f"Could not fit RV using `{method}`")
+            raise Exception(f"Could not fit RV using `{method}`, reason: {out.message}")
         
         # Calculate the flux correction coefficients at best fit values
         templates, missing = self.get_templates(spectra, params_fit)
