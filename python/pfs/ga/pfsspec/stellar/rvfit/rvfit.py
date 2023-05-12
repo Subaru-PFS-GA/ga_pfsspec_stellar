@@ -7,6 +7,7 @@ from scipy.ndimage import binary_dilation
 from scipy.interpolate import interp1d
 import numdifftools as nd
 from collections.abc import Iterable
+from collections import namedtuple
 
 try:
     import emcee
@@ -113,17 +114,51 @@ class RVFitTrace(Trace):
     def on_eval_F_mcmc(self, x_0, x, log_L):
         pass
 
-    def on_guess_rv(self, rv, log_L, fit, function, pp, pcov):
+    def on_guess_rv(self, rv, log_L, rv_guess, fit, function, pp, pcov):
         if self.plot_level >= Trace.PLOT_LEVEL_INFO:
             (f, ax) = self.get_figure('guess_rv', 1, 1)
             ax.plot(rv, log_L, '.')
-            ax.plot(rv, fit, **styles.solid_line())
-            ax.axvline(pp[1], c='r')
+            if fit is not None:
+                ax.plot(rv, fit, **styles.solid_line())
+            ax.axvline(rv_guess, c='r')
 
             self.flush_figures()
 
     def on_fit_rv(self, rv, spectra, templates):
         pass
+
+class RVFitTraceState():
+    """
+    Trace info on preprocessed spectra and templates
+    """
+
+    def __init__(self):
+        self.spectra = None
+        self.templates = None
+        self.bases = None
+        self.masks = None
+        self.sigma2 = None
+        self.weights = None
+
+    def reset(self):
+        self.spectra = {}
+        self.templates = {}         # Collect preprocessed templates for tracing
+        self.bases = {}         # Collect continuum basis functions for tracing
+        self.masks = {}
+        self.sigma2 = {}
+        self.weights = {}
+
+    def append(self, arm, spec, temp, sigma2, weight, mask, basis):
+        def append_item(d, arm, item):
+            if arm not in d:
+                d[arm] = []
+
+        append_item(self.spectra, arm, spec)
+        append_item(self.templates, arm, temp)
+        append_item(self.bases, arm, basis)
+        append_item(self.masks, arm, mask)
+        append_item(self.sigma2, arm, sigma2)
+        append_item(self.weights, arm, weight)
 
 class RVFit():
     """
@@ -342,10 +377,14 @@ class RVFit():
         # Resample template to the binning of the observation
         temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
 
-        # Optionally apply flux correction
+        # Optionally apply flux correction. Note that a = None during the fitting process,
+        # this feature is provided for evaluating the results only, so it's okay to
+        # calculate the basis function on the fly.
         if a is not None:
             if flux_corr:
-                basis = self.flux_corr_basis(temp.wave)
+                # Evaluate the basis function
+                f = self.flux_corr.get_basis_callable()
+                basis = f(temp.wave)
                 temp.multiply(np.dot(basis, a))
             else:
                 temp.multiply(a)
@@ -422,12 +461,16 @@ class RVFit():
         else:
             rvv = rv.flatten()
 
+        if self.trace is not None:
+            trace_state = RVFitTraceState()
+
         if not self.use_flux_corr:
             bases = None
             phi = np.zeros(rvv.shape)
             chi = np.zeros(rvv.shape)
             ndf = np.zeros(rvv.shape)
         else:
+            # TODO: move this outside of function and pass in as arguments
             # Evaluate the basis for each spectrum
             if self.flux_corr_basis_cache is None:
                 self.flux_corr_basis_cache, self.flux_corr_basis_size = self.eval_flux_corr_basis(spectra)
@@ -439,22 +482,9 @@ class RVFit():
         # For each value of rv0, sum up log_L contributions from spectrum - template pairs
         for i in range(rvv.size):
             if self.trace is not None:
-                trace_spec = {}
-                trace_temp = {}         # Collect preprocessed templates for tracing
-                trace_bases = {}         # Collect continuum basis functions for tracing
-                trace_mask = {}
-                trace_sigma2 = {}
-                trace_weight = {}
+                trace_state.reset()
 
             for arm in spectra:
-                if self.trace is not None:
-                    trace_spec[arm] = []
-                    trace_temp[arm] = []
-                    trace_bases[arm] = []
-                    trace_mask[arm] = []
-                    trace_sigma2[arm] = []
-                    trace_weight[arm] = []
-
                 if not isinstance(spectra[arm], list):
                     specs = [spectra[arm]]
                 else:
@@ -469,6 +499,7 @@ class RVFit():
                     
                     # Determine mask
                     if self.use_mask:
+                        # TODO: allow specifying a bitmas
                         mask = spec.mask_as_bool() if spec.mask is not None else np.full_like(spec.wave, True, dtype=bool)
                     else:
                         mask = np.full_like(spec.wave, True, dtype=bool)
@@ -477,45 +508,66 @@ class RVFit():
                     mask &= ~np.isnan(spec.flux)
                     mask &= ~np.isnan(spec.flux_err)
 
-                    # Flux, flux error error
-                    sigma2 = spec.flux_err ** 2
-
-                    # Mask out bins where sigma2 is unusually small
-                    mask &= sigma2 > 0.01 * sigma2[mask].mean()
+                    # Flux error
+                    if self.use_error and spec.flux_err is not None:
+                        sigma2 = spec.flux_err ** 2
+                        mask &= ~np.isnan(sigma2)
+                        
+                        # TODO: add option to set this limit
+                        # Mask out bins where sigma2 is unusually small
+                        mask &= sigma2 > 1e-5
+                    else:
+                        sigma2 = None
 
                     # Weight (optional)
                     if self.use_weight and temp.weight is not None:
                         weight = temp.weight / temp.weight.sum() * temp.weight.size
                         mask &= ~np.isnan(weight)
                     else:
-                        weight = np.ones_like(spec.flux)
+                        weight = None
 
-                    if bases is None:
-                        basis = None
-                        phi[i] += np.sum(weight[mask] * spec.flux[mask] * temp.flux[mask] / sigma2[mask])
-                        chi[i] += np.sum(weight[mask] * temp.flux[mask] ** 2 / sigma2[mask])
-                    else:
+                    # Flux correction (optional)
+                    if bases is not None:
                         basis = bases[arm][ei]
-                        mask &= ~np.any(np.isnan(basis), axis=-1)
-                        phi[i] += np.sum(weight[mask, None] * spec.flux[mask, None] * temp.flux[mask, None] * basis[mask, :] / sigma2[mask, None], axis=0)
-                        chi[i] += np.sum(weight[mask, None, None] * (temp.flux[mask, None, None] ** 2 * np.matmul(basis[mask, :, None], basis[mask, None, :])) / sigma2[mask, None, None], axis=0)
+                        mask &= ~np.any(np.isnan(basis), axis=-1)       # Be cautious in case any item in wave is nan
+                    else:
+                        basis = None
+
+                    # Calculate phi and chi and sum up along wavelength
+                    pp = spec.flux * temp.flux
+                    cc = temp.flux ** 2
+                    
+                    if weight is not None:
+                        pp *= weight
+                        cc *= weight
+                    
+                    if sigma2 is not None:
+                        pp /= sigma2
+                        cc /= sigma2
+
+                    if basis is not None:
+                        pp = pp[:, None] * basis
+                        cc = cc[:, None, None] * np.matmul(basis[:, :, None], basis[:, None, :])
+
+                    phi[i] += np.sum(pp[mask], axis=0)
+                    chi[i] += np.sum(cc[mask], axis=0)
 
                     # Degrees of freedom
                     ndf[i] += mask.sum()
 
                     if self.trace is not None:
-                        trace_spec[arm].append(spec)
-                        trace_temp[arm].append(temp)
-                        trace_sigma2[arm].append(sigma2)
-                        trace_weight[arm].append(weight)
-                        trace_mask[arm].append(mask)
-                        trace_bases[arm].append(basis)
+                        trace_state.append(arm, spec, temp, sigma2, weight, mask, basis)
+
+            if not self.use_flux_corr:
+                ndf[i] -= 1
+            else:
+                ndf[i] -= basis_size
 
             # Only trace when all arms are fitted but for each rv
             if self.trace is not None:
                 # First dimension must index rv items
                 log_L = self.eval_log_L(phi[np.newaxis, i], chi[np.newaxis, i])
-                self.trace.on_eval_phi_chi(rvv[i], trace_spec, trace_temp, trace_bases, trace_sigma2, trace_weight, trace_mask, log_L[0], phi[i], chi[i])
+                self.trace.on_eval_phi_chi(rvv[i], trace_state.spectra, trace_state.templates, trace_state.bases, trace_state.sigma2, trace_state.weights, trace_state.masks, log_L[0], phi[i], chi[i])
 
         if not isinstance(rv, np.ndarray):
             phi = phi[0]
@@ -968,7 +1020,7 @@ class RVFit():
 
         return pp, pcov
 
-    def guess_rv(self, spectra, templates, rv_bounds=(-500, 500), rv_prior=None, rv_steps=31):
+    def guess_rv(self, spectra, templates, rv_bounds=(-500, 500), rv_prior=None, rv_steps=31, method='lorentz'):
         """
         Given a spectrum and a template, make a good initial guess for RV where a minimization
         algorithm can be started from.
@@ -976,16 +1028,26 @@ class RVFit():
 
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        method = method if method is not None else 'lorentz'
 
         rv = np.linspace(*rv_bounds, rv_steps)
         log_L, phi, chi, ndf = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
         a = self.eval_a(phi, chi)
-        pp, pcov = self.fit_lorentz(rv, log_L)
 
-        if self.trace is not None:
-            self.trace.on_guess_rv(rv, log_L, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
+        if method == 'lorentz':
+            pp, pcov = self.fit_lorentz(rv, log_L)
+            rv_guess = pp[1]
 
-        return rv, log_L, a, pp[1]
+            if self.trace is not None:
+                self.trace.on_guess_rv(rv, log_L, rv_guess, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
+        elif method == 'max':
+            rv_guess = rv[np.argmax(log_L)]
+            if self.trace is not None:
+                self.trace.on_guess_rv(rv, log_L, rv_guess, None, 'max', None, None)
+        else:
+            raise NotImplementedError()
+
+        return rv, log_L, a, rv_guess
 
     def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, method='bounded'):
         """
