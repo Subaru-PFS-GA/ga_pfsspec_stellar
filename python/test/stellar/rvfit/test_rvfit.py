@@ -14,7 +14,7 @@ class TestRVFit(RVFitTestBase):
         trace = RVFitTrace()
         rvfit = RVFit(trace=trace)
         rvfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
-        rvfit.mcmc_steps = 5
+        rvfit.mcmc_samples = 5
         rvfit.template_resampler = FluxConservingResampler()
 
         if flux_correction:

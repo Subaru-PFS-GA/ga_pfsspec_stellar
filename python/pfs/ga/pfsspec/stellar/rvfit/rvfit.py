@@ -198,8 +198,11 @@ class RVFit():
 
             self.max_iter = 1000            # Maximum number of iterations to minimize significance
 
-            self.mcmc_burnin = 1000
-            self.mcmc_steps = 1000
+            self.mcmc_step = 10.0           # MCMC initial step size
+            self.mcmc_walkers = 10          # Number of parallel walkers
+            self.mcmc_burnin = 100          # Number of burn-in iterations
+            self.mcmc_samples = 100         # Number of samples
+            self.mcmc_thin = 1              # MCMC trace thinning
         else:
             self.trace = orig.trace
 
@@ -227,8 +230,11 @@ class RVFit():
 
             self.max_iter = orig.max_iter
 
+            self.mcmc_step = orig.mcmc_step
+            self.mcmc_walkers = orig.mcmc_walkers
             self.mcmc_burnin = orig.mcmc_burnin
-            self.mcmc_steps = orig.mcmc_steps
+            self.mcmc_samples = orig.mcmc_samples
+            self.mcmc_thin = orig.mcmc_thin
 
         self.reset()
 
@@ -669,11 +675,15 @@ class RVFit():
 
         return flux_corr
     
-    def sample_log_L(self, log_L_fun, x_0=None, step=None, bounds=None):
+    def sample_log_L(self, log_L_fun, x_0=None, step=None, bounds=None,
+                     walkers=None, burnin=None, samples=None, thin=None):
         
-        # TODO: review class-level members and function arguments
-        step = step if step is not None else 0.025
-
+        step = step if step is not None else self.mcmc_step
+        walkers = walkers if walkers is not None else self.mcmc_walkers
+        burnin = burnin if burnin is not None else self.mcmc_burnin
+        samples = samples if samples is not None else self.mcmc_samples
+        thin = thin if thin is not None else self.mcmc_thin
+    
         # Bounds is a list of tuples, convert to an array
         if bounds is not None:
             bb = []
@@ -688,13 +698,11 @@ class RVFit():
             bounds = np.array(bb).T
 
         ndim = x_0.size
-        nwalkers = 2 * x_0.size + 1
-        burnin = self.mcmc_burnin
-        samples = self.mcmc_steps
+        nwalkers = max(walkers, 2 * x_0.size + 1)
         
         # Generate an initial state a little bit off of x_0
         # TODO: randomizing this way is not the best when RV is close to 0
-        p_0 = (1 + np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step) * x_0
+        p_0 = np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step
         
         # Make sure the initial state is inside the bounds
         if bounds is not None:
@@ -706,7 +714,12 @@ class RVFit():
         sampler.reset()
         sampler.run_mcmc(state, samples, skip_initial_state_check=True)
 
-        return sampler.flatchain, sampler.flatlnprobability
+        if thin is not None:
+            s = np.s_[::thin]
+        else:
+            s = ()
+
+        return sampler.flatchain[s], sampler.flatlnprobability[s]
         
     #region Fisher matrix evaluation
 

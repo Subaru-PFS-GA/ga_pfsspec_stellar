@@ -40,7 +40,7 @@ class TestModelGridRVFit(RVFitTestBase):
         trace = ModelGridRVFitTraceTest()
         rvfit = ModelGridRVFit(trace=trace)
         rvfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
-        rvfit.mcmc_steps = 5
+        rvfit.mcmc_samples = 5
         rvfit.params_0 = kwargs
         rvfit.template_resampler = FluxConservingResampler()
         rvfit.template_grids = {
@@ -248,8 +248,8 @@ class TestModelGridRVFit(RVFitTestBase):
 
         ax.axvline(rv_real, color='r', label='rv real')
 
-        rvfit.mcmc_burnin = 100
-        rvfit.mcmc_steps = 100
+        rvfit.mcmc_burnin = 5
+        rvfit.mcmc_samples = 5
         rv, params, a = rvfit.run_mcmc(specs,
                                   rv_0=rv_real + 10, rv_bounds=(rv_real - 100, rv_real + 100),
                                   params_0=params_0)
@@ -316,6 +316,8 @@ class TestModelGridRVFit(RVFitTestBase):
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
         rv, rv_err, params, params_err, a, a_err = rvfit.fit_rv(specs, rv_0=rv_real)
 
+        rvfit.mcmc_burnin = 5
+        rvfit.mcmc_samples = 5
         rvfit.calculate_F(specs, rv, params, mode='params_rv', method='emcee')
 
         #
