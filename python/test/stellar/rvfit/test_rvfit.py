@@ -1,8 +1,10 @@
 import numpy as np
+import numpy.testing as npt
 import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 from pfs.ga.pfsspec.stellar.rvfit import RVFit, RVFitTrace
+from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
 
 from .rvfittestbase import RVFitTestBase
 
@@ -17,7 +19,7 @@ class TestRVFit(RVFitTestBase):
 
         if flux_correction:
             rvfit.use_flux_corr = True
-            rvfit.flux_corr_basis = RVFitTestBase.flux_correction_polys
+            rvfit.flux_corr = PolynomialFluxCorrection()
 
         if use_priors:
             rvfit.rv_prior = lambda rv: -(rv - self.rv_real)**2 / 100**2
@@ -25,6 +27,54 @@ class TestRVFit(RVFitTestBase):
             rvfit.rv_prior = None
 
         return rvfit
+    
+    def test_get_packing_functions(self):
+        rvfit = self.get_rvfit()
+
+        a_scalar = np.array(1.0)
+        a_vector = np.array([0.9, 0.8]).T
+        aa_scalar = np.array([1.0, 0.5, 0.2, 0.1])
+        aa_vector = np.array([[0.9, 0.8, 0.7, 0.6, 0.5], [1.0, 0.5, 0.2, 0.1, 0.0]]).T
+        rv_scalar = 100.0
+        rv_vector = np.array([100.0, 90.0])
+
+        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(mode='a_rv')
+        
+        pp = pack_params(a_scalar, rv_scalar)
+        a, rv = unpack_params(pp)
+        self.assertEqual((2,), pp.shape)
+        npt.assert_equal(a_scalar, a)
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(aa_scalar, rv_scalar)
+        a, rv = unpack_params(pp)
+        self.assertEqual((5,), pp.shape)
+        npt.assert_equal(aa_scalar, a)
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(a_vector, rv_vector)
+        a, rv = unpack_params(pp)
+        self.assertEqual((2, 2), pp.shape)
+        npt.assert_equal(a_vector, a)
+        npt.assert_equal(rv_vector, rv)
+
+        pp = pack_params(aa_vector, rv_vector)
+        a, rv = unpack_params(pp)
+        self.assertEqual((6, 2), pp.shape)
+        npt.assert_equal(aa_vector, a)
+        npt.assert_equal(rv_vector, rv)
+
+        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(mode='rv')
+
+        pp = pack_params(rv_scalar)
+        rv = unpack_params(pp)
+        self.assertEqual((1,), pp.shape)
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(rv_vector)
+        rv = unpack_params(pp)
+        self.assertEqual((2,), pp.shape)
+        npt.assert_equal(rv_vector, rv)
     
     def test_get_observation(self):
         spec = self.get_observation()
@@ -170,7 +220,7 @@ class TestRVFit(RVFitTestBase):
 
     def rvfit_fit_rv_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
-        rv, rv_err = rvfit.fit_rv(specs, temps)
+        rv, rv_err, a, a_err = rvfit.fit_rv(specs, temps)
 
         ax.axvline(rv_real, color='r', label='rv real')
         ax.axvline(rv, color='b', label='rv fit')
@@ -213,7 +263,7 @@ class TestRVFit(RVFitTestBase):
 
         for ax, config in zip(axs[:, 0], configs):
             rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
-            rv, rv_err = rvfit.fit_rv(specs, temps)
+            rv, rv_err, a, a_err = rvfit.fit_rv(specs, temps)
             F = {}
             C = {}
             err = {}

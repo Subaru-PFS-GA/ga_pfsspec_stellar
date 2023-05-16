@@ -21,20 +21,6 @@ class RVFitTestBase(StellarTestBase):
 
         self.rv_real = 100
 
-    @staticmethod
-    def flux_correction_polys(wave):
-        npoly = 5
-        wmin = 3000
-        wmax = 12000
-        normwave = (wave - wmin) / (wmax - wmin) * 2 - 1
-        polys = np.empty((wave.shape[0], npoly))
-
-        coeffs = np.eye(npoly)
-        for i in range(npoly):
-            polys[:, i] = np.polynomial.Chebyshev(coeffs[i])(normwave)
-
-        return polys
-
     def get_test_grid(self):
         return self.get_bosz_grid()
 

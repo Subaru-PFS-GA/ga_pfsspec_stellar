@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import numpy.testing as npt
 import matplotlib.pyplot as plt
 
 from test.pfs.ga.pfsspec.stellar.stellartestbase import StellarTestBase
@@ -13,6 +14,7 @@ from pfs.ga.pfsspec.sim.obsmod.background import Sky, Moon
 from pfs.ga.pfsspec.sim.obsmod.observations import PfsObservation
 from pfs.ga.pfsspec.sim.obsmod.pipelines import StellarModelPipeline
 from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
+from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
 from pfs.ga.pfsspec.core.obsmod.psf import PcaPsf, GaussPsf
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 from pfs.ga.pfsspec.stellar.rvfit import ModelGridRVFit, ModelGridRVFitTrace
@@ -23,14 +25,12 @@ class ModelGridRVFitTraceTest(ModelGridRVFitTrace):
     def __init__(self):
         super().__init__()
 
-        self.mcmc_x_0 = None
         self.mcmc_x = None
         self.mcmc_log_L = None
 
-    def on_eval_F_mcmc(self, x_0, x, log_L):
-        super().on_eval_F_mcmc(x_0, x, log_L)
+    def on_eval_F_mcmc(self, x, log_L):
+        super().on_eval_F_mcmc(x, log_L)
 
-        self.mcmc_x_0 = x_0
         self.mcmc_x = x
         self.mcmc_log_L = log_L
 
@@ -50,7 +50,7 @@ class TestModelGridRVFit(RVFitTestBase):
 
         if flux_correction:
             rvfit.use_flux_corr = True
-            rvfit.flux_corr_basis = RVFitTestBase.flux_correction_polys
+            rvfit.flux_corr = PolynomialFluxCorrection()
 
         if use_priors:
             rvfit.rv_prior = lambda rv: -(rv - self.rv_real)**2 / 100**2
@@ -67,6 +67,76 @@ class TestModelGridRVFit(RVFitTestBase):
         }
 
         return rvfit
+    
+    def test_get_packing_functions(self):
+        rvfit = self.get_rvfit()
+
+        params_scalar = { 'T_eff': 5000.0, 'M_H': -1.0, 'log_g': 1.0 }
+        params_vector = { 'T_eff': np.array([5000, 5200]), 'M_H': np.array([-1.0, -2.0]), 'log_g': np.array([1.0, 1.5]) }
+        params_free = [ 'T_eff', 'M_H', 'log_g' ]
+        params_fixed = { 'a_M': 0.0 }
+        a_scalar = np.array(1.0)
+        a_vector = np.array([0.9, 0.8]).T
+        aa_scalar = np.array([1.0, 0.5, 0.2, 0.1])
+        aa_vector = np.array([[0.9, 0.8, 0.7, 0.6, 0.5], [1.0, 0.5, 0.2, 0.1, 0.0]]).T
+        rv_scalar = 100.0
+        rv_vector = np.array([100.0, 90.0])
+
+        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(params_scalar, params_free, params_fixed, mode='a_params_rv')
+        
+        pp = pack_params(a_scalar, params_scalar, rv_scalar)
+        a, params, rv = unpack_params(pp)
+        self.assertEqual((5,), pp.shape)
+        npt.assert_equal(a_scalar, a)
+        self.assertEqual({ **params_scalar, **params_fixed }, params),
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(aa_scalar, params_scalar, rv_scalar)
+        a, params, rv = unpack_params(pp)
+        self.assertEqual((8,), pp.shape)
+        npt.assert_equal(aa_scalar, a)
+        self.assertEqual({ **params_scalar, **params_fixed }, params),
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(a_vector, params_vector, rv_vector)
+        a, params, rv = unpack_params(pp)
+        self.assertEqual((5, 2), pp.shape)
+        npt.assert_equal(a_vector, a)
+        npt.assert_equal({ **params_vector, **params_fixed }, params)
+        npt.assert_equal(rv_vector, rv)
+
+        pp = pack_params(aa_vector, params_vector, rv_vector)
+        a, params, rv = unpack_params(pp)
+        self.assertEqual((9, 2), pp.shape)
+        npt.assert_equal(aa_vector, a)
+        npt.assert_equal({ **params_vector, **params_fixed }, params)
+        npt.assert_equal(rv_vector, rv)
+
+        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(params_scalar, params_free, params_fixed, mode='params_rv')
+
+        pp = pack_params(params_scalar, rv_scalar)
+        params, rv = unpack_params(pp)
+        self.assertEqual((4,), pp.shape)
+        self.assertEqual({ **params_scalar, **params_fixed }, params),
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(params_vector, rv_vector)
+        params, rv = unpack_params(pp)
+        self.assertEqual((4, 2), pp.shape)
+        npt.assert_equal({ **params_vector, **params_fixed }, params)
+        npt.assert_equal(rv_vector, rv)
+
+        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(params_scalar, params_free, params_fixed, mode='rv')
+
+        pp = pack_params(rv_scalar)
+        params, rv = unpack_params(pp)
+        self.assertEqual((1,), pp.shape)
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(rv_vector)
+        params, rv = unpack_params(pp)
+        self.assertEqual((2,), pp.shape)
+        npt.assert_equal(rv_vector, rv)
     
     def test_get_normalization(self):
         rvfit = self.get_rvfit()
@@ -170,6 +240,33 @@ class TestModelGridRVFit(RVFitTestBase):
 
         for ax, config in zip(axs[:, 0], configs):
             self.rvfit_fit_rv_test_helper(ax, **config)
+
+        self.save_fig(f)
+
+    def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
+
+        ax.axvline(rv_real, color='r', label='rv real')
+
+        rvfit.mcmc_burnin = 100
+        rvfit.mcmc_steps = 100
+        rv, params, a = rvfit.run_mcmc(specs,
+                                  rv_0=rv_real + 10, rv_bounds=(rv_real - 100, rv_real + 100),
+                                  params_0=params_0)
+
+        ax.plot(rv, params['T_eff'], '.')
+
+    def test_run_mcmc(self):
+        configs = [
+            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        ]
+
+        f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
+
+        for ax, config in zip(axs[:, 0], configs):
+            self.rvfit_run_mcmc_test_helper(ax, **config)
 
         self.save_fig(f)
 
