@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 from pfs.ga.pfsspec.stellar.rvfit import RVFit, RVFitTrace
 from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
+from pfs.ga.pfsspec.core.sampling import Parameter
 
 from .rvfittestbase import RVFitTestBase
 
@@ -249,6 +250,34 @@ class TestRVFit(RVFitTestBase):
 
         for ax, config in zip(axs[:, 0], configs):
             self.rvfit_fit_rv_test_helper(ax, **config)
+
+        self.save_fig(f)
+
+    def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
+
+        ax.axvline(rv_real, color='r', label='rv real')
+
+        rvfit.mcmc_burnin = 5
+        rvfit.mcmc_samples = 5
+        rv, a, log_L = rvfit.run_mcmc(specs, temps,
+                                  rv_0=rv_real + 10,
+                                  rv_bounds=(rv_real - 100, rv_real + 100),
+                                  rv_step=2)
+
+        ax.hist(rv)
+
+    def test_run_mcmc(self):
+        configs = [
+            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        ]
+
+        f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
+
+        for ax, config in zip(axs[:, 0], configs):
+            self.rvfit_run_mcmc_test_helper(ax, **config)
 
         self.save_fig(f)
 

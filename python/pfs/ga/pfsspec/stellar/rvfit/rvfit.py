@@ -15,12 +15,14 @@ except ModuleNotFoundError as ex:
     logging.warn(ex.msg)
     emcee = None
 
+from pfs.ga.pfsspec.core.util.args import *
 from pfs.ga.pfsspec.core import Trace
 from pfs.ga.pfsspec.core import Spectrum
 import pfs.ga.pfsspec.core.plotting.styles as styles
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
-from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
+from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler, Interp1dResampler
+from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
 
 class RVFitTrace(Trace):
     """
@@ -42,6 +44,12 @@ class RVFitTrace(Trace):
         self.eval_phi_chi_count = 0
         self.eval_log_L_count = 0
         self.eval_log_L_a_count = 0
+
+    def add_args(self, config, parser):
+        super().add_args(config, parser)
+    
+    def init_from_args(self, script, config, args):
+        super().init_from_args(script, config, args)
 
     def save_history(self, filename, spectrum):
         if spectrum.history is not None:
@@ -169,6 +177,11 @@ class RVFit():
     The class supports various methods to determine the uncertainty of estimated parameters.
     """
 
+    RESAMPLERS = {
+        'interp': Interp1dResampler,
+        'fluxcons': FluxConservingResampler,
+    }
+
     def __init__(self, trace=None, orig=None):
         
         if not isinstance(orig, RVFit):
@@ -178,13 +191,14 @@ class RVFit():
             self.template_resampler = FluxConservingResampler()  # Resample template to instrument pixels
             self.template_cache_resolution = 50  # Cache templates with this resolution in RV
             self.template_wlim = None       # Model wavelength limits for each spectrograph arm
-            self.template_wlim_buffer = 5   # Wavelength buffer in A, depends on line spread function
+            self.template_wlim_buffer = 100 # Wavelength buffer in A, depends on line spread function
             
             self.cache_templates = False    # Cache PSF-convolved templates
 
             self.rv_0 = None                # RV initial guess
             self.rv_bounds = None           # Find RV between these bounds
             self.rv_prior = None
+            self.rv_step = None             # RV step size for MCMC sampling
 
             self.use_flux_corr = False      # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
             self.flux_corr = None           # Flux correction model
@@ -193,6 +207,7 @@ class RVFit():
             self.temp_norm = None           # Template normalization factor
 
             self.use_mask = True            # Use mask from spectrum, if available
+            self.mask_bits = None           # Mask bits (None means any)
             self.use_error = True           # Use flux error from spectrum, if available
             self.use_weight = True          # Use weight from template, if available
 
@@ -217,6 +232,7 @@ class RVFit():
             self.rv_0 = orig.rv_0
             self.rv_bounds = orig.rv_bounds
             self.rv_prior = orig.rv_prior
+            self.rv_step = orig.rv_step
 
             self.use_flux_corr = orig.use_flux_corr
             self.flux_corr = orig.flux_corr
@@ -225,6 +241,7 @@ class RVFit():
             self.temp_norm = orig.temp_norm
 
             self.use_mask = orig.use_mask
+            self.mask_bits = orig.mask_bits
             self.use_error = orig.use_error
             self.use_weight = orig.use_weight
 
@@ -242,6 +259,54 @@ class RVFit():
         self.template_cache = ReadOnlyCache()
         self.flux_corr_basis_cache = None
         self.flux_corr_basis_size = None
+
+    def add_args(self, config, parser):
+        parser.add_argument('--flux-corr', action='store_true', dest='flux_corr', help='Do flux correction.\n')
+        parser.add_argument('--no-flux-corr', action='store_false', dest='flux_corr', help='No flux correction.\n')
+        parser.add_argument('--flux-corr-deg', type=int, help='Degree of flux correction polynomial.\n')
+
+        parser.add_argument('--resampler', type=str, choices=list(RVFit.RESAMPLERS.keys()), default='fluxcons', help='Template resampler.\n')
+
+        parser.add_argument('--mask', action='store_true', dest='use_mask', help='Use mask from spectra.\n')
+        parser.add_argument('--no-mask', action='store_false', dest='use_mask', help='Do not use mask from spectra.\n')
+        parser.add_argument('--mask-bits', type=int, help='Bit mask.\n')
+
+        parser.add_argument('--mcmc-walkers', type=int, help='Number of MCMC walkers (min number of params + 1).\n')
+        parser.add_argument('--mcmc-burnin', type=int, help='Number of MCMC burn-in samples.\n')
+        parser.add_argument('--mcmc-samples', type=int, help='Number of MCMC samples.\n')
+        parser.add_argument('--mcmc-thin', type=int, help='MCMC chain thinning interval.\n')
+
+    def init_from_args(self, script, config, args):
+        if self.trace is not None:
+            self.trace.init_from_args(script, config, args)
+    
+        self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
+
+        # TODO: add more options for flux correction model
+        self.flux_corr = PolynomialFluxCorrection()
+        self.flux_corr.degree = get_arg('flux_corr_deg', self.flux_corr.degree, args)
+
+        # Use Interp1dResampler when template PSF accounts for pixelization
+        resampler = get_arg('resampler', None, args)
+        if resampler is None:
+            pass
+        elif resampler in RVFit.RESAMPLERS:
+            self.template_resampler = RVFit.RESAMPLERS[resampler]()
+        else:
+            raise NotImplementedError()
+
+        self.use_mask = get_arg('use_mask', self.use_mask, args)
+        self.mask_bits = get_arg('mask_bits', self.mask_bits, args)
+        self.use_error = get_arg('use_error', self.use_error, args)
+        self.use_weight = get_arg('use_weight', self.use_weight, args)
+
+        self.mcmc_walkers = get_arg('mcmc_walkers', self.mcmc_walkers, args)
+        self.mcmc_burnin = get_arg('mcmc_burnin', self.mcmc_burnin, args)
+        self.mcmc_samples = get_arg('mcmc_samples', self.mcmc_samples, args)
+        self.mcmc_thin = get_arg('mcmc_thin', self.mcmc_thin, args)
+
+    def create_trace(self):
+        return RVFitTrace()
 
     def get_normalization(self, spectra, templates, rv_0=None):
         # Calculate a normalization factor for the spectra, as well as
@@ -344,7 +409,7 @@ class RVFit():
             
         return t
 
-    def process_template(self, arm, template, spectrum, rv, psf=None, wlim=None, diff=False, flux_corr=False, a=None):
+    def process_template(self, arm, template, spectrum, rv, psf=None, wlim=None, diff=False, resample=True, renorm=False, flux_corr=False, a=None):
         # Preprocess the template to match the observation. This step
         # involves shifting the high resolution template the a given RV,
         # convolving it with the PSF, still at high resolution, and normalizing
@@ -390,7 +455,8 @@ class RVFit():
             temp = self.process_template_impl(arm, template, spectrum, rv, psf=psf, wlim=wlim)
 
         # Resample template to the binning of the observation
-        temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
+        if resample:
+            temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
 
         # Optionally apply flux correction. Note that a = None during the fitting process,
         # this feature is provided for evaluating the results only, so it's okay to
@@ -403,6 +469,10 @@ class RVFit():
                 temp.multiply(np.dot(basis, a))
             else:
                 temp.multiply(a)
+
+        # Normalize template to match the flux scale of the fitted spectrum
+        if renorm and self.spec_norm is not None:
+            temp.multiply(self.spec_norm)
 
         if self.trace is not None:
             self.trace.on_resample_template(arm, rv, spectrum, template, temp)
@@ -505,23 +575,34 @@ class RVFit():
                 else:
                     specs = spectra[arm]
 
+                # This is a generic call to preprocess the template which might or
+                # might not include a convolution, depending on the RVFit implementation.
+                # When template convolution is pushed down to the model grid to support
+                # caching, convolution is skipped by the derived classes such as
+                # ModelGridRVFit
                 psf = self.template_psf[arm] if self.template_psf is not None else None
                 wlim = self.template_wlim[arm] if self.template_wlim is not None else None
                 
                 for ei in range(len(specs)):
+                    # TODO: Make sure template is not double-convolved in normal RVFit
                     spec = self.process_spectrum(arm, ei, specs[ei])
                     temp = self.process_template(arm, templates[arm], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
                     
                     # Determine mask
-                    if self.use_mask:
+                    mask = None
+                    if self.use_mask and spec.mask is not None:
                         # TODO: allow specifying a bitmas
-                        mask = spec.mask_as_bool() if spec.mask is not None else np.full_like(spec.wave, True, dtype=bool)
-                    else:
+                        mask = spec.mask_as_bool(bits=self.mask_bits)
+                    
+                    if mask is None:
                         mask = np.full_like(spec.wave, True, dtype=bool)
                     
                     # Mask out nan values which might occur if spectrum mask is not properly defined
+                    mask &= ~np.isnan(spec.wave)
                     mask &= ~np.isnan(spec.flux)
                     mask &= ~np.isnan(spec.flux_err)
+
+                    mask &= ~np.isnan(temp.flux)
 
                     # Flux error
                     if self.use_error and spec.flux_err is not None:
@@ -560,12 +641,15 @@ class RVFit():
                         pp /= sigma2
                         cc /= sigma2
 
-                    if basis is not None:
-                        pp = pp[:, None] * basis
-                        cc = cc[:, None, None] * np.matmul(basis[:, :, None], basis[:, None, :])
+                    if basis is None:
+                        pp = pp[mask]
+                        cc = cc[mask]
+                    else:
+                        pp = pp[mask, None] * basis[mask, :]
+                        cc = cc[mask, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
 
-                    phi[i] += np.sum(pp[mask], axis=0)
-                    chi[i] += np.sum(cc[mask], axis=0)
+                    phi[i] += np.sum(pp, axis=0)
+                    chi[i] += np.sum(cc, axis=0)
 
                     # Degrees of freedom
                     ndf[i] += mask.sum()
@@ -675,39 +759,24 @@ class RVFit():
 
         return flux_corr
     
-    def sample_log_L(self, log_L_fun, x_0=None, step=None, bounds=None,
+    def sample_log_L(self, log_L_fun, x_0, step, bounds=None,
                      walkers=None, burnin=None, samples=None, thin=None):
         
-        step = step if step is not None else self.mcmc_step
         walkers = walkers if walkers is not None else self.mcmc_walkers
         burnin = burnin if burnin is not None else self.mcmc_burnin
         samples = samples if samples is not None else self.mcmc_samples
         thin = thin if thin is not None else self.mcmc_thin
     
-        # Bounds is a list of tuples, convert to an array
-        if bounds is not None:
-            bb = []
-            for b in bounds:
-                if b is None:
-                    bb.append((-np.inf, np.inf))
-                else:
-                    bb.append((
-                        b[0] if b[0] is not None else -np.inf,
-                        b[1] if b[1] is not None else np.inf,
-                    ))
-            bounds = np.array(bb).T
-
         ndim = x_0.size
         nwalkers = max(walkers, 2 * x_0.size + 1)
         
         # Generate an initial state a little bit off of x_0
-        # TODO: randomizing this way is not the best when RV is close to 0
-        p_0 = np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step
+        p_0 = x_0 + np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step
         
         # Make sure the initial state is inside the bounds
         if bounds is not None:
-            p_0 = np.where(bounds[0] < p_0, p_0, bounds[0])
-            p_0 = np.where(bounds[1] > p_0, p_0, bounds[1])
+            p_0 = np.where(bounds[..., 0] < p_0, p_0, bounds[..., 0])
+            p_0 = np.where(bounds[..., 1] > p_0, p_0, bounds[..., 1])
 
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L_fun)
         state = sampler.run_mcmc(p_0, burnin, skip_initial_state_check=True)
@@ -719,6 +788,10 @@ class RVFit():
         else:
             s = ()
 
+        # size: (chains, samples, params)
+        # return sampler.chain[:, s], sampler.lnprobability[:, s]
+
+        # size: (all_samples, params)
         return sampler.flatchain[s], sampler.flatlnprobability[s]
         
     #region Fisher matrix evaluation
@@ -804,6 +877,21 @@ class RVFit():
             raise NotImplementedError()
         
         return log_L, pack_params, unpack_params, pack_bounds
+    
+    def get_bounds_array(self, bounds):
+        if bounds is not None:
+            bb = []
+            for b in bounds:
+                if b is None:
+                    bb.append((-np.inf, np.inf))
+                else:
+                    bb.append((
+                        b[0] if b[0] is not None else -np.inf,
+                        b[1] if b[1] is not None else np.inf,
+                    ))
+            return np.array(bb)
+        else:
+            return None
 
     def eval_F(self, spectra, templates, rv_0=None, rv_bounds=None, rv_prior=None, step=None, mode='full', method='hessian'):
         # Evaluate the Fisher matrix around the provided rv_0. The corresponding
@@ -831,6 +919,8 @@ class RVFit():
             bounds = pack_bounds(rv_bounds)
         else:
             raise NotImplementedError()
+        
+        bounds = self.get_bounds_array(bounds)
                 
         return self.eval_F_dispatch(x_0, log_L, step, method, bounds)
 
@@ -858,6 +948,11 @@ class RVFit():
     
     def eval_F_emcee(self, x_0, log_L_fun, step, bounds):
         # Evaluate the Fisher matrix by MC sampling around the optimum
+
+        # Default step size is 1% of optimum values
+        if step is None:
+            step = 0.01 * x_0
+
         x, log_L = self.sample_log_L(log_L_fun, x_0=x_0, bounds=bounds, step=step)
 
         if self.trace is not None:
@@ -1158,6 +1253,11 @@ class RVFit():
                         psf = self.template_psf[arm] if self.template_psf is not None else None
                         wlim = self.template_wlim[arm] if self.template_wlim is not None else None
                     
+                        # This is a generic call to preprocess the template which might or
+                        # might not include a convolution, depending on the RVFit implementation.
+                        # When template convolution is pushed down to the model grid to support
+                        # caching, convolution is skipped by the derived classes such as
+                        # ModelGridRVFit
                         t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
                         tt[arm] = t
                 self.trace.on_fit_rv(rv_fit, spectra, tt)
@@ -1172,7 +1272,9 @@ class RVFit():
 
         return rv_fit, rv_err, a_fit, np.full_like(a_fit, np.nan)
 
-    def run_mcmc(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None):
+    def run_mcmc(self, spectra, templates, *,
+                 rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
+                 walkers=None, burnin=None, samples=None, thin=None):
         """
         Given a set of spectra and templates, sample from the posterior distribution of RV.
 
@@ -1186,12 +1288,36 @@ class RVFit():
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
+        if rv_0 is None:
+            _, _, _, rv_0 = self.guess_rv(spectra, None, 
+                                          rv_bounds=rv_bounds, rv_prior=rv_prior)
+
         # Get objective function
-        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+        log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra, templates, rv_prior, mode='rv')
         
+        # Initial values
+        if rv_0 is not None:
+            x_0 = pack_params(rv_0)
+        else:
+            x_0 = None
+
+        # Step size for MCMC
+        if rv_step is not None:
+            steps = pack_params(rv_step)
+        else:
+            steps = None
+
+        bounds = pack_bounds(rv_bounds)
+        bounds = self.get_bounds_array(bounds)
+        
         # Run sampling
-        self.sample_log_L(log_L)
+        x, log_L =  self.sample_log_L(log_L_fun, x_0, steps, bounds=bounds,
+            walkers=walkers, burnin=burnin, samples=samples, thin=thin)
+        
+        rv = unpack_params(x.T)
+        
+        return rv, None, log_L
     
     @staticmethod
     def minimize_gridsearch(fun, bounds, nstep=100):

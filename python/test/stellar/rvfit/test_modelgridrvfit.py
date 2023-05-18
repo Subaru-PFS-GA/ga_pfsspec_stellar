@@ -3,19 +3,8 @@ import numpy as np
 import numpy.testing as npt
 import matplotlib.pyplot as plt
 
-from test.pfs.ga.pfsspec.stellar.stellartestbase import StellarTestBase
-from pfs.ga.pfsspec.core.physics import Physics
-from pfs.ga.pfsspec.core.grid import ArrayGrid
-from pfs.ga.pfsspec.stellar.grid import ModelGrid
-from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
-from pfs.ga.pfsspec.core import Filter
-from pfs.ga.pfsspec.sim.obsmod import Detector
-from pfs.ga.pfsspec.sim.obsmod.background import Sky, Moon
-from pfs.ga.pfsspec.sim.obsmod.observations import PfsObservation
-from pfs.ga.pfsspec.sim.obsmod.pipelines import StellarModelPipeline
-from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
+from pfs.ga.pfsspec.core.sampling import Parameter, NormalDistribution, UniformDistribution
 from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
-from pfs.ga.pfsspec.core.obsmod.psf import PcaPsf, GaussPsf
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 from pfs.ga.pfsspec.stellar.rvfit import ModelGridRVFit, ModelGridRVFitTrace
 
@@ -246,13 +235,18 @@ class TestModelGridRVFit(RVFitTestBase):
     def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
 
+        params_steps = { p: v * 0.01 for p, v in params_0.items() }
+
         ax.axvline(rv_real, color='r', label='rv real')
 
         rvfit.mcmc_burnin = 5
         rvfit.mcmc_samples = 5
-        rv, params, a = rvfit.run_mcmc(specs,
-                                  rv_0=rv_real + 10, rv_bounds=(rv_real - 100, rv_real + 100),
-                                  params_0=params_0)
+        rv, params, a, log_L = rvfit.run_mcmc(specs,
+                                  rv_0=rv_real + 10,
+                                  rv_bounds=(rv_real - 100, rv_real + 100),
+                                  rv_step=2,
+                                  params_0=params_0,
+                                  params_steps=params_steps)
 
         ax.plot(rv, params['T_eff'], '.')
 
