@@ -1,5 +1,6 @@
 import os
 import logging
+from typing import Callable
 import numpy as np
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
@@ -23,6 +24,7 @@ from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler, Interp1dResampler
 from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
+from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 
 class RVFitTrace(Trace):
     """
@@ -261,6 +263,8 @@ class RVFit():
         self.flux_corr_basis_size = None
 
     def add_args(self, config, parser):
+        Parameter('rv').add_args(parser)
+
         parser.add_argument('--flux-corr', action='store_true', dest='flux_corr', help='Do flux correction.\n')
         parser.add_argument('--no-flux-corr', action='store_false', dest='flux_corr', help='No flux correction.\n')
         parser.add_argument('--flux-corr-deg', type=int, help='Degree of flux correction polynomial.\n')
@@ -279,7 +283,15 @@ class RVFit():
     def init_from_args(self, script, config, args):
         if self.trace is not None:
             self.trace.init_from_args(script, config, args)
-    
+
+        rv = Parameter('rv')
+        rv.init_from_args(args)
+        self.rv_0 = rv.value                        # RV initial guess
+        self.rv_bounds = [rv.min, rv.max]           # Find RV between these bounds
+        self.rv_prior = rv.get_dist()
+        self.rv_step = None                         # RV step size for MCMC sampling
+
+
         self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
 
         # TODO: add more options for flux correction model
@@ -724,6 +736,16 @@ class RVFit():
         
         return log_L
     
+    def eval_prior(self, prior, x):
+        if prior is None:
+            return 0
+        elif isinstance(prior, Distribution):
+            return prior.log_pdf(x)
+        elif isinstance(prior, Callable):
+            return prior(x)
+        else:
+            raise NotImplementedError()
+    
     def calculate_log_L(self, spectra, templates, rv, rv_prior=None, a=None):
         
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
@@ -737,8 +759,7 @@ class RVFit():
         else:
             log_L = self.eval_log_L_a(phi, chi, a)
         
-        if rv_prior is not None:
-            log_L += rv_prior(rv)
+        log_L += self.eval_prior(rv_prior, rv)
 
         return log_L, phi, chi, ndf
         
@@ -1177,7 +1198,12 @@ class RVFit():
         a = self.eval_a(phi, chi)
 
         if method == 'lorentz':
-            pp, pcov = self.fit_lorentz(rv, log_L)
+            # Mask out infs here in case the prior is very narrow
+            mask = (~np.isnan(log_L) & ~np.isinf(log_L))    
+            if mask.sum() < 10:
+                raise Exception("Too few values to guess RV. Consider changing the bounds.")     
+            
+            pp, pcov = self.fit_lorentz(rv[mask], log_L[mask])
             rv_guess = pp[1]
 
             if self.trace is not None:

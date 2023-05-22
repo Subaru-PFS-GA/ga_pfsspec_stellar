@@ -4,7 +4,7 @@ from scipy.optimize import minimize_scalar
 import numdifftools as nd
 
 from pfs.ga.pfsspec.core import Physics
-from pfs.ga.pfsspec.core.sampling import Parameter
+from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 from .rvfit import RVFit, RVFitTrace
 
 class ModelGridRVFitTrace(RVFitTrace):
@@ -60,22 +60,17 @@ class ModelGridRVFit(RVFit):
         self.params_priors = {}
         self.params_steps = {}
 
+        # Add parameters and priors
         for p in params:
-            if params[p].dist == 'const':
-                # This is a fixed parameter
-                self.params_0[p] = params[p].value
-                self.params_fixed[p] = params[p].value
-                self.params_bounds[p] = [params[p].value, params[p].value]
-                self.params_steps[p] = np.nan
-            else:
-                # This is a fitted (sampler) parameter. Sample initial value
-                # from the distribution
-                self.params_0[p] = params[p].get_dist().sample()
-                self.params_bounds[p] = [params[p].min, params[p].max]
-                self.params_steps[p] = (params[p].max - params[p].min) / 10.0
+            x_0, bounds, steps, fixed = params[p].generate_initial_value(step_size_factor=0.1)
+            self.params_0[p] = x_0
+            self.params_bounds[p] = bounds
+            self.params_steps[p] = steps
+            if fixed:
+                self.params_fixed[p] = x_0
 
-        # TODO: add priors
-        pass
+            if params[p].has_dist():
+                self.params_priors[p] = params[p].get_dist()
 
     def create_trace(self):
         return ModelGridRVFitTrace()
@@ -158,8 +153,8 @@ class ModelGridRVFit(RVFit):
             log_L, phi, chi, ndf = super().calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
             if params_priors is not None:
                 for p in params_priors.keys():
-                    if p in params and params_priors[p] is not None:
-                        log_L += params_priors[p](params[p])
+                    if p in params:
+                        log_L += self.eval_prior(params_priors[p], params[p])
             return log_L, phi, chi, ndf
         
     #region Fisher matrix evaluation
@@ -528,7 +523,8 @@ class ModelGridRVFit(RVFit):
         
         # Calculate the error from the Fisher matrix
         _, C = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed, mode='params_rv', method='hessian')
-        err = np.sqrt(np.diag(C)) # sigma
+        with np.errstate(invalid='warn'):
+            err = np.sqrt(np.diag(C)) # sigma
         params_err = {}
         for i, p in enumerate(params_free):
             params_err[p] = err[i]
@@ -536,7 +532,7 @@ class ModelGridRVFit(RVFit):
             params_err[p] = 0.0
         rv_err = err[-1]
 
-        return rv_fit, rv_err, params_fit, params_err, a_fit, None
+        return rv_fit, rv_err, params_fit, params_err, a_fit, np.full_like(a_fit, np.nan)
 
     def run_mcmc(self, spectra, *,
                rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
