@@ -434,7 +434,13 @@ class ModelGridRVFit(RVFit):
         params_priors = params_priors if params_priors is not None else self.params_priors
         params_steps = params_steps if params_steps is not None else self.params_steps
 
-        # TODO: If the priors are specified, generate initial values for the parameters
+        # If the priors are specified, generate initial values for the parameters
+        # This is necessary for not to get stunk in a local optimum when optimizing for log L
+
+        # TODO: add option to do this
+        if params_priors is not None:
+            # TODO: what if the prior is a callable and not a distribution?
+            params_0 = { p: d.sample() for p, d in params_priors.items()}
 
         if params_0 is None:
             # TODO
@@ -538,7 +544,7 @@ class ModelGridRVFit(RVFit):
                rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
                params_0=None, params_bounds=None, params_priors=None, params_steps=None,
                params_fixed=None,
-               walkers=None, burnin=None, samples=None, thin=None):
+               walkers=None, burnin=None, samples=None, thin=None, cov=None):
         
         """
         Given a set of spectra and templates, sample from the posterior distribution of RV.
@@ -557,7 +563,7 @@ class ModelGridRVFit(RVFit):
         
         # Run sampling
         x, log_L = self.sample_log_L(log_L_fun, x_0, steps, bounds=bounds,
-                                     walkers=walkers, burnin=burnin, samples=samples, thin=thin)
+                                     walkers=walkers, burnin=burnin, samples=samples, thin=thin, cov=cov)
         params, rv = unpack_params(x.T)
 
         # TODO: we could calculate the flux correction here but is it worth it?

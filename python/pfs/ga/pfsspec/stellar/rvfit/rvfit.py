@@ -336,7 +336,7 @@ class RVFit():
 
                 # TODO: use mask from spectrum
 
-                s.append(spec.flux[~np.isnan(spec.flux)])
+                s.append(spec.flux[~np.isnan(spec.flux) & (spec.flux > 0)])
             
             if self.template_psf is not None:
                 psf = self.template_psf[arm]
@@ -781,7 +781,7 @@ class RVFit():
         return flux_corr
     
     def sample_log_L(self, log_L_fun, x_0, step, bounds=None,
-                     walkers=None, burnin=None, samples=None, thin=None):
+                     walkers=None, burnin=None, samples=None, thin=None, cov=None):
         
         walkers = walkers if walkers is not None else self.mcmc_walkers
         burnin = burnin if burnin is not None else self.mcmc_burnin
@@ -789,7 +789,11 @@ class RVFit():
         thin = thin if thin is not None else self.mcmc_thin
     
         ndim = x_0.size
-        nwalkers = max(walkers, 2 * x_0.size + 1)
+        
+        # TODO: it's good to run many walkers but it increases time spent
+        #       in burn-in a lot
+        # nwalkers = max(walkers, 2 * x_0.size + 1)
+        nwalkers = walkers
         
         # Generate an initial state a little bit off of x_0
         p_0 = x_0 + np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step
@@ -799,21 +803,24 @@ class RVFit():
             p_0 = np.where(bounds[..., 0] < p_0, p_0, bounds[..., 0])
             p_0 = np.where(bounds[..., 1] > p_0, p_0, bounds[..., 1])
 
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L_fun)
+        if cov is not None:
+            moves = [ emcee.moves.GaussianMove(cov) ]
+        else:
+            moves = None
+
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L_fun, moves=moves)
+
         state = sampler.run_mcmc(p_0, burnin, skip_initial_state_check=True)
         sampler.reset()
         sampler.run_mcmc(state, samples, skip_initial_state_check=True)
 
         if thin is not None:
-            s = np.s_[::thin]
+            s = np.s_[..., ::thin, :]
         else:
             s = ()
 
         # size: (chains, samples, params)
-        # return sampler.chain[:, s], sampler.lnprobability[:, s]
-
-        # size: (all_samples, params)
-        return sampler.flatchain[s], sampler.flatlnprobability[s]
+        return sampler.chain[s], sampler.lnprobability[s]
         
     #region Fisher matrix evaluation
 
