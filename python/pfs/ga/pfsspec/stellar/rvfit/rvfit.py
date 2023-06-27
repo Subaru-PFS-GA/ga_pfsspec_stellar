@@ -25,6 +25,7 @@ from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler, Interp1dResampler
 from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
+from .rvfitresults import RVFitResults
 
 class RVFitTrace(Trace):
     """
@@ -1303,7 +1304,9 @@ class RVFit():
         with np.errstate(invalid='warn'):
             rv_err = np.sqrt(C[-1, -1])         # sigma
 
-        return rv_fit, rv_err, a_fit, np.full_like(a_fit, np.nan)
+        return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
+                            a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
+                            cov=C)
 
     def run_mcmc(self, spectra, templates, *,
                  rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
@@ -1350,7 +1353,7 @@ class RVFit():
         
         rv = unpack_params(x.T)
         
-        return rv, None, log_L
+        return RVFitResults(rv_mcmc=rv, log_L_mcmc=log_L)
     
     @staticmethod
     def minimize_gridsearch(fun, bounds, nstep=100):

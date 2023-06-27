@@ -6,6 +6,7 @@ import numdifftools as nd
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 from .rvfit import RVFit, RVFitTrace
+from .rvfitresults import RVFitResults
 
 class ModelGridRVFitTrace(RVFitTrace):
     pass
@@ -538,7 +539,10 @@ class ModelGridRVFit(RVFit):
             params_err[p] = 0.0
         rv_err = err[-1]
 
-        return rv_fit, rv_err, params_fit, params_err, a_fit, np.full_like(a_fit, np.nan)
+        return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
+                            params_fit=params_fit, params_err=params_err,
+                            a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
+                            cov=C)
 
     def run_mcmc(self, spectra, *,
                rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
@@ -567,5 +571,5 @@ class ModelGridRVFit(RVFit):
         params, rv = unpack_params(x.T)
 
         # TODO: we could calculate the flux correction here but is it worth it?
-
-        return rv, params, None, log_L
+        
+        return RVFitResults(rv_mcmc=rv, params_mcmc=params, log_L_mcmc=log_L)

@@ -200,13 +200,13 @@ class TestModelGridRVFit(RVFitTestBase):
 
         ax.axvline(rv_real, color='r', label='rv real')
 
-        rv, rv_err, params, params_err, a, a_err = rvfit.fit_rv(specs,
+        res = rvfit.fit_rv(specs,
                                   rv_0=rv_real + 10, rv_bounds=(rv_real - 100, rv_real + 100),
                                   params_0=params_0)
-        
-        ax.axvline(rv, color='b', label='rv fit')
-        ax.axvline(rv - rv_err, color='b')
-        ax.axvline(rv + rv_err, color='b')
+                
+        ax.axvline(res.rv_fit, color='b', label='rv fit')
+        ax.axvline(res.rv_fit - res.rv_err, color='b')
+        ax.axvline(res.rv_fit + res.rv_err, color='b')
 
         # TODO: create a log_L map instead?
         # # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
@@ -215,7 +215,7 @@ class TestModelGridRVFit(RVFitTestBase):
         # ax.plot(rvv, log_L, '.')
         # ax.set_xlim(rvv[0], rvv[-1])
 
-        ax.set_title(f'RV={rv_real:.2f}, RF_fit={rv:.3f}+/-{rv_err:.3f}')
+        ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
         # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
 
     def test_fit_rv(self):
@@ -241,14 +241,14 @@ class TestModelGridRVFit(RVFitTestBase):
 
         rvfit.mcmc_burnin = 5
         rvfit.mcmc_samples = 5
-        rv, params, a, log_L = rvfit.run_mcmc(specs,
+        res = rvfit.run_mcmc(specs,
                                   rv_0=rv_real + 10,
                                   rv_bounds=(rv_real - 100, rv_real + 100),
                                   rv_step=2,
                                   params_0=params_0,
                                   params_steps=params_steps)
 
-        ax.plot(rv, params['T_eff'], '.')
+        ax.plot(res.rv_mcmc, res.params_mcmc['T_eff'], '.')
 
     def test_run_mcmc(self):
         configs = [
@@ -276,7 +276,7 @@ class TestModelGridRVFit(RVFitTestBase):
 
         for ax, config in zip(axs[:, 0], configs):
             rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
-            rv, rv_err, params, params_err, a, a_err = rvfit.fit_rv(specs, rv_0=rv_real)
+            res = rvfit.fit_rv(specs, rv_0=rv_real)
             
             F = {}
             C = {}
@@ -296,7 +296,7 @@ class TestModelGridRVFit(RVFitTestBase):
                     'emcee',
                     'sampling',
                 ]):
-                FF, CC = rvfit.calculate_F(specs, rv, params, mode=mode, method=method)
+                FF, CC = rvfit.calculate_F(specs, res.rv_fit, res.params_fit, mode=mode, method=method)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])
@@ -308,11 +308,11 @@ class TestModelGridRVFit(RVFitTestBase):
     def test_eval_F_emcee(self):
         config = dict(flux_correction=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
-        rv, rv_err, params, params_err, a, a_err = rvfit.fit_rv(specs, rv_0=rv_real)
+        res = rvfit.fit_rv(specs, rv_0=rv_real)
 
         rvfit.mcmc_burnin = 5
         rvfit.mcmc_samples = 5
-        rvfit.calculate_F(specs, rv, params, mode='params_rv', method='emcee')
+        rvfit.calculate_F(specs, res.rv_fit, res.params_fit, mode='params_rv', method='emcee')
 
         #
 

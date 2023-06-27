@@ -15,3 +15,4 @@ class KoposovRVFit():
     def fit_rv(self, spectra, templates, rv_bounds=(-500, 500)):
         # override = dict(ccf_continuum_normalize=ccf_continuum_normalize)
         # config = utils.read_config(config_fname, override)
+        raise NotImplementedError()

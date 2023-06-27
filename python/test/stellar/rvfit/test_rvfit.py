@@ -221,22 +221,22 @@ class TestRVFit(RVFitTestBase):
 
     def rvfit_fit_rv_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
-        rv, rv_err, a, a_err = rvfit.fit_rv(specs, temps)
+        res = rvfit.fit_rv(specs, temps)
 
         ax.axvline(rv_real, color='r', label='rv real')
-        ax.axvline(rv, color='b', label='rv fit')
-        ax.axvline(rv - rv_err, color='b')
-        ax.axvline(rv + rv_err, color='b')
+        ax.axvline(res.rv_fit, color='b', label='rv fit')
+        ax.axvline(res.rv_fit - res.rv_err, color='b')
+        ax.axvline(res.rv_fit + res.rv_err, color='b')
 
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
-        rvv = np.linspace(rv - 0.001, rv + 0.001, 101)
+        rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
         log_L, phi, chi, ndf = rvfit.calculate_log_L(specs, temps, rvv)
         if rvfit.rv_prior is not None:
             log_L += rvfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
         ax.set_xlim(rvv[0], rvv[-1])
 
-        ax.set_title(f'RV={rv_real:.2f}, RF_fit={rv:.3f}+/-{rv_err:.3f}')
+        ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
         # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
 
     def test_fit_rv(self):
@@ -260,12 +260,12 @@ class TestRVFit(RVFitTestBase):
 
         rvfit.mcmc_burnin = 5
         rvfit.mcmc_samples = 5
-        rv, a, log_L = rvfit.run_mcmc(specs, temps,
+        res = rvfit.run_mcmc(specs, temps,
                                   rv_0=rv_real + 10,
                                   rv_bounds=(rv_real - 100, rv_real + 100),
                                   rv_step=2)
 
-        ax.hist(rv)
+        ax.hist(res.rv_mcmc)
 
     def test_run_mcmc(self):
         configs = [
@@ -292,7 +292,7 @@ class TestRVFit(RVFitTestBase):
 
         for ax, config in zip(axs[:, 0], configs):
             rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
-            rv, rv_err, a, a_err = rvfit.fit_rv(specs, temps)
+            res = rvfit.fit_rv(specs, temps)
             F = {}
             C = {}
             err = {}
@@ -311,7 +311,7 @@ class TestRVFit(RVFitTestBase):
                     'phi_chi',
                     'alex'
                 ]):
-                FF, CC = rvfit.calculate_F(specs, temps, rv, mode=mode, method=method)
+                FF, CC = rvfit.calculate_F(specs, temps, res.rv_fit, mode=mode, method=method)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])
