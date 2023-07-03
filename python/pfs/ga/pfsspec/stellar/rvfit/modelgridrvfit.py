@@ -1,15 +1,16 @@
+import logging
+
 import numpy as np
+from numpy.linalg import LinAlgError
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 import numdifftools as nd
 
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
-from .rvfit import RVFit, RVFitTrace
+from .rvfit import RVFit
 from .rvfitresults import RVFitResults
-
-class ModelGridRVFitTrace(RVFitTrace):
-    pass
+from .modelgridrvfittrace import ModelGridRVFitTrace
 
 class ModelGridRVFit(RVFit):
     """
@@ -529,9 +530,22 @@ class ModelGridRVFit(RVFit):
         a_fit = self.eval_a(phi_fit, chi_fit)
         
         # Calculate the error from the Fisher matrix
-        _, C = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed, mode='params_rv', method='hessian')
+        F, C = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed,
+                           step=1e-3,
+                           mode='params_rv', method='hessian')
+
+        # Check if the covariance matrix is positive definite
+        with np.errstate(all='raise'):
+            try:
+                np.linalg.cholesky(C)
+            except LinAlgError as ex:
+                # FF, CC = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed, mode='params_rv', method='sampling')
+                logging.exception(ex)
+                raise ex
+            
         with np.errstate(invalid='warn'):
             err = np.sqrt(np.diag(C)) # sigma
+                
         params_err = {}
         for i, p in enumerate(params_free):
             params_err[p] = err[i]
