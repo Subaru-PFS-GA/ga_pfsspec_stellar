@@ -71,6 +71,9 @@ class ModelGridDownloader(Downloader):
         if os.path.getsize(outfile) == 0:
             os.remove(outfile)
 
+    def process_item(self, ex, i):
+        raise NotImplementedError()
+
     def create_grid(self):
         raise NotImplementedError()
 
@@ -86,7 +89,7 @@ class ModelGridDownloader(Downloader):
         g = GridEnumerator(self.grid, s=self.grid.get_slice(), top=self.top)
         t = tqdm(total=len(g))
         with SmartParallel(verbose=False, parallel=self.parallel, threads=self.threads) as p:
-            for res in p.map(self.process_item, g):
+            for res in p.map(self.process_item, self.process_item_error, g):
                 # Nothing to do here, file is saved in process_item
                 t.update(1)
 
