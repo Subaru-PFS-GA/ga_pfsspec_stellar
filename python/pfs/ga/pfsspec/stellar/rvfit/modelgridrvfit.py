@@ -175,7 +175,9 @@ class ModelGridRVFit(RVFit):
                 # Use axis limits from the grid
                 bounds[p] = (grid.get_axis(p).values.min(), grid.get_axis(p).values.max())
             else:
-                bounds[p] = params_bounds[p]
+                # Override bounds if outside the grid
+                bounds[p] = (max(params_bounds[p][0], grid.get_axis(p).values.min()),
+                             min(params_bounds[p][1], grid.get_axis(p).values.max()))
 
         return bounds
     
@@ -436,13 +438,22 @@ class ModelGridRVFit(RVFit):
         params_priors = params_priors if params_priors is not None else self.params_priors
         params_steps = params_steps if params_steps is not None else self.params_steps
 
+        # Make sure all randomly generated parameters are within the grid
+        # TODO: this doesn't account for any possible holes
+        grid_bounds = self.determine_grid_bounds(params_bounds, params_free)
+
         # If the priors are specified, generate initial values for the parameters
         # This is necessary for not to get stunk in a local optimum when optimizing for log L
 
         # TODO: add option to do this
         if params_priors is not None:
             # TODO: what if the prior is a callable and not a distribution?
-            params_0 = { p: d.sample() for p, d in params_priors.items()}
+            params_0 = {}
+            for p, d in params_priors.items():
+                v = d.sample()
+                v = max(v, grid_bounds[p][0])
+                v = min(v, grid_bounds[p][1])
+                params_0[p] = v
 
         if params_0 is None:
             # TODO
@@ -478,7 +489,7 @@ class ModelGridRVFit(RVFit):
             steps = None
 
         # Parameter bounds for optimizers, bounds is a list of tuples, convert to an array
-        bounds = self.determine_grid_bounds(params_bounds, params_free)
+        bounds = grid_bounds
         bounds = pack_bounds(bounds, rv_bounds)
         bounds = self.get_bounds_array(bounds)
 
