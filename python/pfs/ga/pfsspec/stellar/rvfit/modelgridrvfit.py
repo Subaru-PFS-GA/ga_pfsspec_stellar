@@ -120,6 +120,16 @@ class ModelGridRVFit(RVFit):
             params = kwargs
         elif self.params_0 is not None:
             params = self.params_0
+        else:
+            params = None
+
+        if params_fixed is not None:
+            pass
+        elif self.params_fixed is not None:
+            params_fixed = self.params_fixed
+
+        if params is not None and params_fixed is not None:
+            params = { **params, **params_fixed }
 
         if templates is not None:
             missing = False
@@ -305,7 +315,7 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, phi, chi, ndf = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors, a=a)
+                    log_L, phi, chi, ndf = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params=params, params_priors=params_priors, a=a)
                     if log_L.ndim == 0:
                         log_L = log_L.item()
 
@@ -319,7 +329,7 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, _, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors)
+                    log_L, _, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params=params, params_priors=params_priors)
                     if log_L.ndim == 0:
                         log_L = log_L.item()
 
@@ -333,7 +343,7 @@ class ModelGridRVFit(RVFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L, _, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params_priors=params_priors)
+                    log_L, _, _, _ = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params=params_0, params_priors=params_priors)
                     if log_L.ndim == 0:
                         log_L = log_L.item()
 
@@ -394,6 +404,17 @@ class ModelGridRVFit(RVFit):
 
     #endregion
 
+    def sample_params_prior(self, p, params_priors, params_fixed, bounds=None):
+        # TODO: what if the prior is a callable and not a distribution?
+        d = params_priors[d]
+        v = d.sample()
+        if bounds is not None and p in bounds:
+            if bounds[p][0] is not None:
+                v = max(v, bounds[p][0])
+            if bounds[p][1] is not None:
+                v = min(v, bounds[p][1])
+        return v
+    
     def guess_rv(self, spectra, templates=None, /, rv_bounds=(-500, 500), rv_prior=None, params_0=None, params_fixed=None, rv_steps=31, method='lorentz'):
         """
         Guess an initial state to close best RV, either using the supplied set of templates or
@@ -430,6 +451,7 @@ class ModelGridRVFit(RVFit):
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        rv_step = rv_step if rv_step is not None else self.rv_step
 
         params_0 = params_0 if params_0 is not None else self.params_0
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
@@ -442,27 +464,15 @@ class ModelGridRVFit(RVFit):
         # TODO: this doesn't account for any possible holes
         grid_bounds = self.determine_grid_bounds(params_bounds, params_free)
 
-        # If the priors are specified, generate initial values for the parameters
-        # This is necessary for not to get stunk in a local optimum when optimizing for log L
-
-        # TODO: add option to do this
-        if params_priors is not None:
-            # TODO: what if the prior is a callable and not a distribution?
-            params_0 = {}
-            for p, d in params_priors.items():
-                v = d.sample()
-                v = max(v, grid_bounds[p][0])
-                v = min(v, grid_bounds[p][1])
-                params_0[p] = v
-
         if params_0 is None:
             # TODO
             raise NotImplementedError()
         
-        if rv_0 is None:
+        if rv_0 is None and spectra is not None:
             _, _, _, rv_0 = self.guess_rv(spectra, None, 
                                           rv_bounds=rv_bounds, rv_prior=rv_prior, 
-                                          params_0=params_0, params_fixed=params_fixed)
+                                          params_0=params_0, params_fixed=params_fixed,
+                                          method='max')
             
         if params_fixed is None:
             params_fixed = []
@@ -501,7 +511,8 @@ class ModelGridRVFit(RVFit):
     def fit_rv(self, spectra, *,
                rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
-               method="Nelder-Mead", max_iter=None):
+               method="Nelder-Mead", max_iter=None,
+               calculate_error=True):
                 
         max_iter = max_iter if max_iter is not None else self.max_iter
         
@@ -527,6 +538,9 @@ class ModelGridRVFit(RVFit):
         if np.isinf(log_L_0) or np.isnan(log_L_0):
             raise Exception(f"Invalid starting point for RV fitting.")
         
+        if np.any((x_0 < bounds[..., 0]) | (bounds[..., 1] < x_0)):
+            pass
+        
         out = minimize(llh, x0=x_0, bounds=bounds, method=method,
                        options=dict(maxiter=self.max_iter))
 
@@ -541,45 +555,156 @@ class ModelGridRVFit(RVFit):
         a_fit = self.eval_a(phi_fit, chi_fit)
         
         # Calculate the error from the Fisher matrix
-        F, C = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed,
-                           step=1e-3,
-                           mode='params_rv', method='hessian')
+        if calculate_error:
+            F, C = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed,
+                            step=1e-3,
+                            mode='params_rv', method='hessian')
 
-        # Check if the covariance matrix is positive definite
-        with np.errstate(all='raise'):
-            try:
-                np.linalg.cholesky(C)
-            except LinAlgError as ex:
-                # FF, CC = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed, mode='params_rv', method='sampling')
-                logging.exception(ex)
-                raise ex
-            
-        with np.errstate(invalid='warn'):
-            err = np.sqrt(np.diag(C)) # sigma
+            # Check if the covariance matrix is positive definite
+            with np.errstate(all='raise'):
+                try:
+                    np.linalg.cholesky(C)
+                except LinAlgError as ex:
+                    # Matrix is not positive definite
+                    # FF, CC = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed, mode='params_rv', method='sampling')
+                    F = C = np.full_like(C, np.nan)
+                    
+            with np.errstate(invalid='warn'):
+                err = np.sqrt(np.diag(C)) # sigma
                 
-        params_err = {}
-        for i, p in enumerate(params_free):
-            params_err[p] = err[i]
-        for i, p in enumerate(params_fixed):
-            params_err[p] = 0.0
-        rv_err = err[-1]
+            params_err = {}
+            for i, p in enumerate(params_free):
+                params_err[p] = err[i]
+            for i, p in enumerate(params_fixed):
+                params_err[p] = 0.0
+            rv_err = err[-1]
+        else:
+            params_err = {}
+            for i, p in enumerate(params_free):
+                params_err[p] = np.nan
+            for i, p in enumerate(params_fixed):
+                params_err[p] = np.nan
+            rv_err = np.nan
+            C = None
 
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
                             params_fit=params_fit, params_err=params_err,
                             a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                             cov=C)
+    
+    def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
+                  params_0=None, params_bounds=None, params_priors=None, params_steps=None,
+                  params_fixed=None, cov=None,
+                  randomize=False, random_size=()):
+        
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        rv_step = rv_step if rv_step is not None else self.rv_step
+
+        params_fixed = params_fixed if params_fixed is not None else self.params_fixed
+        params_bounds = params_bounds if params_bounds is not None else self.params_bounds
+        params_priors = params_priors if params_priors is not None else self.params_priors
+        params_steps = params_steps if params_steps is not None else self.params_steps
+
+        # Override bounds with grid bounds
+        params_free = self.determine_free_params(params_fixed)
+        params_bounds = self.determine_grid_bounds(params_bounds, params_free)
+
+        # We need pack_params to construct the covariance matrix
+        log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            spectra, rv_prior,
+            params_0, params_priors, params_free, params_fixed=params_fixed,
+            mode='params_rv')
+
+        # Generate an initial state for MCMC by sampling the priors randomly        
+        if rv_0 is None or np.isnan(rv_0):
+            if rv_prior is not None:
+                rv = self.sample_rv_prior(rv_prior, rv_bounds)
+            else:
+                if self.rv_0 is not None:
+                    rv = self.rv_0
+                else:
+                    raise NotImplementedError()
+        else:
+            rv = rv_0
+                
+        if randomize:
+            if rv_step is not None:
+                rv = rv + rv_step * (np.random.rand(*random_size) - 0.5)
+            else:
+                rv = rv * (1.0 + 0.05 * (np.random.rand(*random_size) - 0.5))
+
+        if rv_bounds is not None:
+            if rv_bounds[0] is not None:
+                rv = np.maximum(rv, rv_bounds[0])
+            if rv_bounds[1] is not None:
+                rv = np.minimum(rv, rv_bounds[1])
+
+        # Make sure the dict of params is populated        
+        if params_0 is None and params_priors is not None:
+            params_0 = { p: None for p in params_priors }
+
+        params = {}
+        for p in params_0:
+            if params_0[p] is None or np.isnan(params_0[p]):
+                if params_priors is not None and p in params_priors and params_priors[p] is not None:
+                    params[p] = self.sample_params_prior(p, params_priors, params_bounds)
+                else:
+                    if self.params_0 is not None and p in self.params_0 and self.params_0[p] is not None:
+                        params[p] = self.params_0[p]
+                    else:
+                        raise NotImplementedError()
+            else:
+                params[p] = params_0[p]
+
+
+            # Randomize values (0.5% error) as starting point
+            if randomize:
+                if params_steps is not None and p in params_steps and params_steps[p] is not None:
+                    params[p] = params[p] + params_steps[p] * (np.random.rand(*random_size) - 0.5)
+                else:
+                    params[p] = params[p] * (1.0 + 0.05 * (np.random.rand(*random_size) - 0.5))
+
+            if params_bounds is not None and p in params_bounds and params_bounds[p][0] is not None:
+                params[p] = np.maximum(params[p], params_bounds[p][0])
+            if params_bounds is not None and p in params_bounds and params_bounds[p][1] is not None:
+                params[p] = np.minimum(params[p], params_bounds[p][1])
+
+        if cov is None or np.any(np.isnan(cov)):
+            if rv_step is not None:
+                rv_err = rv_step ** 2
+            else:
+                rv_err = (0.05 * np.mean(rv)) ** 2 + 1.0
+
+            params_err = {}
+            for p in params:
+                if params_steps is not None and p in params_steps:
+                    params_err[p] = params_steps[p] ** 2
+                else:
+                    params_err[p] = (0.05 * np.mean(params[p])) ** 2 + 1.0
+
+            cov = pack_params(params_err, rv_err)
+            cov = np.diag(cov)
+
+        return rv, params, cov
 
     def run_mcmc(self, spectra, *,
-               rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
+               rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
                params_0=None, params_bounds=None, params_priors=None, params_steps=None,
-               params_fixed=None,
-               walkers=None, burnin=None, samples=None, thin=None, cov=None):
+               params_fixed=None, cov=None,
+               walkers=None, burnin=None, samples=None, thin=None, batch=None):
         
         """
         Given a set of spectra and templates, sample from the posterior distribution of RV.
 
         If no initial guess is provided, an initial state is generated automatically.
         """
+
+        walkers = walkers if walkers is not None else self.mcmc_walkers
+        burnin = burnin if burnin is not None else self.mcmc_burnin
+        samples = samples if samples is not None else self.mcmc_samples
+        thin = thin if thin is not None else self.mcmc_thin
+        batch = batch if batch is not None else self.mcmc_batch
 
         (rv_0, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
@@ -590,11 +715,93 @@ class ModelGridRVFit(RVFit):
                                             params_priors=params_priors, params_steps=params_steps,
                                             params_fixed=params_fixed)
         
-        # Run sampling
-        x, log_L = self.sample_log_L(log_L_fun, x_0, steps, bounds=bounds,
-                                     walkers=walkers, burnin=burnin, samples=samples, thin=thin, cov=cov)
-        params, rv = unpack_params(x.T)
+        # # Run sampling
+        # x, log_L = self.sample_log_L(log_L_fun, x_0,
+        #                              walkers=walkers, burnin=burnin, samples=samples, thin=thin, cov=cov)
+        # params, rv = unpack_params(x.T)
 
-        # TODO: we could calculate the flux correction here but is it worth it?
+        params_blocks = [[0, 1, 2], [3]]        # Gibbs sampling
         
-        return RVFitResults(rv_mcmc=rv, params_mcmc=params, log_L_mcmc=log_L)
+        # original shape if x_0: (dim) or (dim, walkers)
+        # broadcast to: (walkers, dim)
+        x = np.broadcast_to(x_0, (np.shape(x_0)[0], walkers)).transpose().copy()
+        
+        lp = np.zeros(walkers)
+        for w in range(walkers):
+            lp[w] = log_L_fun(x[w])
+
+        gamma = 0.99
+        org = []    # Zero vectors to pass into multivariate_normal
+        loc = []    # Sample mean updated iteratively to calculate proposal
+        cov = []    # Proposal covariance, updated iteratively
+        for bi, b in enumerate(params_blocks):
+            cov.append(np.broadcast_to(np.diag(steps[b]), (walkers,) + steps[b].shape + steps[b].shape).copy())
+            loc.append(x[:, b])
+            org.append(np.zeros_like(x[:, b]))
+
+        if bounds is not None and np.any((x < bounds[..., 0]) | (bounds[..., 1] < x)):
+            raise Exception("Initial state is outside bounds.")
+
+        if np.any(np.isnan(lp) | np.isinf(lp)):
+            raise Exception("Initial log L is invalid.")
+
+        for phase in ['burnin', 'sampling']:            
+            if phase == 'burnin':
+                n = burnin
+            elif phase == 'sampling':
+                n = samples
+            else:
+                raise NotImplementedError()
+
+            res_x = np.empty((x.shape[-1], n, walkers))
+            res_lp = np.empty((n, walkers))
+            accepted = np.zeros((len(params_blocks), walkers), dtype=int)
+            
+            for i in range(n):
+                # Propose step for the next Gibbs parameter block
+                bi = i % len(params_blocks)
+                b = params_blocks[bi]
+
+                prop = np.empty_like(loc[bi])
+                for w in range(walkers):
+                    prop[w] = np.random.multivariate_normal(np.zeros_like(loc[bi][w]), cov[bi][w])
+
+                # Calculate new state and probability
+                nx = x.copy()
+                nx[:, b] = nx[:, b] + prop
+                
+                nlp = np.empty_like(lp)
+                for w in range(walkers):
+                    nlp[w] = log_L_fun(nx[w])
+
+                # Update state if accepted
+                accept = (np.log(np.random.rand(*np.shape(lp))) < nlp - lp)
+                x[accept] = nx[accept]
+                lp[accept] = nlp[accept]
+                accepted[bi, accept] = accepted[bi, accept] + 1
+
+                # Store the state
+                # Unpack_params expects that the leading dimension is number of params
+                # shape: (dim, samples, walkers)
+                res_x[:, i, :] = x.T
+                res_lp[i] = lp
+
+                # Update proposals but only in the sampling phase
+                if True: # phase == 'sampling':
+                    # Outer product of the new sample with itself
+                    nn = x[:, b] - loc[bi]
+                    nd = np.einsum('ij,ik->ijk', nn, nn)
+
+                    loc[bi] = gamma * loc[bi] + (1 - gamma) * x[:, b]
+                    cov[bi] = gamma * cov[bi] + (1 - gamma) * (2.38**2 / len(b)) * nd
+
+                    pass
+                           
+        # Extract results into separate parameters + RV
+        # Unpack_params expects that the leading dimension is: # of params + 1 (RV)
+        params, rv = unpack_params(res_x)
+
+        accept_rate = np.sum(np.stack([ accepted[bi] for bi in range(len(params_blocks)) ]), axis=0) / samples
+
+        # Result shape: (samples, walkers)
+        return RVFitResults(rv_mcmc=rv, params_mcmc=params, log_L_mcmc=res_lp, accept_rate=accept_rate)

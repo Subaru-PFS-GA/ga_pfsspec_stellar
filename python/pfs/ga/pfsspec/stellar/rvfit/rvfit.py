@@ -11,12 +11,6 @@ import numdifftools as nd
 from collections.abc import Iterable
 from collections import namedtuple
 
-try:
-    import emcee
-except ModuleNotFoundError as ex:
-    logging.warn(ex.msg)
-    emcee = None
-
 from pfs.ga.pfsspec.core.util.args import *
 from pfs.ga.pfsspec.core import Trace
 from pfs.ga.pfsspec.core import Spectrum
@@ -69,7 +63,7 @@ class RVFit():
             self.use_mask = True            # Use mask from spectrum, if available
             self.mask_bits = None           # Mask bits (None means any)
             self.use_error = True           # Use flux error from spectrum, if available
-            self.use_weight = True          # Use weight from template, if available
+            self.use_weight = False         # Use weight from template, if available
 
             self.max_iter = 1000            # Maximum number of iterations to minimize significance
 
@@ -78,6 +72,7 @@ class RVFit():
             self.mcmc_burnin = 100          # Number of burn-in iterations
             self.mcmc_samples = 100         # Number of samples
             self.mcmc_thin = 1              # MCMC trace thinning
+            self.mcmc_batch = 100           # MCMC batch size to update proposals
         else:
             self.trace = orig.trace
 
@@ -642,48 +637,80 @@ class RVFit():
 
         return flux_corr
     
-    def sample_log_L(self, log_L_fun, x_0, step, bounds=None,
-                     walkers=None, burnin=None, samples=None, thin=None, cov=None):
+    # def sample_log_L(self, log_L_fun, x_0,
+    #                  walkers=None, burnin=None, samples=None, thin=None, cov=None):
         
-        walkers = walkers if walkers is not None else self.mcmc_walkers
-        burnin = burnin if burnin is not None else self.mcmc_burnin
-        samples = samples if samples is not None else self.mcmc_samples
-        thin = thin if thin is not None else self.mcmc_thin
+    #     walkers = walkers if walkers is not None else self.mcmc_walkers
+    #     burnin = burnin if burnin is not None else self.mcmc_burnin
+    #     samples = samples if samples is not None else self.mcmc_samples
+    #     thin = thin if thin is not None else self.mcmc_thin
     
-        ndim = x_0.size
+    #     ndim = x_0.size
         
-        # TODO: it's good to run many walkers but it increases time spent
-        #       in burn-in a lot
-        # nwalkers = max(walkers, 2 * x_0.size + 1)
-        nwalkers = walkers
-        
-        # Generate an initial state a little bit off of x_0
-        p_0 = x_0 + np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step
-        
-        # Make sure the initial state is inside the bounds
-        if bounds is not None:
-            p_0 = np.where(bounds[..., 0] < p_0, p_0, bounds[..., 0])
-            p_0 = np.where(bounds[..., 1] > p_0, p_0, bounds[..., 1])
+    #     # TODO: it's good to run many walkers but it increases time spent
+    #     #       in burn-in a lot
+    #     # nwalkers = max(walkers, 2 * x_0.size + 1)
+    #     nwalkers = walkers
 
-        if cov is not None:
-            moves = [ emcee.moves.GaussianMove(cov) ]
-        else:
-            # moves = [ emcee.moves.StretchMove(live_dangerously=True), emcee.moves.WalkMove(live_dangerously=True) ]
-            moves = [ emcee.moves.StretchMove(live_dangerously=True) ]
+    #     # TODO: delete, moved to init_mcmc        
+    #     # # Generate an initial state a little bit off of x_0
+    #     # if step is None:
+    #     #     p_0 = x_0 * (1 + 0.05 * np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)))
+    #     # else:
+    #     #     p_0 = x_0 + np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step
+
+    #     p_0 = np.broadcast_to(x_0, (nwalkers, ndim))
+        
+    #     # # Make sure the initial state is inside the bounds
+    #     # if bounds is not None:
+    #     #     p_0 = np.where(bounds[..., 0] < p_0, p_0, bounds[..., 0])
+    #     #     p_0 = np.where(bounds[..., 1] > p_0, p_0, bounds[..., 1])
+
+    #     if cov is not None:
+    #         # moves = [ emcee.moves.GaussianMove(cov), emcee.moves.StretchMove(live_dangerously=True) ]
+    #         moves = [ 
+    #             # emcee.moves.GaussianMove(cov),
+    #             # emcee.moves.GaussianMove(10 * cov),
+    #             # emcee.moves.GaussianMove(0.1 * cov)
+    #             emcee.moves.GaussianMove(np.diag(cov), mode="sequential"),
+    #         ]
+    #     else:
+    #         # moves = [ emcee.moves.StretchMove(live_dangerously=True), emcee.moves.WalkMove(live_dangerously=True) ]
+    #         moves = [ emcee.moves.StretchMove(live_dangerously=True) ]
             
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L_fun, moves=moves)
+    #     sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L_fun, moves=moves)
 
-        state = sampler.run_mcmc(p_0, burnin, skip_initial_state_check=True)
-        sampler.reset()
-        sampler.run_mcmc(state, samples, skip_initial_state_check=True)
+    #     # Run the burn-in with the original proposal
+    #     # Allocate array for the adaptive run
+    #     state = sampler.run_mcmc(p_0, burnin, skip_initial_state_check=True)
 
-        if thin is not None:
-            s = np.s_[..., ::thin, :]
-        else:
-            s = ()
+    #     batch = 100
+    #     nbatch = samples // batch
+    #     ndim = sampler.chain.shape[-1]
 
-        # size: (chains, samples, params)
-        return sampler.chain[s], sampler.lnprobability[s]
+    #     sampler.reset()
+
+    #     # Periodically update the proposal distribution
+        
+    #     for b in range(nbatch):
+    #         state = sampler.run_mcmc(state, batch, skip_initial_state_check=True)
+
+    #         # if np.mean(sampler.acceptance_fraction) < 1e-2:
+    #         #     C = moves[0].get_proposal.scale * 0.8
+    #         # else:
+    #         #     x = sampler.chain.reshape(-1, ndim)
+    #         #     m = np.mean(x, axis=0)
+    #         #     C = np.matmul((x - m).T, x - m) / x.shape[0]
+    #         # # # TODO: add some logic to test if C is a valid proposal
+    #         # moves[0].get_proposal.scale = (2.38**2 / ndim) * C
+
+    #     if thin is not None:
+    #         s = np.s_[..., ::thin, :]
+    #     else:
+    #         s = ()
+
+    #     # shape: (chains, samples, params)
+    #     return sampler.chain[s], sampler.lnprobability[s]
         
     #region Fisher matrix evaluation
 
@@ -840,11 +867,7 @@ class RVFit():
     def eval_F_emcee(self, x_0, log_L_fun, step, bounds):
         # Evaluate the Fisher matrix by MC sampling around the optimum
 
-        # Default step size is 1% of optimum values
-        if step is None:
-            step = 0.01 * x_0
-
-        x, log_L = self.sample_log_L(log_L_fun, x_0=x_0, bounds=bounds, step=step)
+        x, log_L = self.sample_log_L(log_L_fun, x_0=x_0)
 
         if self.trace is not None:
             self.trace.on_eval_F_mcmc(x, log_L)
@@ -1073,6 +1096,15 @@ class RVFit():
         pp, pcov = curve_fit(self.lorentz, rv, y0, p0=p0, bounds=bb)
 
         return pp, pcov
+    
+    def sample_rv_prior(self, rv_prior, bounds=None):
+        rv_0 = rv_prior.sample()
+        if bounds is not None:
+            if bounds[0] is not None:
+                rv_0 = max(rv_0, bounds[0])
+            if bounds[1] is not None:
+                rv_0 = min(rv_0, bounds[1])
+        return rv_0
 
     def guess_rv(self, spectra, templates, /, rv_bounds=(-500, 500), rv_prior=None, rv_steps=31, method='lorentz'):
         """
@@ -1097,6 +1129,12 @@ class RVFit():
             pp, pcov = self.fit_lorentz(rv[mask], log_L[mask])
             rv_guess = pp[1]
 
+            # The maximum of the Lorentz curve might be outside the bounds
+            if rv_bounds is not None and rv_bounds[0] is not None:
+                rv_guess = max(rv_guess, rv_bounds[0])
+            if rv_bounds is not None and rv_bounds[1] is not None:
+                rv_guess = min(rv_guess, rv_bounds[1])
+                
             if self.trace is not None:
                 self.trace.on_guess_rv(rv, log_L, rv_guess, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
         elif method == 'max':
@@ -1108,7 +1146,8 @@ class RVFit():
 
         return rv, log_L, a, rv_guess
 
-    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, method='bounded'):
+    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
+               method='bounded', calculate_error=True):
         """
         Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
         Spectra are assumed to be of the same object in different wavelength ranges.
@@ -1182,10 +1221,14 @@ class RVFit():
             raise Exception(f"Could not fit RV using `{method}`")
         
         # Calculate the error from the Fisher matrix
-        _, C = self.eval_F(spectra, templates, rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, mode='rv', method='hessian')
+        if calculate_error:
+            _, C = self.eval_F(spectra, templates, rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, mode='rv', method='hessian')
 
-        with np.errstate(invalid='warn'):
-            rv_err = np.sqrt(C[-1, -1])         # sigma
+            with np.errstate(invalid='warn'):
+                rv_err = np.sqrt(C[-1, -1])         # sigma
+        else:
+            rv_err = None
+            C = None
 
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
                             a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
@@ -1221,17 +1264,11 @@ class RVFit():
         else:
             x_0 = None
 
-        # Step size for MCMC
-        if rv_step is not None:
-            steps = pack_params(rv_step)
-        else:
-            steps = None
-
         bounds = pack_bounds(rv_bounds)
         bounds = self.get_bounds_array(bounds)
         
         # Run sampling
-        x, log_L =  self.sample_log_L(log_L_fun, x_0, steps, bounds=bounds,
+        x, log_L =  self.sample_log_L(log_L_fun, x_0,
             walkers=walkers, burnin=burnin, samples=samples, thin=thin)
         
         rv = unpack_params(x.T)
