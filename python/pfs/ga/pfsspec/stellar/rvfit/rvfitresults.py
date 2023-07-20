@@ -3,7 +3,7 @@ class RVFitResults():
                  rv_fit=None, rv_err=None, rv_mcmc=None,
                  a_fit=None, a_err=None, a_mcmc=None,
                  params_fit=None, params_err=None, params_mcmc=None,
-                 log_L_fit=None, log_L_mcmc=None, cov=None):
+                 log_L_fit=None, log_L_mcmc=None, accept_rate=None, cov=None):
         
         if not isinstance(orig, RVFitResults):
             self.rv_fit = rv_fit
@@ -17,6 +17,7 @@ class RVFitResults():
             self.params_mcmc = params_mcmc
             self.log_L_fit = log_L_fit
             self.log_L_mcmc = log_L_mcmc
+            self.accept_rate = accept_rate
             self.cov = cov
         else:
             self.rv_fit = rv_fit if rv_fit is not None else orig.rv_fit
@@ -30,4 +31,5 @@ class RVFitResults():
             self.params_mcmc = params_mcmc if params_mcmc is not None else orig.params_mcmc
             self.log_L_fit = log_L_fit if log_L_fit is not None else orig.log_L_fit
             self.log_L_mcmc = log_L_mcmc if log_L_mcmc is not None else orig.log_L_mcmc
+            self.accept_rate = accept_rate if accept_rate is not None else orig.accept_rate
             self.cov = cov if cov is not None else orig.cov

@@ -539,7 +539,7 @@ class ModelGrid(PfsObject):
 
             return spec
         else:
-            logging.warn(f'Spectrum cannot be interpolated to parameters {kwargs} using {method} interpolation on grid of type `{type(self.grid).__name__}` with config `{type(self.config).__name__}`')
+            logging.warning(f'Spectrum cannot be interpolated to parameters {kwargs} using {method} interpolation on grid of type `{type(self.grid).__name__}` with config `{type(self.config).__name__}`')
             return None
    
     #endregion

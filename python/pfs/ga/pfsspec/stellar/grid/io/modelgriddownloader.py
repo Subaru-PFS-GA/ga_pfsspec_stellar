@@ -48,9 +48,6 @@ class ModelGridDownloader(Downloader):
 
     def process_item(self, i):
         # Called when processing the grid point by point
-
-        logger = multiprocessing.get_logger()
-
         index, params = i
         fn = self.reader.get_filename(**params)
         url = self.reader.get_url(**params)

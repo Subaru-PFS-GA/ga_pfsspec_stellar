@@ -16,8 +16,6 @@ class PhoenixAtmGridReader(AtmGridReader):
         raise NotImplementedError()
 
     def process_file(self, file):
-        logger = multiprocessing.get_logger()
-
         # Use parser function from spectrum reader but otherwise
         # self.reader should be a KuruczAtmReader
         params = PhoenixSpectrumReader.parse_filename(file)
