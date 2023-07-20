@@ -6,6 +6,7 @@ from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 import numdifftools as nd
 
+from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 from .rvfit import RVFit
@@ -692,7 +693,7 @@ class ModelGridRVFit(RVFit):
                rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
                params_0=None, params_bounds=None, params_priors=None, params_steps=None,
                params_fixed=None, cov=None,
-               walkers=None, burnin=None, samples=None, thin=None, batch=None):
+               walkers=None, burnin=None, samples=None, thin=None, gamma=None):
         
         """
         Given a set of spectra and templates, sample from the posterior distribution of RV.
@@ -704,7 +705,7 @@ class ModelGridRVFit(RVFit):
         burnin = burnin if burnin is not None else self.mcmc_burnin
         samples = samples if samples is not None else self.mcmc_samples
         thin = thin if thin is not None else self.mcmc_thin
-        batch = batch if batch is not None else self.mcmc_batch
+        gamma = gamma if gamma is not None else self.mcmc_gamma
 
         (rv_0, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
@@ -714,94 +715,21 @@ class ModelGridRVFit(RVFit):
                                             params_0=params_0, params_bounds=params_bounds,
                                             params_priors=params_priors, params_steps=params_steps,
                                             params_fixed=params_fixed)
-        
-        # # Run sampling
-        # x, log_L = self.sample_log_L(log_L_fun, x_0,
-        #                              walkers=walkers, burnin=burnin, samples=samples, thin=thin, cov=cov)
-        # params, rv = unpack_params(x.T)
 
-        params_blocks = [[0, 1, 2], [3]]        # Gibbs sampling
-        
-        # original shape if x_0: (dim) or (dim, walkers)
-        # broadcast to: (walkers, dim)
-        x = np.broadcast_to(x_0, (np.shape(x_0)[0], walkers)).transpose().copy()
-        
-        lp = np.zeros(walkers)
-        for w in range(walkers):
-            lp[w] = log_L_fun(x[w])
-
-        gamma = 0.99
-        org = []    # Zero vectors to pass into multivariate_normal
-        loc = []    # Sample mean updated iteratively to calculate proposal
-        cov = []    # Proposal covariance, updated iteratively
-        for bi, b in enumerate(params_blocks):
-            cov.append(np.broadcast_to(np.diag(steps[b]), (walkers,) + steps[b].shape + steps[b].shape).copy())
-            loc.append(x[:, b])
-            org.append(np.zeros_like(x[:, b]))
-
-        if bounds is not None and np.any((x < bounds[..., 0]) | (bounds[..., 1] < x)):
+        if bounds is not None and np.any((np.transpose(x_0) < bounds[..., 0]) | (bounds[..., 1] < np.transpose(x_0))):
             raise Exception("Initial state is outside bounds.")
 
-        if np.any(np.isnan(lp) | np.isinf(lp)):
-            raise Exception("Initial log L is invalid.")
+        # Group atmospheric parameters and RV into separate Gibbs steps
+        gibbs_blocks = [[ i for i in range(len(params_free))], [len(params_free)]]
+        
+        mcmc = MCMC(log_L_fun, step_size=steps, gibbs_blocks=gibbs_blocks,
+                    walkers=walkers, gamma=0.99)
 
-        for phase in ['burnin', 'sampling']:            
-            if phase == 'burnin':
-                n = burnin
-            elif phase == 'sampling':
-                n = samples
-            else:
-                raise NotImplementedError()
-
-            res_x = np.empty((x.shape[-1], n, walkers))
-            res_lp = np.empty((n, walkers))
-            accepted = np.zeros((len(params_blocks), walkers), dtype=int)
-            
-            for i in range(n):
-                # Propose step for the next Gibbs parameter block
-                bi = i % len(params_blocks)
-                b = params_blocks[bi]
-
-                prop = np.empty_like(loc[bi])
-                for w in range(walkers):
-                    prop[w] = np.random.multivariate_normal(np.zeros_like(loc[bi][w]), cov[bi][w])
-
-                # Calculate new state and probability
-                nx = x.copy()
-                nx[:, b] = nx[:, b] + prop
-                
-                nlp = np.empty_like(lp)
-                for w in range(walkers):
-                    nlp[w] = log_L_fun(nx[w])
-
-                # Update state if accepted
-                accept = (np.log(np.random.rand(*np.shape(lp))) < nlp - lp)
-                x[accept] = nx[accept]
-                lp[accept] = nlp[accept]
-                accepted[bi, accept] = accepted[bi, accept] + 1
-
-                # Store the state
-                # Unpack_params expects that the leading dimension is number of params
-                # shape: (dim, samples, walkers)
-                res_x[:, i, :] = x.T
-                res_lp[i] = lp
-
-                # Update proposals but only in the sampling phase
-                if True: # phase == 'sampling':
-                    # Outer product of the new sample with itself
-                    nn = x[:, b] - loc[bi]
-                    nd = np.einsum('ij,ik->ijk', nn, nn)
-
-                    loc[bi] = gamma * loc[bi] + (1 - gamma) * x[:, b]
-                    cov[bi] = gamma * cov[bi] + (1 - gamma) * (2.38**2 / len(b)) * nd
-
-                    pass
+        res_x, res_lp, accept_rate = mcmc.sample(x_0, burnin, samples, gamma=gamma)
                            
         # Extract results into separate parameters + RV
         # Unpack_params expects that the leading dimension is: # of params + 1 (RV)
-        params, rv = unpack_params(res_x)
-
-        accept_rate = np.sum(np.stack([ accepted[bi] for bi in range(len(params_blocks)) ]), axis=0) / samples
-
         # Result shape: (samples, walkers)
+        params, rv = unpack_params(res_x)
+        
         return RVFitResults(rv_mcmc=rv, params_mcmc=params, log_L_mcmc=res_lp, accept_rate=accept_rate)

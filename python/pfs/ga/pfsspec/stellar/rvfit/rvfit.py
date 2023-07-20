@@ -71,8 +71,8 @@ class RVFit():
             self.mcmc_walkers = 10          # Number of parallel walkers
             self.mcmc_burnin = 100          # Number of burn-in iterations
             self.mcmc_samples = 100         # Number of samples
+            self.mcmc_gamma = 0.99          # Adaptive MCMC proposal memory
             self.mcmc_thin = 1              # MCMC trace thinning
-            self.mcmc_batch = 100           # MCMC batch size to update proposals
         else:
             self.trace = orig.trace
 
@@ -107,6 +107,7 @@ class RVFit():
             self.mcmc_burnin = orig.mcmc_burnin
             self.mcmc_samples = orig.mcmc_samples
             self.mcmc_thin = orig.mcmc_thin
+            self.mcmc_thin = orig.mcmc_gamma
 
         self.reset()
 
@@ -132,6 +133,7 @@ class RVFit():
         parser.add_argument('--mcmc-burnin', type=int, help='Number of MCMC burn-in samples.\n')
         parser.add_argument('--mcmc-samples', type=int, help='Number of MCMC samples.\n')
         parser.add_argument('--mcmc-thin', type=int, help='MCMC chain thinning interval.\n')
+        parser.add_argument('--mcmc-gamma', type=float, help='Adaptive MC gamma.\n')
 
     def init_from_args(self, script, config, args):
         if self.trace is not None:
