@@ -407,7 +407,7 @@ class ModelGridRVFit(RVFit):
 
     def sample_params_prior(self, p, params_priors, params_fixed, bounds=None):
         # TODO: what if the prior is a callable and not a distribution?
-        d = params_priors[d]
+        d = params_priors[p]
         v = d.sample()
         if bounds is not None and p in bounds:
             if bounds[p][0] is not None:
@@ -598,14 +598,17 @@ class ModelGridRVFit(RVFit):
                   params_fixed=None, cov=None,
                   randomize=False, random_size=()):
         
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
-        rv_step = rv_step if rv_step is not None else self.rv_step
-
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
         params_bounds = params_bounds if params_bounds is not None else self.params_bounds
         params_priors = params_priors if params_priors is not None else self.params_priors
         params_steps = params_steps if params_steps is not None else self.params_steps
+
+        rv_err = None if cov is None else cov[-1, -1]
+        rv, rv_err = super().randomize_init_params(spectra,
+                                                   rv_0=rv_0, rv_bounds=rv_bounds,
+                                                   rv_prior=rv_prior, rv_step=rv_step,
+                                                   rv_err=rv_err,
+                                                   randomize=randomize, random_size=random_size)
 
         # Override bounds with grid bounds
         params_free = self.determine_free_params(params_fixed)
@@ -617,29 +620,7 @@ class ModelGridRVFit(RVFit):
             params_0, params_priors, params_free, params_fixed=params_fixed,
             mode='params_rv')
 
-        # Generate an initial state for MCMC by sampling the priors randomly        
-        if rv_0 is None or np.isnan(rv_0):
-            if rv_prior is not None:
-                rv = self.sample_rv_prior(rv_prior, rv_bounds)
-            else:
-                if self.rv_0 is not None:
-                    rv = self.rv_0
-                else:
-                    raise NotImplementedError()
-        else:
-            rv = rv_0
-                
-        if randomize:
-            if rv_step is not None:
-                rv = rv + rv_step * (np.random.rand(*random_size) - 0.5)
-            else:
-                rv = rv * (1.0 + 0.05 * (np.random.rand(*random_size) - 0.5))
-
-        if rv_bounds is not None:
-            if rv_bounds[0] is not None:
-                rv = np.maximum(rv, rv_bounds[0])
-            if rv_bounds[1] is not None:
-                rv = np.minimum(rv, rv_bounds[1])
+        # Generate an initial state for MCMC by sampling the priors randomly
 
         # Make sure the dict of params is populated        
         if params_0 is None and params_priors is not None:
@@ -658,7 +639,6 @@ class ModelGridRVFit(RVFit):
             else:
                 params[p] = params_0[p]
 
-
             # Randomize values (0.5% error) as starting point
             if randomize:
                 if params_steps is not None and p in params_steps and params_steps[p] is not None:
@@ -672,11 +652,6 @@ class ModelGridRVFit(RVFit):
                 params[p] = np.minimum(params[p], params_bounds[p][1])
 
         if cov is None or np.any(np.isnan(cov)):
-            if rv_step is not None:
-                rv_err = rv_step ** 2
-            else:
-                rv_err = (0.05 * np.mean(rv)) ** 2 + 1.0
-
             params_err = {}
             for p in params:
                 if params_steps is not None and p in params_steps:
@@ -700,6 +675,8 @@ class ModelGridRVFit(RVFit):
 
         If no initial guess is provided, an initial state is generated automatically.
         """
+
+        assert isinstance(spectra, dict)
 
         walkers = walkers if walkers is not None else self.mcmc_walkers
         burnin = burnin if burnin is not None else self.mcmc_burnin

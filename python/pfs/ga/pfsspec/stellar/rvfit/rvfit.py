@@ -16,6 +16,7 @@ from pfs.ga.pfsspec.core import Trace
 from pfs.ga.pfsspec.core import Spectrum
 import pfs.ga.pfsspec.core.plotting.styles as styles
 from pfs.ga.pfsspec.core import Physics
+from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler, Interp1dResampler
 from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
@@ -1147,6 +1148,47 @@ class RVFit():
             raise NotImplementedError()
 
         return rv, log_L, a, rv_guess
+    
+    def prepare_fit(self, spectra, templates, /, 
+                    rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None):
+        
+        rv_0 = rv_0 if rv_0 is not None else self.rv_0
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        rv_step = rv_step if rv_step is not None else self.rv_step
+
+        if self.template_wlim is None:
+            self.determine_wlim(spectra, rv_bounds=rv_bounds)
+
+        if rv_0 is None and spectra is not None:
+            _, _, _, rv_0 = self.guess_rv(spectra, templates, 
+                                          rv_bounds=rv_bounds, rv_prior=rv_prior,
+                                          method='max')
+
+        # Get objective function
+        log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            spectra, templates,
+            rv_prior=rv_prior,
+            mode='rv')
+        
+        if rv_0 is not None:
+            x_0 = pack_params(rv_0)
+        else:
+            x_0 = None
+
+        # Step size for MCMC
+        if rv_step is not None:
+            steps = pack_params(rv_step)
+        else:
+            steps = None
+
+        # Parameter bounds for optimizers, bounds is a list of tuples, convert to an array
+        bounds = pack_bounds(rv_bounds)
+        bounds = self.get_bounds_array(bounds)
+
+        return (rv_0, rv_bounds, rv_prior, rv_step,
+                log_L_fun, pack_params, unpack_params, pack_bounds,
+                x_0, bounds, steps)
 
     def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
                method='bounded', calculate_error=True):
@@ -1160,17 +1202,15 @@ class RVFit():
         assert isinstance(spectra, dict)
         assert isinstance(templates, dict)
 
-        rv_0 = rv_0 if rv_0 is not None else self.rv_0
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
-
-        # Get objective function
-        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_prior, mode='rv')
+        (rv_0, rv_bounds, rv_prior, rv_step,
+            log_L_fun, pack_params, unpack_params, pack_bounds,
+            x_0, bounds, steps) = self.prepare_fit(spectra, templates,
+                                            rv_0=rv_0, rv_bounds=rv_bounds,
+                                            rv_prior=rv_prior)
 
         # Cost function
         def llh(rv):
-            return -log_L(pack_params(rv))
+            return -log_L_fun(pack_params(rv))
 
         # Multivariate method
         #out = minimize(llh, [rv0], method=method)
@@ -1236,9 +1276,51 @@ class RVFit():
                             a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                             cov=C)
 
+    def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
+                  rv_err=None,
+                  randomize=False, random_size=()):
+        
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        rv_step = rv_step if rv_step is not None else self.rv_step
+
+        # Generate an initial state for MCMC by sampling the prior randomly
+
+        if rv_0 is None or np.isnan(rv_0):
+            if rv_prior is not None:
+                rv = self.sample_rv_prior(rv_prior, rv_bounds)
+            else:
+                if self.rv_0 is not None:
+                    rv = self.rv_0
+                else:
+                    raise NotImplementedError()
+        else:
+            rv = rv_0
+                
+        if randomize:
+            if rv_step is not None:
+                rv = rv + rv_step * (np.random.rand(*random_size) - 0.5)
+            else:
+                rv = rv * (1.0 + 0.05 * (np.random.rand(*random_size) - 0.5))
+
+        if rv_bounds is not None:
+            if rv_bounds[0] is not None:
+                rv = np.maximum(rv, rv_bounds[0])
+            if rv_bounds[1] is not None:
+                rv = np.minimum(rv, rv_bounds[1])
+
+        if rv_err is None or np.any(np.isnan(rv_err)):
+            if rv_step is not None:
+                rv_err = rv_step ** 2
+            else:
+                rv_err = (0.05 * np.mean(rv)) ** 2 + 1.0
+
+        return rv, rv_err
+
     def run_mcmc(self, spectra, templates, *,
                  rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
-                 walkers=None, burnin=None, samples=None, thin=None):
+                 cov=None,
+                 walkers=None, burnin=None, samples=None, thin=None, gamma=None):
         """
         Given a set of spectra and templates, sample from the posterior distribution of RV.
 
@@ -1248,34 +1330,33 @@ class RVFit():
         assert isinstance(spectra, dict)
         assert isinstance(templates, dict)
 
-        rv_0 = rv_0 if rv_0 is not None else self.rv_0
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        walkers = walkers if walkers is not None else self.mcmc_walkers
+        burnin = burnin if burnin is not None else self.mcmc_burnin
+        samples = samples if samples is not None else self.mcmc_samples
+        thin = thin if thin is not None else self.mcmc_thin
+        gamma = gamma if gamma is not None else self.mcmc_gamma
 
-        if rv_0 is None:
-            _, _, _, rv_0 = self.guess_rv(spectra, None, 
-                                          rv_bounds=rv_bounds, rv_prior=rv_prior)
+        (rv_0, rv_bounds, rv_prior, rv_step,
+            log_L_fun, pack_params, unpack_params, pack_bounds,
+            x_0, bounds, steps) = self.prepare_fit(spectra, templates,
+                                            rv_0=rv_0, rv_bounds=rv_bounds,
+                                            rv_prior=rv_prior, rv_step=rv_step)
+        
+        if bounds is not None and np.any((np.transpose(x_0) < bounds[..., 0]) | (bounds[..., 1] < np.transpose(x_0))):
+            raise Exception("Initial state is outside bounds.")
+        
+        # We only have a single parameter, there's no need for Gibbs sampling
+        gibbs_blocks = [[ 0 ]]
 
-        # Get objective function
-        log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_prior, mode='rv')
+        mcmc = MCMC(log_L_fun, step_size=steps, gibbs_blocks=gibbs_blocks,
+                    walkers=walkers, gamma=0.99)
         
-        # Initial values
-        if rv_0 is not None:
-            x_0 = pack_params(rv_0)
-        else:
-            x_0 = None
+        # A leading dimension is required by the mcmc sampler in x_0
+        res_x, res_lp, accept_rate = mcmc.sample(x_0[None, ...], burnin, samples, gamma=gamma)
 
-        bounds = pack_bounds(rv_bounds)
-        bounds = self.get_bounds_array(bounds)
-        
-        # Run sampling
-        x, log_L =  self.sample_log_L(log_L_fun, x_0,
-            walkers=walkers, burnin=burnin, samples=samples, thin=thin)
-        
-        rv = unpack_params(x.T)
-        
-        return RVFitResults(rv_mcmc=rv, log_L_mcmc=log_L)
+        rv = unpack_params(res_x)
+
+        return RVFitResults(rv_mcmc=rv, log_L_mcmc=res_lp, accept_rate=accept_rate)
     
     @staticmethod
     def minimize_gridsearch(fun, bounds, nstep=100):
