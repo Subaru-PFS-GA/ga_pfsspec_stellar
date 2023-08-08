@@ -142,11 +142,11 @@ class RVFit():
 
         rv = Parameter('rv')
         rv.init_from_args(args)
+        step = rv.generate_step_size(step_size_factor=0.1)
         self.rv_0 = rv.value                        # RV initial guess
         self.rv_bounds = [rv.min, rv.max]           # Find RV between these bounds
         self.rv_prior = rv.get_dist()
-        self.rv_step = None                         # RV step size for MCMC sampling
-
+        self.rv_step = step                         # RV step size for MCMC sampling
 
         self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
 
@@ -775,7 +775,7 @@ class RVFit():
         
         return pack_params, unpack_params, pack_bounds
 
-    def get_objective_function(self, spectra, templates, rv_prior, mode='full'):
+    def get_objective_function(self, spectra, templates, rv_0, rv_prior, mode='full'):
         # Return the objection function and parameter packing/unpacking for optimizers
         # pack_params: convert individual arguments into a single 1d array
         # unpack_params: get individual arguments from 1d array
@@ -827,7 +827,7 @@ class RVFit():
 
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_prior, mode=mode)
+            spectra, templates, rv_0, rv_prior, mode=mode)
 
         if mode == 'full' or mode == 'a_rv':
             # Calculate a_0
@@ -1168,7 +1168,7 @@ class RVFit():
         # Get objective function
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra, templates,
-            rv_prior=rv_prior,
+            rv_0=rv_0, rv_prior=rv_prior,
             mode='rv')
         
         if rv_0 is not None:
@@ -1235,33 +1235,14 @@ class RVFit():
 
         if out.success:
             rv_fit = unpack_params(out.x)
-
-            # Calculate the flux correction coefficients at best fit values
-            phi_fit, chi_fit, ndf_fit = self.eval_phi_chi(spectra, templates, rv_fit)
-            a_fit = self.eval_a(phi_fit, chi_fit)
-
-            # If tracing, evaluate the template at the best fit RV.
-            # TODO: can we cache this for better performance?
-            if self.trace is not None:
-                tt = {}
-                for arm in spectra:
-                    for spec in spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]:
-                        temp = templates[arm]
-                        
-                        psf = self.template_psf[arm] if self.template_psf is not None else None
-                        wlim = self.template_wlim[arm] if self.template_wlim is not None else None
-                    
-                        # This is a generic call to preprocess the template which might or
-                        # might not include a convolution, depending on the RVFit implementation.
-                        # When template convolution is pushed down to the model grid to support
-                        # caching, convolution is skipped by the derived classes such as
-                        # ModelGridRVFit
-                        t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
-                        tt[arm] = t
-                self.trace.on_fit_rv(rv_fit, spectra, tt)
+            lp = -out.fun
         else:
             raise Exception(f"Could not fit RV using `{method}`")
         
+        # Calculate the flux correction coefficients at best fit values
+        phi_fit, chi_fit, ndf_fit = self.eval_phi_chi(spectra, templates, rv_fit)
+        a_fit = self.eval_a(phi_fit, chi_fit)
+
         # Calculate the error from the Fisher matrix
         if calculate_error:
             _, C = self.eval_F(spectra, templates, rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, mode='rv', method='hessian')
@@ -1272,9 +1253,29 @@ class RVFit():
             rv_err = None
             C = None
 
+        # If tracing, evaluate the template at the best fit RV.
+        # TODO: can we cache this for better performance?
+        if self.trace is not None:
+            tt = {}
+            for arm in spectra:
+                for spec in spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]:
+                    temp = templates[arm]
+                    
+                    psf = self.template_psf[arm] if self.template_psf is not None else None
+                    wlim = self.template_wlim[arm] if self.template_wlim is not None else None
+                
+                    # This is a generic call to preprocess the template which might or
+                    # might not include a convolution, depending on the RVFit implementation.
+                    # When template convolution is pushed down to the model grid to support
+                    # caching, convolution is skipped by the derived classes such as
+                    # ModelGridRVFit
+                    t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
+                    tt[arm] = t
+            self.trace.on_fit_rv(spectra, tt, rv_fit)
+        
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
                             a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
-                            cov=C)
+                            cov=C, log_L_fit=lp)
 
     def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
                   rv_err=None,

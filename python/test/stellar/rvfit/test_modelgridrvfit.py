@@ -71,6 +71,7 @@ class TestModelGridRVFit(RVFitTestBase):
         rv_scalar = 100.0
         rv_vector = np.array([100.0, 90.0])
 
+        # a_params_rv
         pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(params_scalar, params_free, params_fixed, mode='a_params_rv')
         
         pp = pack_params(a_scalar, params_scalar, rv_scalar)
@@ -101,6 +102,7 @@ class TestModelGridRVFit(RVFitTestBase):
         npt.assert_equal({ **params_vector, **params_fixed }, params)
         npt.assert_equal(rv_vector, rv)
 
+        # params_rv
         pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(params_scalar, params_free, params_fixed, mode='params_rv')
 
         pp = pack_params(params_scalar, rv_scalar)
@@ -114,6 +116,19 @@ class TestModelGridRVFit(RVFitTestBase):
         self.assertEqual((4, 2), pp.shape)
         npt.assert_equal({ **params_vector, **params_fixed }, params)
         npt.assert_equal(rv_vector, rv)
+
+        # params
+        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(params_scalar, params_free, params_fixed, mode='params')
+
+        pp = pack_params(params_scalar)
+        params = unpack_params(pp)
+        self.assertEqual((3,), pp.shape)
+        self.assertEqual({ **params_scalar, **params_fixed }, params),
+
+        pp = pack_params(params_vector)
+        params = unpack_params(pp)
+        self.assertEqual((3, 2), pp.shape)
+        npt.assert_equal({ **params_vector, **params_fixed }, params)
 
         pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(params_scalar, params_free, params_fixed, mode='rv')
 

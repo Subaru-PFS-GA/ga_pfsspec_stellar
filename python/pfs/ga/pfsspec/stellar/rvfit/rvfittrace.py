@@ -23,6 +23,8 @@ class RVFitTrace(Trace):
         self.eval_log_L_count = 0
         self.eval_log_L_a_count = 0
 
+        self.rv_iter = None                    # Keep track of convergence
+
     def add_args(self, config, parser):
         super().add_args(config, parser)
     
@@ -112,5 +114,19 @@ class RVFitTrace(Trace):
 
             self.flush_figures()
 
-    def on_fit_rv(self, rv, spectra, templates):
+    def on_prepare_fit(self, rv_0, rv_bounds, rv_step):
         pass
+    
+        # if self.rv_iter is None:
+        #     self.rv_iter = []
+        # self.rv_iter.append(rv_0)
+
+    def on_fit_rv_iter(self, rv):
+        if self.rv_iter is None:
+            self.rv_iter = []
+        self.rv_iter.append(rv)
+
+    def on_fit_rv(self, spectra, templates, rv):
+        if self.rv_iter is None:
+            self.rv_iter = []
+        self.rv_iter.append(rv)
