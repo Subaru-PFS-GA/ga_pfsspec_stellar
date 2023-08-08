@@ -54,7 +54,7 @@ class ModelGrid(PfsObject):
             self.psf = orig.psf
 
     @classmethod
-    def from_file(cls, filename, preload_arrays=False, mmap_arrays=False, cache_values=True, args=None):
+    def from_file(cls, filename, preload_arrays=False, mmap_arrays=False, cache_values=True, args=None, slice_from_args=True):
         """
         Initializes a model grid from an HDF5 file by figuring out what configuration
         and grid type to be used. This includes the config class, PCA and RBF.
@@ -92,7 +92,7 @@ class ModelGrid(PfsObject):
         if cache_values and grid.array_grid is not None:
             grid.array_grid.value_cache = ReadOnlyCache()
         if args is not None:
-            grid.init_from_args(args)
+            grid.init_from_args(args, slice_from_args=slice_from_args)
         grid.load(filename, format='h5')
 
         return grid
@@ -141,9 +141,9 @@ class ModelGrid(PfsObject):
         parser.add_argument('--wave-lim', type=float, nargs='*', default=None, help='Limit on lambda.')
         self.grid.add_args(parser)
 
-    def init_from_args(self, args):
+    def init_from_args(self, args, slice_from_args=True):
         self.wave_lim = self.get_arg('wave_lim', self.wave_lim, args)
-        self.grid.init_from_args(args)
+        self.grid.init_from_args(args, slice_from_args=slice_from_args)
 
     def get_wave_slice_impl(self, wlim):
         if self.wave is None:
