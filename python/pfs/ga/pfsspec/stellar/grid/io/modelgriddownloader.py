@@ -37,14 +37,17 @@ class ModelGridDownloader(Downloader):
         grid = self.create_grid()
         grid.add_args(parser)
 
-    def init_from_args(self, config, args):
-        super().init_from_args(config, args)
+    def init_from_args(self, script, config, args):
+        super().init_from_args(script, config, args)
         
         self.grid = self.create_grid()
         self.grid.init_from_args(args)
 
         self.reader = self.create_reader(None, None)
         self.reader.init_from_args(args)
+
+    def process_item_error(self, ex, i):
+        raise NotImplementedError()
 
     def process_item(self, i):
         # Called when processing the grid point by point
@@ -67,9 +70,6 @@ class ModelGridDownloader(Downloader):
         subprocess.run(cmd, stdout=subprocess.DEVNULL)
         if os.path.getsize(outfile) == 0:
             os.remove(outfile)
-
-    def process_item(self, ex, i):
-        raise NotImplementedError()
 
     def create_grid(self):
         raise NotImplementedError()
