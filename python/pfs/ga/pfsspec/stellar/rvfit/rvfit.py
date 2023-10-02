@@ -15,152 +15,17 @@ except ModuleNotFoundError as ex:
     logging.warn(ex.msg)
     emcee = None
 
+from pfs.ga.pfsspec.core.util.args import *
 from pfs.ga.pfsspec.core import Trace
 from pfs.ga.pfsspec.core import Spectrum
 import pfs.ga.pfsspec.core.plotting.styles as styles
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
-from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
+from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler, Interp1dResampler
+from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
 
-class RVFitTrace(Trace):
-    """
-    Implements call-back function to profile and debug RV fitting. Allows for
-    generating plots of intermediate steps.
-    """
-
-    def __init__(self, outdir='.', plot_inline=False, plot_level=Trace.PLOT_LEVEL_NONE, log_level=Trace.LOG_LEVEL_NONE):
-        super().__init__(outdir=os.path.join(outdir, 'rvfit'), plot_inline=plot_inline, plot_level=plot_level, log_level=log_level)
-        
-        self.reset()
-
-    def reset(self):
-        self.process_spectrum_count = 0
-        self.process_template_count = 0
-        self.resample_template_count = 0
-        self.template_cache_hit_count = 0
-        self.template_cache_miss_count = 0
-        self.eval_phi_chi_count = 0
-        self.eval_log_L_count = 0
-        self.eval_log_L_a_count = 0
-
-    def save_history(self, filename, spectrum):
-        if spectrum.history is not None:
-            fn = os.path.join(self.outdir, filename)
-            self.make_outdir(fn)
-            with open(fn, "w") as f:
-                f.writelines([ s + '\n' for s in spectrum.history ])
-
-    def plot_spectrum(self, key, arm, wave, flux=None, error=None, cont=None, model=None, label=None):
-        def plot(ax, mask=()):
-            if flux is not None:
-                ax.plot(wave[mask], flux[mask], label=label, **styles.solid_line())
-            if error is not None:
-                ax.plot(wave[mask], error[mask], **styles.solid_line())
-            if cont is not None:
-                ax.plot(wave[mask], cont[mask], **styles.solid_line())
-            if model is not None:
-                ax.plot(wave[mask], model[mask], **styles.solid_line())
-
-        (f, axs) = self.get_figure(key, 2, 1)
-        plot(axs[0])
-        plot(axs[1], (np.abs(wave - wave.mean()) < 20.0))
-
-    def on_process_spectrum(self, arm, i, spectrum, processed_spectrum):
-        if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
-            self.plot_spectrum(f'spectrum_{arm}_{i}', arm, spectrum.wave, spectrum.flux)
-            self.plot_spectrum(f'processed_spectrum_{arm}_{i}', arm, processed_spectrum.wave, processed_spectrum.flux)
-            self.flush_figures()
-
-        if self.log_level >= Trace.LOG_LEVEL_NONE:
-            self.save_history(f'spectrum_{arm}_{i}.log', spectrum)
-
-        self.process_spectrum_count += 1
-
-    def on_process_template(self, arm, rv, template, processed_template):
-        if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
-            self.plot_spectrum(f'template_{arm}', arm, template.wave, template.flux)
-            self.plot_spectrum(f'processed_template_{arm}', arm, processed_template.wave, processed_template.flux)
-            self.flush_figures()
-
-        self.process_template_count += 1
-
-    def on_resample_template(self, arm, rv, spectrum, template, resampled_template):
-        if self.resample_template_count == 0:
-            if self.plot_level:
-                self.plot_spectrum(f'resampled_template_{arm}', arm, resampled_template.wave, resampled_template.flux)
-                self.flush_figures()
-
-            if self.log_level >= Trace.LOG_LEVEL_NONE:
-                self.save_history(f'resampled_template_{arm}.log', resampled_template)
-
-        self.resample_template_count += 1
-
-    def on_template_cache_hit(self, template, rv_q, rv):
-        self.template_cache_hit_count += 1
-    
-    def on_template_cache_miss(self, template, rv_q, rv):
-        self.template_cache_miss_count += 1
-
-    def on_eval_flux_corr_basis(self, spectra, basis):
-        pass
-
-    def on_eval_phi_chi(self, rv, spectra, templates, bases, sigma2, weights, masks, log_L, phi, chi):
-        self.eval_phi_chi_count += 1
-
-    def on_eval_log_L(self, phi, chi, log_L):
-        self.eval_log_L_count += 1
-
-    def on_eval_log_L_a(self, phi, chi, a, log_L):
-        self.eval_log_L_a_count += 1
-
-    def on_eval_F_mcmc(self, x, log_L):
-        pass
-
-    def on_guess_rv(self, rv, log_L, rv_guess, fit, function, pp, pcov):
-        if self.plot_level >= Trace.PLOT_LEVEL_INFO:
-            (f, ax) = self.get_figure('guess_rv', 1, 1)
-            ax.plot(rv, log_L, '.')
-            if fit is not None:
-                ax.plot(rv, fit, **styles.solid_line())
-            ax.axvline(rv_guess, c='r')
-
-            self.flush_figures()
-
-    def on_fit_rv(self, rv, spectra, templates):
-        pass
-
-class RVFitTraceState():
-    """
-    Trace info on preprocessed spectra and templates
-    """
-
-    def __init__(self):
-        self.spectra = None
-        self.templates = None
-        self.bases = None
-        self.masks = None
-        self.sigma2 = None
-        self.weights = None
-
-    def reset(self):
-        self.spectra = {}
-        self.templates = {}         # Collect preprocessed templates for tracing
-        self.bases = {}         # Collect continuum basis functions for tracing
-        self.masks = {}
-        self.sigma2 = {}
-        self.weights = {}
-
-    def append(self, arm, spec, temp, sigma2, weight, mask, basis):
-        def append_item(d, arm, item):
-            if arm not in d:
-                d[arm] = []
-
-        append_item(self.spectra, arm, spec)
-        append_item(self.templates, arm, temp)
-        append_item(self.bases, arm, basis)
-        append_item(self.masks, arm, mask)
-        append_item(self.sigma2, arm, sigma2)
-        append_item(self.weights, arm, weight)
+from .rvfittrace import RVFitTrace
+from .rvfittracestate import RVFitTraceState
 
 class RVFit():
     """
@@ -168,6 +33,11 @@ class RVFit():
     maximum significance method. Templates are optionally convolved with the instrumental LSF.
     The class supports various methods to determine the uncertainty of estimated parameters.
     """
+
+    RESAMPLERS = {
+        'interp': Interp1dResampler,
+        'fluxcons': FluxConservingResampler,
+    }
 
     def __init__(self, trace=None, orig=None):
         
@@ -178,7 +48,7 @@ class RVFit():
             self.template_resampler = FluxConservingResampler()  # Resample template to instrument pixels
             self.template_cache_resolution = 50  # Cache templates with this resolution in RV
             self.template_wlim = None       # Model wavelength limits for each spectrograph arm
-            self.template_wlim_buffer = 5   # Wavelength buffer in A, depends on line spread function
+            self.template_wlim_buffer = 100 # Wavelength buffer in A, depends on line spread function
             
             self.cache_templates = False    # Cache PSF-convolved templates
 
@@ -193,6 +63,7 @@ class RVFit():
             self.temp_norm = None           # Template normalization factor
 
             self.use_mask = True            # Use mask from spectrum, if available
+            self.mask_bits = None           # Mask bits (None means any)
             self.use_error = True           # Use flux error from spectrum, if available
             self.use_weight = True          # Use weight from template, if available
 
@@ -225,6 +96,7 @@ class RVFit():
             self.temp_norm = orig.temp_norm
 
             self.use_mask = orig.use_mask
+            self.mask_bits = orig.mask_bits
             self.use_error = orig.use_error
             self.use_weight = orig.use_weight
 
@@ -242,6 +114,56 @@ class RVFit():
         self.template_cache = ReadOnlyCache()
         self.flux_corr_basis_cache = None
         self.flux_corr_basis_size = None
+
+    def add_args(self, config, parser):
+        parser.add_argument('--flux-corr', action='store_true', dest='flux_corr', help='Do flux correction.\n')
+        parser.add_argument('--no-flux-corr', action='store_false', dest='flux_corr', help='No flux correction.\n')
+        parser.add_argument('--flux-corr-deg', type=int, help='Degree of flux correction polynomial.\n')
+
+        parser.add_argument('--resampler', type=str, choices=list(RVFit.RESAMPLERS.keys()), default='fluxcons', help='Template resampler.\n')
+
+        parser.add_argument('--mask', action='store_true', dest='use_mask', help='Use mask from spectra.\n')
+        parser.add_argument('--no-mask', action='store_false', dest='use_mask', help='Do not use mask from spectra.\n')
+        parser.add_argument('--mask-bits', type=int, help='Bit mask.\n')
+
+        parser.add_argument('--mcmc-step', type=int, help='MCMC initial step size.\n')
+        parser.add_argument('--mcmc-walkers', type=int, help='Number of MCMC walkers (min number of params + 1).\n')
+        parser.add_argument('--mcmc-burnin', type=int, help='Number of MCMC burn-in samples.\n')
+        parser.add_argument('--mcmc-samples', type=int, help='Number of MCMC samples.\n')
+        parser.add_argument('--mcmc-thin', type=int, help='MCMC chain thinning interval.\n')
+
+    def init_from_args(self, script, config, args):
+        if self.trace is not None:
+            self.trace.init_from_args(script, config, args)
+    
+        self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
+
+        # TODO: add more options for flux correction model
+        self.flux_corr = PolynomialFluxCorrection()
+        self.flux_corr.degree = get_arg('flux_corr_deg', self.flux_corr.degree, args)
+
+        # Use Interp1dResampler when template PSF accounts for pixelization
+        resampler = get_arg('resampler', None, args)
+        if resampler is None:
+            pass
+        elif resampler in RVFit.RESAMPLERS:
+            self.template_resampler = RVFit.RESAMPLERS[resampler]()
+        else:
+            raise NotImplementedError()
+
+        self.use_mask = get_arg('use_mask', self.use_mask, args)
+        self.mask_bits = get_arg('mask_bits', self.mask_bits, args)
+        self.use_error = get_arg('use_error', self.use_error, args)
+        self.use_weight = get_arg('use_weight', self.use_weight, args)
+
+        self.mcmc_step = get_arg('mcmc_step', self.mcmc_step, args)
+        self.mcmc_walkers = get_arg('mcmc_walkers', self.mcmc_walkers, args)
+        self.mcmc_burnin = get_arg('mcmc_burnin', self.mcmc_burnin, args)
+        self.mcmc_samples = get_arg('mcmc_samples', self.mcmc_samples, args)
+        self.mcmc_thin = get_arg('mcmc_thin', self.mcmc_thin, args)
+
+    def create_trace(self):
+        return RVFitTrace()
 
     def get_normalization(self, spectra, templates, rv_0=None):
         # Calculate a normalization factor for the spectra, as well as
@@ -344,7 +266,7 @@ class RVFit():
             
         return t
 
-    def process_template(self, arm, template, spectrum, rv, psf=None, wlim=None, diff=False, flux_corr=False, a=None):
+    def process_template(self, arm, template, spectrum, rv, psf=None, wlim=None, diff=False, resample=True, renorm=False, flux_corr=False, a=None):
         # Preprocess the template to match the observation. This step
         # involves shifting the high resolution template the a given RV,
         # convolving it with the PSF, still at high resolution, and normalizing
@@ -390,7 +312,8 @@ class RVFit():
             temp = self.process_template_impl(arm, template, spectrum, rv, psf=psf, wlim=wlim)
 
         # Resample template to the binning of the observation
-        temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
+        if resample:
+            temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
 
         # Optionally apply flux correction. Note that a = None during the fitting process,
         # this feature is provided for evaluating the results only, so it's okay to
@@ -403,6 +326,10 @@ class RVFit():
                 temp.multiply(np.dot(basis, a))
             else:
                 temp.multiply(a)
+
+        # Normalize template to match the flux scale of the fitted spectrum
+        if renorm and self.spec_norm is not None:
+            temp.multiply(self.spec_norm)
 
         if self.trace is not None:
             self.trace.on_resample_template(arm, rv, spectrum, template, temp)
@@ -505,23 +432,34 @@ class RVFit():
                 else:
                     specs = spectra[arm]
 
+                # This is a generic call to preprocess the template which might or
+                # might not include a convolution, depending on the RVFit implementation.
+                # When template convolution is pushed down to the model grid to support
+                # caching, convolution is skipped by the derived classes such as
+                # ModelGridRVFit
                 psf = self.template_psf[arm] if self.template_psf is not None else None
                 wlim = self.template_wlim[arm] if self.template_wlim is not None else None
                 
                 for ei in range(len(specs)):
+                    # TODO: Make sure template is not double-convolved in normal RVFit
                     spec = self.process_spectrum(arm, ei, specs[ei])
                     temp = self.process_template(arm, templates[arm], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
                     
                     # Determine mask
-                    if self.use_mask:
+                    mask = None
+                    if self.use_mask and spec.mask is not None:
                         # TODO: allow specifying a bitmas
-                        mask = spec.mask_as_bool() if spec.mask is not None else np.full_like(spec.wave, True, dtype=bool)
-                    else:
+                        mask = spec.mask_as_bool(bits=self.mask_bits)
+                    
+                    if mask is None:
                         mask = np.full_like(spec.wave, True, dtype=bool)
                     
                     # Mask out nan values which might occur if spectrum mask is not properly defined
+                    mask &= ~np.isnan(spec.wave)
                     mask &= ~np.isnan(spec.flux)
                     mask &= ~np.isnan(spec.flux_err)
+
+                    mask &= ~np.isnan(temp.flux)
 
                     # Flux error
                     if self.use_error and spec.flux_err is not None:
@@ -560,12 +498,15 @@ class RVFit():
                         pp /= sigma2
                         cc /= sigma2
 
-                    if basis is not None:
-                        pp = pp[:, None] * basis
-                        cc = cc[:, None, None] * np.matmul(basis[:, :, None], basis[:, None, :])
+                    if basis is None:
+                        pp = pp[mask]
+                        cc = cc[mask]
+                    else:
+                        pp = pp[mask, None] * basis[mask, :]
+                        cc = cc[mask, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
 
-                    phi[i] += np.sum(pp[mask], axis=0)
-                    chi[i] += np.sum(cc[mask], axis=0)
+                    phi[i] += np.sum(pp, axis=0)
+                    chi[i] += np.sum(cc, axis=0)
 
                     # Degrees of freedom
                     ndf[i] += mask.sum()
@@ -1158,6 +1099,11 @@ class RVFit():
                         psf = self.template_psf[arm] if self.template_psf is not None else None
                         wlim = self.template_wlim[arm] if self.template_wlim is not None else None
                     
+                        # This is a generic call to preprocess the template which might or
+                        # might not include a convolution, depending on the RVFit implementation.
+                        # When template convolution is pushed down to the model grid to support
+                        # caching, convolution is skipped by the derived classes such as
+                        # ModelGridRVFit
                         t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
                         tt[arm] = t
                 self.trace.on_fit_rv(rv_fit, spectra, tt)

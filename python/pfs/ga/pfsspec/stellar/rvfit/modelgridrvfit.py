@@ -4,10 +4,9 @@ from scipy.optimize import minimize_scalar
 import numdifftools as nd
 
 from pfs.ga.pfsspec.core import Physics
-from .rvfit import RVFit, RVFitTrace
-
-class ModelGridRVFitTrace(RVFitTrace):
-    pass
+from pfs.ga.pfsspec.core.sampling import Parameter
+from .rvfit import RVFit
+from .modelgridrvfittrace import ModelGridRVFitTrace
 
 class ModelGridRVFit(RVFit):
     """
@@ -34,6 +33,46 @@ class ModelGridRVFit(RVFit):
             self.params_bounds = orig.params_bounds
             self.params_priors = orig.params_priors
 
+    def reset(self):
+        super().reset()
+
+    def add_args(self, config, parser):
+        super().add_args(config, parser)
+    
+    def init_from_args(self, script, config, args):
+        super().init_from_args(script, config, args)
+    
+        # Look up template parameters from the command-line. Figure out the ones that
+        # are sampled randomly and ones that are fixed
+        params = {}
+        grid = self.template_grids[list(self.template_grids.keys())[0]]
+        for i, p, ax in grid.enumerate_axes():
+            params[p] = Parameter(p)
+            params[p].init_from_args(args)
+
+        self.params_0 = {}
+        self.params_fixed = {}
+        self.params_bounds = {}
+        self.params_priors = {}
+
+        for p in params:
+            if params[p].dist == 'const':
+                # This is a fixed parameter
+                self.params_0[p] = params[p].value
+                self.params_fixed[p] = params[p].value
+                self.params_bounds[p] = [params[p].value, params[p].value]
+            else:
+                # This is a fitted (sampler) parameter. Sample initial value
+                # from the distribution
+                self.params_0[p] = params[p].get_dist().sample()
+                self.params_bounds[p] = [params[p].min, params[p].max]
+
+        # TODO: add priors
+        pass
+
+    def create_trace(self):
+        return ModelGridRVFitTrace()
+
     def get_templates(self, spectra, params):
         # Return the templates corresponding to the parameters.
         # Different grids are used for the different arms
@@ -53,6 +92,7 @@ class ModelGridRVFit(RVFit):
                 wlim = self.template_wlim[k]
             else:
                 wlim = None
+
             temp = grid.interpolate_model(psf=psf, wlim=wlim, **params)
 
             # Interpolation failed
@@ -398,12 +438,17 @@ class ModelGridRVFit(RVFit):
                                           rv_bounds=rv_bounds, rv_prior=rv_prior, 
                                           params_0=params_0, params_fixed=params_fixed)
             
+        if params_fixed is None:
+            params_fixed = []
+            
         if self.template_wlim is None:
             self.determine_wlim(spectra, rv_bounds=rv_bounds)
 
         # Get objective function
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode='params_rv')
+            spectra, rv_prior,
+            params_0, params_priors, params_free, params_fixed=params_fixed,
+            mode='params_rv')
         
         # Initial values and bounds for optimization
         x_0 = pack_params(params_0, rv_0)
@@ -414,11 +459,11 @@ class ModelGridRVFit(RVFit):
                 log_L_fun, pack_params, unpack_params, pack_bounds,
                 x_0, bounds)
 
-    def fit_rv(self, spectra, /,
+    def fit_rv(self, spectra, *,
                rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
                method="Nelder-Mead", max_iter=None):
-        
+                
         max_iter = max_iter if max_iter is not None else self.max_iter
         
         (log_L_fun, rv_0, rv_bounds, rv_prior,
@@ -429,9 +474,18 @@ class ModelGridRVFit(RVFit):
                                             params_0=params_0, params_bounds=params_bounds,
                                             params_priors=params_priors, params_fixed=params_fixed)
 
+        # TODO: If no free parameters, fall back to superclass implementation
+        if len(params_free) == 0:
+            raise NotImplementedError()
+
         # Cost function
         def llh(params_rv):
             return -log_L_fun(params_rv)
+        
+        # Verify that the starting points is valid
+        log_L_0 = llh(x_0)
+        if np.isinf(log_L_0) or np.isnan(log_L_0):
+            raise Exception(f"Invalid starting point for RV fitting.")
         
         out = minimize(llh, x0=x_0, bounds=bounds, method=method,
                        options=dict(maxiter=self.max_iter))
@@ -458,10 +512,11 @@ class ModelGridRVFit(RVFit):
 
         return rv_fit, rv_err, params_fit, params_err, a_fit, None
 
-    def run_mcmc(self, spectra, /,
+    def run_mcmc(self, spectra, *,
                rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
-               ):
+               walkers=None, burnin=None, samples=None, thin=None):
+        
         """
         Given a set of spectra and templates, sample from the posterior distribution of RV.
 
@@ -480,9 +535,10 @@ class ModelGridRVFit(RVFit):
         # Everything is the same as fit_rv up until this points
         
         # Run sampling
-        x, log_L = self.sample_log_L(log_L_fun, x_0=x_0, bounds=bounds)
+        x, log_L = self.sample_log_L(log_L_fun, x_0=x_0, bounds=bounds,
+                                     walkers=walkers, burnin=burnin, samples=samples, thin=thin)
         params, rv = unpack_params(x.T)
 
         # TODO: we could calculate the flux correction here but is it worth it?
 
-        return rv, params, None
+        return rv, params, None, log_L
