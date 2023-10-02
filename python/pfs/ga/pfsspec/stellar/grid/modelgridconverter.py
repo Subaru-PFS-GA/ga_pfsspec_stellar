@@ -96,6 +96,9 @@ class ModelGridConverter(GridBuilder, ModelGridBuilder):
 
         self.pipeline.run(spec)
         return i, input_idx, output_idx, spec
+    
+    def process_item_error(self, ex, i):
+        raise NotImplementedError()
 
     def run(self):
         output_initialized = False
@@ -107,7 +110,7 @@ class ModelGridConverter(GridBuilder, ModelGridBuilder):
         # Run every spectrum through the pipeline
         t = tqdm(total=input_count)
         with SmartParallel(initializer=self.init_process, verbose=False, parallel=self.parallel, threads=self.threads) as p:
-            for i, input_idx, output_idx, spec in p.map(self.process_item, range(input_count)):
+            for i, input_idx, output_idx, spec in p.map(self.process_item, self.process_item_error, range(input_count)):
                 if not output_initialized:
                     self.output_grid.set_wave(spec.wave, wave_edges=spec.wave_edges)
                     self.output_grid.allocate_values()

@@ -22,9 +22,8 @@ class PhoenixGridDownloader(ModelGridDownloader):
 
         parser.add_argument('--phoenix-version', type=str, default="1.0", help='PHOENIX grid version')
 
-    def init_from_args(self, config, args):
-        super().init_from_args(config, args)
-
+    def init_from_args(self, script, config, args):
+        super().init_from_args(script, config, args)
         self.version = self.get_arg('phoenix_version', self.version, args)
 
     def create_grid(self):

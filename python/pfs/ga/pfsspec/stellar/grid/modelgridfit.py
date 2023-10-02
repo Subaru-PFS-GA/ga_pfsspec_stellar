@@ -80,6 +80,9 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         params = self.continuum_model.fit(spec)
         return i, input_idx, output_idx, spec, params
 
+    def process_item_fit_error(self, ex, i):
+        raise NotImplementedError()
+
     def run_step_fit(self):
         output_initialized = False
         input_count = self.get_input_count()
@@ -87,7 +90,7 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         # Fit every model
         t = tqdm(total=input_count)
         with SmartParallel(initializer=self.init_process, verbose=False, parallel=self.parallel, threads=self.threads) as p:
-            for i, input_idx, output_idx, spec, params in p.map(self.process_item_fit, range(input_count)):
+            for i, input_idx, output_idx, spec, params in p.map(self.process_item_fit, self.process_item_fit_error, range(input_count)):
                 if not output_initialized:
                     # Determine the size of the output arrays and allocate them on
                     # the disk before starting the processing.
@@ -172,6 +175,9 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         self.continuum_model.normalize(spec, params)
         return i, input_idx, output_idx, spec, params
 
+    def process_item_normalize(self, ex, i):
+        raise NotImplementedError()
+
     def run_step_normalize(self):
         output_initialized = False
         input_count = self.get_input_count()
@@ -186,7 +192,7 @@ class ModelGridFit(GridBuilder, ModelGridBuilder):
         # Normalize every spectrum
         t = tqdm(total=input_count)
         with SmartParallel(initializer=self.init_process, verbose=False, parallel=self.parallel, threads=self.threads) as p:
-            for i, input_idx, output_idx, spec, params in p.map(self.process_item_normalize, range(input_count)):
+            for i, input_idx, output_idx, spec, params in p.map(self.process_item_normalize, self.process_item_normalize_error, range(input_count)):
                 if not output_initialized:
                     for k in params:
                         self.output_grid.grid.value_shapes[k] = params[k].shape

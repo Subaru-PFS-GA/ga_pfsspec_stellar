@@ -31,8 +31,7 @@ class StellarTestBase(TestBase):
     def get_bosz_grid(self):
         if self.bosz_grid is None:
             file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/bosz/bosz_5000_full/spectra.h5')
-            self.bosz_grid = ModelGrid(Bosz(), ArrayGrid)
-            self.bosz_grid.load(file, s=None, format='h5')
+            self.bosz_grid = ModelGrid.from_file(file)
 
         return self.bosz_grid
 

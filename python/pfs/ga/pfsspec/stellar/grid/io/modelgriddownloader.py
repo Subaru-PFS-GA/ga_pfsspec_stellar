@@ -37,8 +37,8 @@ class ModelGridDownloader(Downloader):
         grid = self.create_grid()
         grid.add_args(parser)
 
-    def init_from_args(self, config, args):
-        super().init_from_args(config, args)
+    def init_from_args(self, script, config, args):
+        super().init_from_args(script, config, args)
         
         self.grid = self.create_grid()
         self.grid.init_from_args(args)
@@ -46,11 +46,11 @@ class ModelGridDownloader(Downloader):
         self.reader = self.create_reader(None, None)
         self.reader.init_from_args(args)
 
+    def process_item_error(self, ex, i):
+        raise NotImplementedError()
+
     def process_item(self, i):
         # Called when processing the grid point by point
-
-        logger = multiprocessing.get_logger()
-
         index, params = i
         fn = self.reader.get_filename(**params)
         url = self.reader.get_url(**params)
@@ -86,7 +86,7 @@ class ModelGridDownloader(Downloader):
         g = GridEnumerator(self.grid, s=self.grid.get_slice(), top=self.top)
         t = tqdm(total=len(g))
         with SmartParallel(verbose=False, parallel=self.parallel, threads=self.threads) as p:
-            for res in p.map(self.process_item, g):
+            for res in p.map(self.process_item, self.process_item_error, g):
                 # Nothing to do here, file is saved in process_item
                 t.update(1)
 

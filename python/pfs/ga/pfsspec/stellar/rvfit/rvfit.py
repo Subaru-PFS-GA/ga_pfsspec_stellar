@@ -1,31 +1,29 @@
 import os
 import logging
+from typing import Callable
 import numpy as np
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 from scipy.ndimage import binary_dilation
 from scipy.interpolate import interp1d
+from sklearn.preprocessing import PolynomialFeatures
 import numdifftools as nd
 from collections.abc import Iterable
 from collections import namedtuple
-
-try:
-    import emcee
-except ModuleNotFoundError as ex:
-    logging.warn(ex.msg)
-    emcee = None
 
 from pfs.ga.pfsspec.core.util.args import *
 from pfs.ga.pfsspec.core import Trace
 from pfs.ga.pfsspec.core import Spectrum
 import pfs.ga.pfsspec.core.plotting.styles as styles
 from pfs.ga.pfsspec.core import Physics
+from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler, Interp1dResampler
 from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
-
+from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 from .rvfittrace import RVFitTrace
 from .rvfittracestate import RVFitTraceState
+from .rvfitresults import RVFitResults
 
 class RVFit():
     """
@@ -55,6 +53,7 @@ class RVFit():
             self.rv_0 = None                # RV initial guess
             self.rv_bounds = None           # Find RV between these bounds
             self.rv_prior = None
+            self.rv_step = None             # RV step size for MCMC sampling
 
             self.use_flux_corr = False      # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
             self.flux_corr = None           # Flux correction model
@@ -65,7 +64,7 @@ class RVFit():
             self.use_mask = True            # Use mask from spectrum, if available
             self.mask_bits = None           # Mask bits (None means any)
             self.use_error = True           # Use flux error from spectrum, if available
-            self.use_weight = True          # Use weight from template, if available
+            self.use_weight = False         # Use weight from template, if available
 
             self.max_iter = 1000            # Maximum number of iterations to minimize significance
 
@@ -73,6 +72,7 @@ class RVFit():
             self.mcmc_walkers = 10          # Number of parallel walkers
             self.mcmc_burnin = 100          # Number of burn-in iterations
             self.mcmc_samples = 100         # Number of samples
+            self.mcmc_gamma = 0.99          # Adaptive MCMC proposal memory
             self.mcmc_thin = 1              # MCMC trace thinning
         else:
             self.trace = orig.trace
@@ -88,6 +88,7 @@ class RVFit():
             self.rv_0 = orig.rv_0
             self.rv_bounds = orig.rv_bounds
             self.rv_prior = orig.rv_prior
+            self.rv_step = orig.rv_step
 
             self.use_flux_corr = orig.use_flux_corr
             self.flux_corr = orig.flux_corr
@@ -107,6 +108,7 @@ class RVFit():
             self.mcmc_burnin = orig.mcmc_burnin
             self.mcmc_samples = orig.mcmc_samples
             self.mcmc_thin = orig.mcmc_thin
+            self.mcmc_thin = orig.mcmc_gamma
 
         self.reset()
 
@@ -116,6 +118,8 @@ class RVFit():
         self.flux_corr_basis_size = None
 
     def add_args(self, config, parser):
+        Parameter('rv').add_args(parser)
+
         parser.add_argument('--flux-corr', action='store_true', dest='flux_corr', help='Do flux correction.\n')
         parser.add_argument('--no-flux-corr', action='store_false', dest='flux_corr', help='No flux correction.\n')
         parser.add_argument('--flux-corr-deg', type=int, help='Degree of flux correction polynomial.\n')
@@ -126,16 +130,24 @@ class RVFit():
         parser.add_argument('--no-mask', action='store_false', dest='use_mask', help='Do not use mask from spectra.\n')
         parser.add_argument('--mask-bits', type=int, help='Bit mask.\n')
 
-        parser.add_argument('--mcmc-step', type=int, help='MCMC initial step size.\n')
         parser.add_argument('--mcmc-walkers', type=int, help='Number of MCMC walkers (min number of params + 1).\n')
         parser.add_argument('--mcmc-burnin', type=int, help='Number of MCMC burn-in samples.\n')
         parser.add_argument('--mcmc-samples', type=int, help='Number of MCMC samples.\n')
         parser.add_argument('--mcmc-thin', type=int, help='MCMC chain thinning interval.\n')
+        parser.add_argument('--mcmc-gamma', type=float, help='Adaptive MC gamma.\n')
 
     def init_from_args(self, script, config, args):
         if self.trace is not None:
             self.trace.init_from_args(script, config, args)
-    
+
+        rv = Parameter('rv')
+        rv.init_from_args(args)
+        step = rv.generate_step_size(step_size_factor=0.1)
+        self.rv_0 = rv.value                        # RV initial guess
+        self.rv_bounds = [rv.min, rv.max]           # Find RV between these bounds
+        self.rv_prior = rv.get_dist()
+        self.rv_step = step                         # RV step size for MCMC sampling
+
         self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
 
         # TODO: add more options for flux correction model
@@ -156,7 +168,6 @@ class RVFit():
         self.use_error = get_arg('use_error', self.use_error, args)
         self.use_weight = get_arg('use_weight', self.use_weight, args)
 
-        self.mcmc_step = get_arg('mcmc_step', self.mcmc_step, args)
         self.mcmc_walkers = get_arg('mcmc_walkers', self.mcmc_walkers, args)
         self.mcmc_burnin = get_arg('mcmc_burnin', self.mcmc_burnin, args)
         self.mcmc_samples = get_arg('mcmc_samples', self.mcmc_samples, args)
@@ -181,7 +192,7 @@ class RVFit():
 
                 # TODO: use mask from spectrum
 
-                s.append(spec.flux[~np.isnan(spec.flux)])
+                s.append(spec.flux[~np.isnan(spec.flux) & (spec.flux > 0)])
             
             if self.template_psf is not None:
                 psf = self.template_psf[arm]
@@ -468,6 +479,7 @@ class RVFit():
                         
                         # TODO: add option to set this limit
                         # Mask out bins where sigma2 is unusually small
+                        # Here we assume that flux is normalized in the unity range
                         mask &= sigma2 > 1e-5
                     else:
                         sigma2 = None
@@ -486,24 +498,27 @@ class RVFit():
                     else:
                         basis = None
 
+                    # Verify that the mask is not empty or too few points to fit
+                    if mask.sum() < 10:
+                        raise Exception("Too few unmasked values to fit the spectrum.")
+
                     # Calculate phi and chi and sum up along wavelength
-                    pp = spec.flux * temp.flux
-                    cc = temp.flux ** 2
+                    pp = spec.flux[mask] * temp.flux[mask]
+                    cc = temp.flux[mask] ** 2
                     
                     if weight is not None:
-                        pp *= weight
-                        cc *= weight
+                        pp *= weight[mask]
+                        cc *= weight[mask]
                     
                     if sigma2 is not None:
-                        pp /= sigma2
-                        cc /= sigma2
+                        pp /= sigma2[mask]
+                        cc /= sigma2[mask]
 
                     if basis is None:
-                        pp = pp[mask]
-                        cc = cc[mask]
+                        pass
                     else:
-                        pp = pp[mask, None] * basis[mask, :]
-                        cc = cc[mask, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
+                        pp = pp[:, None] * basis[mask, :]
+                        cc = cc[:, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
 
                     phi[i] += np.sum(pp, axis=0)
                     chi[i] += np.sum(cc, axis=0)
@@ -581,6 +596,16 @@ class RVFit():
         
         return log_L
     
+    def eval_prior(self, prior, x):
+        if prior is None:
+            return 0
+        elif isinstance(prior, Distribution):
+            return prior.log_pdf(x)
+        elif isinstance(prior, Callable):
+            return prior(x)
+        else:
+            raise NotImplementedError()
+    
     def calculate_log_L(self, spectra, templates, rv, rv_prior=None, a=None):
         
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
@@ -594,8 +619,7 @@ class RVFit():
         else:
             log_L = self.eval_log_L_a(phi, chi, a)
         
-        if rv_prior is not None:
-            log_L += rv_prior(rv)
+        log_L += self.eval_prior(rv_prior, rv)
 
         return log_L, phi, chi, ndf
         
@@ -616,51 +640,80 @@ class RVFit():
 
         return flux_corr
     
-    def sample_log_L(self, log_L_fun, x_0=None, step=None, bounds=None,
-                     walkers=None, burnin=None, samples=None, thin=None):
+    # def sample_log_L(self, log_L_fun, x_0,
+    #                  walkers=None, burnin=None, samples=None, thin=None, cov=None):
         
-        step = step if step is not None else self.mcmc_step
-        walkers = walkers if walkers is not None else self.mcmc_walkers
-        burnin = burnin if burnin is not None else self.mcmc_burnin
-        samples = samples if samples is not None else self.mcmc_samples
-        thin = thin if thin is not None else self.mcmc_thin
+    #     walkers = walkers if walkers is not None else self.mcmc_walkers
+    #     burnin = burnin if burnin is not None else self.mcmc_burnin
+    #     samples = samples if samples is not None else self.mcmc_samples
+    #     thin = thin if thin is not None else self.mcmc_thin
     
-        # Bounds is a list of tuples, convert to an array
-        if bounds is not None:
-            bb = []
-            for b in bounds:
-                if b is None:
-                    bb.append((-np.inf, np.inf))
-                else:
-                    bb.append((
-                        b[0] if b[0] is not None else -np.inf,
-                        b[1] if b[1] is not None else np.inf,
-                    ))
-            bounds = np.array(bb).T
-
-        ndim = x_0.size
-        nwalkers = max(walkers, 2 * x_0.size + 1)
+    #     ndim = x_0.size
         
-        # Generate an initial state a little bit off of x_0
-        # TODO: randomizing this way is not the best when RV is close to 0
-        p_0 = np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step
+    #     # TODO: it's good to run many walkers but it increases time spent
+    #     #       in burn-in a lot
+    #     # nwalkers = max(walkers, 2 * x_0.size + 1)
+    #     nwalkers = walkers
+
+    #     # TODO: delete, moved to init_mcmc        
+    #     # # Generate an initial state a little bit off of x_0
+    #     # if step is None:
+    #     #     p_0 = x_0 * (1 + 0.05 * np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)))
+    #     # else:
+    #     #     p_0 = x_0 + np.random.uniform(-1.0, 1.0, size=(nwalkers, ndim)) * step
+
+    #     p_0 = np.broadcast_to(x_0, (nwalkers, ndim))
         
-        # Make sure the initial state is inside the bounds
-        if bounds is not None:
-            p_0 = np.where(bounds[0] < p_0, p_0, bounds[0])
-            p_0 = np.where(bounds[1] > p_0, p_0, bounds[1])
+    #     # # Make sure the initial state is inside the bounds
+    #     # if bounds is not None:
+    #     #     p_0 = np.where(bounds[..., 0] < p_0, p_0, bounds[..., 0])
+    #     #     p_0 = np.where(bounds[..., 1] > p_0, p_0, bounds[..., 1])
 
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L_fun)
-        state = sampler.run_mcmc(p_0, burnin, skip_initial_state_check=True)
-        sampler.reset()
-        sampler.run_mcmc(state, samples, skip_initial_state_check=True)
+    #     if cov is not None:
+    #         # moves = [ emcee.moves.GaussianMove(cov), emcee.moves.StretchMove(live_dangerously=True) ]
+    #         moves = [ 
+    #             # emcee.moves.GaussianMove(cov),
+    #             # emcee.moves.GaussianMove(10 * cov),
+    #             # emcee.moves.GaussianMove(0.1 * cov)
+    #             emcee.moves.GaussianMove(np.diag(cov), mode="sequential"),
+    #         ]
+    #     else:
+    #         # moves = [ emcee.moves.StretchMove(live_dangerously=True), emcee.moves.WalkMove(live_dangerously=True) ]
+    #         moves = [ emcee.moves.StretchMove(live_dangerously=True) ]
+            
+    #     sampler = emcee.EnsembleSampler(nwalkers, ndim, log_L_fun, moves=moves)
 
-        if thin is not None:
-            s = np.s_[::thin]
-        else:
-            s = ()
+    #     # Run the burn-in with the original proposal
+    #     # Allocate array for the adaptive run
+    #     state = sampler.run_mcmc(p_0, burnin, skip_initial_state_check=True)
 
-        return sampler.flatchain[s], sampler.flatlnprobability[s]
+    #     batch = 100
+    #     nbatch = samples // batch
+    #     ndim = sampler.chain.shape[-1]
+
+    #     sampler.reset()
+
+    #     # Periodically update the proposal distribution
+        
+    #     for b in range(nbatch):
+    #         state = sampler.run_mcmc(state, batch, skip_initial_state_check=True)
+
+    #         # if np.mean(sampler.acceptance_fraction) < 1e-2:
+    #         #     C = moves[0].get_proposal.scale * 0.8
+    #         # else:
+    #         #     x = sampler.chain.reshape(-1, ndim)
+    #         #     m = np.mean(x, axis=0)
+    #         #     C = np.matmul((x - m).T, x - m) / x.shape[0]
+    #         # # # TODO: add some logic to test if C is a valid proposal
+    #         # moves[0].get_proposal.scale = (2.38**2 / ndim) * C
+
+    #     if thin is not None:
+    #         s = np.s_[..., ::thin, :]
+    #     else:
+    #         s = ()
+
+    #     # shape: (chains, samples, params)
+    #     return sampler.chain[s], sampler.lnprobability[s]
         
     #region Fisher matrix evaluation
 
@@ -722,7 +775,7 @@ class RVFit():
         
         return pack_params, unpack_params, pack_bounds
 
-    def get_objective_function(self, spectra, templates, rv_prior, mode='full'):
+    def get_objective_function(self, spectra, templates, rv_0, rv_prior, mode='full'):
         # Return the objection function and parameter packing/unpacking for optimizers
         # pack_params: convert individual arguments into a single 1d array
         # unpack_params: get individual arguments from 1d array
@@ -745,6 +798,21 @@ class RVFit():
             raise NotImplementedError()
         
         return log_L, pack_params, unpack_params, pack_bounds
+    
+    def get_bounds_array(self, bounds):
+        if bounds is not None:
+            bb = []
+            for b in bounds:
+                if b is None:
+                    bb.append((-np.inf, np.inf))
+                else:
+                    bb.append((
+                        b[0] if b[0] is not None else -np.inf,
+                        b[1] if b[1] is not None else np.inf,
+                    ))
+            return np.array(bb)
+        else:
+            return None
 
     def eval_F(self, spectra, templates, rv_0=None, rv_bounds=None, rv_prior=None, step=None, mode='full', method='hessian'):
         # Evaluate the Fisher matrix around the provided rv_0. The corresponding
@@ -759,7 +827,7 @@ class RVFit():
 
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_prior, mode=mode)
+            spectra, templates, rv_0, rv_prior, mode=mode)
 
         if mode == 'full' or mode == 'a_rv':
             # Calculate a_0
@@ -772,6 +840,8 @@ class RVFit():
             bounds = pack_bounds(rv_bounds)
         else:
             raise NotImplementedError()
+        
+        bounds = self.get_bounds_array(bounds)
                 
         return self.eval_F_dispatch(x_0, log_L, step, method, bounds)
 
@@ -799,7 +869,8 @@ class RVFit():
     
     def eval_F_emcee(self, x_0, log_L_fun, step, bounds):
         # Evaluate the Fisher matrix by MC sampling around the optimum
-        x, log_L = self.sample_log_L(log_L_fun, x_0=x_0, bounds=bounds, step=step)
+
+        x, log_L = self.sample_log_L(log_L_fun, x_0=x_0)
 
         if self.trace is not None:
             self.trace.on_eval_F_mcmc(x, log_L)
@@ -812,23 +883,44 @@ class RVFit():
         # Sample a bunch of RVs around the optimum and fit a parabola
         # to obtain the error of RV            
 
-        # TODO: this only works for a single parameter only, can we
-        #       generalize to multiple parameters?
-
-        if x_0.size != 1:
-            # Currently fitting 1d parabola only
-            raise NotImplementedError()
-
         # Default step size is 1% of optimum values
         if step is None:
-            step = 0.01 * x_0
+            step = 1.0e-2 * x_0
 
-        rvv = np.random.uniform(x_0 - step, x_0 + step, size=1000)
-        ll = np.empty_like(rvv)
-        for ix, rv in np.ndenumerate(rvv):
-            ll[ix] = log_L_fun(np.atleast_1d(rv))
-        p = np.polyfit(rvv, ll, 2)
-        return np.array([[2.0 * p[0]]]), np.array([[-0.5 / p[0]]])
+        # TODO: what do we do with the original bounds?
+        nbounds = np.stack([x_0 - step, x_0 + step], axis=-1)
+        nbounds[..., 0] = np.where(bounds[..., 0] > nbounds[..., 0], bounds[..., 0], nbounds[..., 0])
+        nbounds[..., 1] = np.where(bounds[..., 1] < nbounds[..., 1], bounds[..., 1], nbounds[..., 1])
+            
+        x = np.random.uniform(nbounds[..., 0], nbounds[..., 1], size=(500,) + x_0.shape)
+        log_L = np.empty(x.shape[:-1])
+        for ix in range(x.shape[0]):
+            log_L[ix] = log_L_fun(np.atleast_1d(x[ix]))
+
+        n = x_0.size
+        if n == 1:
+            p = np.polyfit(x, log_L, 2)
+            return np.array([[2.0 * p[0]]]), np.array([[-0.5 / p[0]]])
+        else:
+            # Fit n-D quadratic formula
+            # Create the design matrix and solve the least squares problem
+            pf = PolynomialFeatures(degree=2)
+            X = pf.fit_transform(x - x_0)
+            p = np.linalg.solve(X.T @ X, X.T @ (log_L - np.min(log_L)))
+
+            # Construct the hessian from the p parameters
+            F = np.empty((n, n), dtype=x.dtype)
+            for pi, pw in zip(p[n + 1:], pf.powers_[n + 1:]):
+                idx = np.where(pw)[0]       # Index of item in the Hessian
+                if idx.size == 1:
+                    # Diagonal item:
+                    F[idx[0], idx[0]] = 2 * pi
+                else:
+                    # Mixed item
+                    F[idx[0], idx[1]] = F[idx[1], idx[0]] = pi
+
+            return F, np.linalg.inv(-F)
+
 
     def eval_F_full_phi_chi(self, spectra, templates, rv_0, step=None):
         # Evaluate the Fisher matrix from the first and second derivatives of
@@ -1007,6 +1099,15 @@ class RVFit():
         pp, pcov = curve_fit(self.lorentz, rv, y0, p0=p0, bounds=bb)
 
         return pp, pcov
+    
+    def sample_rv_prior(self, rv_prior, bounds=None):
+        rv_0 = rv_prior.sample()
+        if bounds is not None:
+            if bounds[0] is not None:
+                rv_0 = max(rv_0, bounds[0])
+            if bounds[1] is not None:
+                rv_0 = min(rv_0, bounds[1])
+        return rv_0
 
     def guess_rv(self, spectra, templates, /, rv_bounds=(-500, 500), rv_prior=None, rv_steps=31, method='lorentz'):
         """
@@ -1023,9 +1124,20 @@ class RVFit():
         a = self.eval_a(phi, chi)
 
         if method == 'lorentz':
-            pp, pcov = self.fit_lorentz(rv, log_L)
+            # Mask out infs here in case the prior is very narrow
+            mask = (~np.isnan(log_L) & ~np.isinf(log_L))    
+            if mask.sum() < 10:
+                raise Exception("Too few values to guess RV. Consider changing the bounds.")     
+            
+            pp, pcov = self.fit_lorentz(rv[mask], log_L[mask])
             rv_guess = pp[1]
 
+            # The maximum of the Lorentz curve might be outside the bounds
+            if rv_bounds is not None and rv_bounds[0] is not None:
+                rv_guess = max(rv_guess, rv_bounds[0])
+            if rv_bounds is not None and rv_bounds[1] is not None:
+                rv_guess = min(rv_guess, rv_bounds[1])
+                
             if self.trace is not None:
                 self.trace.on_guess_rv(rv, log_L, rv_guess, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
         elif method == 'max':
@@ -1036,8 +1148,50 @@ class RVFit():
             raise NotImplementedError()
 
         return rv, log_L, a, rv_guess
+    
+    def prepare_fit(self, spectra, templates, /, 
+                    rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None):
+        
+        rv_0 = rv_0 if rv_0 is not None else self.rv_0
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        rv_step = rv_step if rv_step is not None else self.rv_step
 
-    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, method='bounded'):
+        if self.template_wlim is None:
+            self.determine_wlim(spectra, rv_bounds=rv_bounds)
+
+        if rv_0 is None and spectra is not None:
+            _, _, _, rv_0 = self.guess_rv(spectra, templates, 
+                                          rv_bounds=rv_bounds, rv_prior=rv_prior,
+                                          method='max')
+
+        # Get objective function
+        log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            spectra, templates,
+            rv_0=rv_0, rv_prior=rv_prior,
+            mode='rv')
+        
+        if rv_0 is not None:
+            x_0 = pack_params(rv_0)
+        else:
+            x_0 = None
+
+        # Step size for MCMC
+        if rv_step is not None:
+            steps = pack_params(rv_step)
+        else:
+            steps = None
+
+        # Parameter bounds for optimizers, bounds is a list of tuples, convert to an array
+        bounds = pack_bounds(rv_bounds)
+        bounds = self.get_bounds_array(bounds)
+
+        return (rv_0, rv_bounds, rv_prior, rv_step,
+                log_L_fun, pack_params, unpack_params, pack_bounds,
+                x_0, bounds, steps)
+
+    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
+               method='bounded', calculate_error=True):
         """
         Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
         Spectra are assumed to be of the same object in different wavelength ranges.
@@ -1048,17 +1202,15 @@ class RVFit():
         assert isinstance(spectra, dict)
         assert isinstance(templates, dict)
 
-        rv_0 = rv_0 if rv_0 is not None else self.rv_0
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
-
-        # Get objective function
-        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_prior, mode='rv')
+        (rv_0, rv_bounds, rv_prior, rv_step,
+            log_L_fun, pack_params, unpack_params, pack_bounds,
+            x_0, bounds, steps) = self.prepare_fit(spectra, templates,
+                                            rv_0=rv_0, rv_bounds=rv_bounds,
+                                            rv_prior=rv_prior)
 
         # Cost function
         def llh(rv):
-            return -log_L(pack_params(rv))
+            return -log_L_fun(pack_params(rv))
 
         # Multivariate method
         #out = minimize(llh, [rv0], method=method)
@@ -1083,42 +1235,93 @@ class RVFit():
 
         if out.success:
             rv_fit = unpack_params(out.x)
-
-            # Calculate the flux correction coefficients at best fit values
-            phi_fit, chi_fit, ndf_fit = self.eval_phi_chi(spectra, templates, rv_fit)
-            a_fit = self.eval_a(phi_fit, chi_fit)
-
-            # If tracing, evaluate the template at the best fit RV.
-            # TODO: can we cache this for better performance?
-            if self.trace is not None:
-                tt = {}
-                for arm in spectra:
-                    for spec in spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]:
-                        temp = templates[arm]
-                        
-                        psf = self.template_psf[arm] if self.template_psf is not None else None
-                        wlim = self.template_wlim[arm] if self.template_wlim is not None else None
-                    
-                        # This is a generic call to preprocess the template which might or
-                        # might not include a convolution, depending on the RVFit implementation.
-                        # When template convolution is pushed down to the model grid to support
-                        # caching, convolution is skipped by the derived classes such as
-                        # ModelGridRVFit
-                        t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
-                        tt[arm] = t
-                self.trace.on_fit_rv(rv_fit, spectra, tt)
+            lp = -out.fun
         else:
             raise Exception(f"Could not fit RV using `{method}`")
         
+        # Calculate the flux correction coefficients at best fit values
+        phi_fit, chi_fit, ndf_fit = self.eval_phi_chi(spectra, templates, rv_fit)
+        a_fit = self.eval_a(phi_fit, chi_fit)
+
         # Calculate the error from the Fisher matrix
-        _, C = self.eval_F(spectra, templates, rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, mode='rv', method='hessian')
+        if calculate_error:
+            _, C = self.eval_F(spectra, templates, rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, mode='rv', method='hessian')
 
-        with np.errstate(invalid='warn'):
-            rv_err = np.sqrt(C[-1, -1])         # sigma
+            with np.errstate(invalid='warn'):
+                rv_err = np.sqrt(C[-1, -1])         # sigma
+        else:
+            rv_err = None
+            C = None
 
-        return rv_fit, rv_err, a_fit, np.full_like(a_fit, np.nan)
+        # If tracing, evaluate the template at the best fit RV.
+        # TODO: can we cache this for better performance?
+        if self.trace is not None:
+            tt = {}
+            for arm in spectra:
+                for spec in spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]:
+                    temp = templates[arm]
+                    
+                    psf = self.template_psf[arm] if self.template_psf is not None else None
+                    wlim = self.template_wlim[arm] if self.template_wlim is not None else None
+                
+                    # This is a generic call to preprocess the template which might or
+                    # might not include a convolution, depending on the RVFit implementation.
+                    # When template convolution is pushed down to the model grid to support
+                    # caching, convolution is skipped by the derived classes such as
+                    # ModelGridRVFit
+                    t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
+                    tt[arm] = t
+            self.trace.on_fit_rv(spectra, tt, rv_fit)
+        
+        return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
+                            a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
+                            cov=C, log_L_fit=lp)
 
-    def run_mcmc(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None):
+    def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
+                  rv_err=None,
+                  randomize=False, random_size=()):
+        
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        rv_step = rv_step if rv_step is not None else self.rv_step
+
+        # Generate an initial state for MCMC by sampling the prior randomly
+
+        if rv_0 is None or np.isnan(rv_0):
+            if rv_prior is not None:
+                rv = self.sample_rv_prior(rv_prior, rv_bounds)
+            else:
+                if self.rv_0 is not None:
+                    rv = self.rv_0
+                else:
+                    raise NotImplementedError()
+        else:
+            rv = rv_0
+                
+        if randomize:
+            if rv_step is not None:
+                rv = rv + rv_step * (np.random.rand(*random_size) - 0.5)
+            else:
+                rv = rv * (1.0 + 0.05 * (np.random.rand(*random_size) - 0.5))
+
+        if rv_bounds is not None:
+            if rv_bounds[0] is not None:
+                rv = np.maximum(rv, rv_bounds[0])
+            if rv_bounds[1] is not None:
+                rv = np.minimum(rv, rv_bounds[1])
+
+        if rv_err is None or np.any(np.isnan(rv_err)):
+            if rv_step is not None:
+                rv_err = rv_step ** 2
+            else:
+                rv_err = (0.05 * np.mean(rv)) ** 2 + 1.0
+
+        return rv, rv_err
+
+    def run_mcmc(self, spectra, templates, *,
+                 rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
+                 cov=None,
+                 walkers=None, burnin=None, samples=None, thin=None, gamma=None):
         """
         Given a set of spectra and templates, sample from the posterior distribution of RV.
 
@@ -1128,16 +1331,33 @@ class RVFit():
         assert isinstance(spectra, dict)
         assert isinstance(templates, dict)
 
-        rv_0 = rv_0 if rv_0 is not None else self.rv_0
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        walkers = walkers if walkers is not None else self.mcmc_walkers
+        burnin = burnin if burnin is not None else self.mcmc_burnin
+        samples = samples if samples is not None else self.mcmc_samples
+        thin = thin if thin is not None else self.mcmc_thin
+        gamma = gamma if gamma is not None else self.mcmc_gamma
 
-        # Get objective function
-        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_prior, mode='rv')
+        (rv_0, rv_bounds, rv_prior, rv_step,
+            log_L_fun, pack_params, unpack_params, pack_bounds,
+            x_0, bounds, steps) = self.prepare_fit(spectra, templates,
+                                            rv_0=rv_0, rv_bounds=rv_bounds,
+                                            rv_prior=rv_prior, rv_step=rv_step)
         
-        # Run sampling
-        self.sample_log_L(log_L)
+        if bounds is not None and np.any((np.transpose(x_0) < bounds[..., 0]) | (bounds[..., 1] < np.transpose(x_0))):
+            raise Exception("Initial state is outside bounds.")
+        
+        # We only have a single parameter, there's no need for Gibbs sampling
+        gibbs_blocks = [[ 0 ]]
+
+        mcmc = MCMC(log_L_fun, step_size=steps, gibbs_blocks=gibbs_blocks,
+                    walkers=walkers, gamma=0.99)
+        
+        # A leading dimension is required by the mcmc sampler in x_0
+        res_x, res_lp, accept_rate = mcmc.sample(x_0[None, ...], burnin, samples, gamma=gamma)
+
+        rv = unpack_params(res_x)
+
+        return RVFitResults(rv_mcmc=rv, log_L_mcmc=res_lp, accept_rate=accept_rate)
     
     @staticmethod
     def minimize_gridsearch(fun, bounds, nstep=100):

@@ -71,9 +71,6 @@ class ModelGridReader(GridReader):
 
     def process_item(self, i):
         # Called when processing the grid point by point
-
-        logger = multiprocessing.get_logger()
-
         index, params = i
         fn = self.reader.get_filename(R=self.reader.resolution, **params)
         fn = os.path.join(self.reader.path, fn)
@@ -89,21 +86,18 @@ class ModelGridReader(GridReader):
                     params = spec.get_params()
                     return index, params, spec
                 except Exception as e:
-                    logger.error('Error parsing {}'.format(fn))
+                    logging.error('Error parsing {}'.format(fn))
                     time.sleep(0.01)    # ugly hack
                     tries -= 1
                     if tries == 0:
                         raise e
 
         else:
-            logger.debug('Cannot find file {}'.format(fn))
+            logging.debug('Cannot find file {}'.format(fn))
             return None
 
     def process_file(self, file):
         # Called when processing the grid file by file
-
-        logger = multiprocessing.get_logger()
-
         params = self.reader.parse_filename(file)
         index = self.grid.get_index(**params)
         spec = self.reader.read(file)

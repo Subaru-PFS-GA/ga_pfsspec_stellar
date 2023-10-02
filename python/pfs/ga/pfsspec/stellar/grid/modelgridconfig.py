@@ -80,7 +80,7 @@ class ModelGridConfig(GridConfig):
         if name in grid.values and name in ['flux', 'cont']:
             newshape = []
             # Keep neighboring 3 models together in every direction
-            for i, k in enumerate(grid.axes.keys()):
+            for i, k, ax in grid.enumerate_axes():
                 if k in ['log_g', 'Fe_H', 'M_H', 'T_eff']:
                     newshape.append(min(shape[i], 3))
                 else:
