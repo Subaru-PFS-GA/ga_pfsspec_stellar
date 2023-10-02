@@ -674,7 +674,7 @@ class Alex(ContinuumModel):
         # Get the maximum in every interval of dx
 
         N = x.shape[0]
-        pad_row = np.int(np.floor(N / dx)) + 1 
+        pad_row = int(np.floor(N / dx)) + 1 
         pad_num = pad_row * dx - N
         pad_val = np.min(y) - 1
 

@@ -117,7 +117,7 @@ class ContinuumModel(PfsObject):
         continuum_finder = continuum_finder if continuum_finder is not None else self.continuum_finder
 
         if mask is None:
-            mask = np.full_like(x, True, dtype=np.bool)
+            mask = np.full_like(x, True, dtype=bool)
         else:
             mask = mask.copy()
             
