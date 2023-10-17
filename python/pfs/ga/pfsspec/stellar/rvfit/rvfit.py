@@ -570,7 +570,7 @@ class RVFit():
         else:
             nu2 = np.empty(phi.shape[:-1])
             for i in np.ndindex(nu2.shape):
-                nu2[i] = np.dot(phi[i], np.linalg.solve(chi[i], phi[i]))        
+                nu2[i] = np.dot(phi[i], np.linalg.solve(chi[i], phi[i]))
         return nu2
 
     def eval_log_L(self, phi, chi):
@@ -855,7 +855,7 @@ class RVFit():
         else:
             raise NotImplementedError()
 
-    def eval_F_hessian(self, x_0, log_L_fun, step):
+    def eval_F_hessian(self, x_0, log_L_fun, step, inverse=True):
         # Evaluate the Fisher matrix by calculating the Hessian numerically
 
         # Default step size is 1% of optimum values
@@ -865,7 +865,12 @@ class RVFit():
         dd_log_L = nd.Hessian(log_L_fun, step=step)
         dd_log_L_0 = dd_log_L(x_0)
 
-        return dd_log_L_0, np.linalg.inv(-dd_log_L_0)
+        if inverse:
+            inv = np.linalg.inv(-dd_log_L_0)
+        else:
+            inv = None
+
+        return dd_log_L_0, inv
     
     def eval_F_emcee(self, x_0, log_L_fun, step, bounds):
         # Evaluate the Fisher matrix by MC sampling around the optimum
