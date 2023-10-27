@@ -43,8 +43,8 @@ class ModelGridReader(GridReader):
         else:
             return None
 
-    def add_args(self, parser):
-        super(ModelGridReader, self).add_args(parser)
+    def add_args(self, parser, config):
+        super().add_args(parser, config)
 
         # Add spectrum reader parameters
         reader = self.create_reader(None, None)
@@ -55,7 +55,7 @@ class ModelGridReader(GridReader):
         grid.add_args(parser)
 
     def init_from_args(self, config, args):
-        super(ModelGridReader, self).init_from_args(config, args)
+        super().init_from_args(config, args)
 
         self.pipeline = config['pipelines'][args[self.CONFIG_PIPELINE]]()
         self.pipeline.init_from_args(config, args)
