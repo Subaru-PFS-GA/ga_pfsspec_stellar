@@ -10,7 +10,7 @@ from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
 
 class TestModelGrid_Rbf(TestBase):
     def get_test_grid(self, args):
-        file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/bosz/bosz_5000_GF/flux/spectra.h5')
+        file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/rbf/phoenix/phoenix_HiRes_pfs_b.2_FGK/flux-rbf/spectra.h5')
         grid = ModelGrid.from_file(file)
         grid.init_from_args(args)
 
@@ -25,7 +25,7 @@ class TestModelGrid_Rbf(TestBase):
         args = {}
         grid = self.get_test_grid(args)
         axes = grid.enumerate_axes()
-        self.assertEqual(5, len(list(axes)))
+        self.assertEqual(4, len(list(axes)))
 
     def test_get_nearest_model(self):
         args = {}

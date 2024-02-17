@@ -460,15 +460,19 @@ class ModelGrid(PfsObject):
 
     def interpolate_model_spline(self, free_param, denormalize=True, wlim=None, psf=None, **kwargs):
         def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
-            return self.grid.interpolate_value_spline(name, free_param, post_process=post_process, cache_key_prefix=cache_key_prefix, wlim=wlim, **kwargs)
-        spec = self.interpolate_model_impl('linear', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
+            return self.grid.interpolate_value_spline(name, free_param, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
+        spec = self.interpolate_model_impl('spline', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         spec.interp_param = free_param
         return spec
     
     def interpolate_model_rbf(self, denormalize=True, wlim=None, psf=None, **kwargs):
+        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
+            return self.grid.interpolate_value_rbf(name, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
+
         if isinstance(self.grid, RbfGrid) or \
            isinstance(self.grid, PcaGrid) and isinstance(self.grid.grid, RbfGrid):
-                return self.get_nearest_model(denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
+           
+            return self.interpolate_model_impl('rbf', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         else:
             raise Exception("Operation not supported.")
             
@@ -480,8 +484,8 @@ class ModelGrid(PfsObject):
         if method in ['grid', 'nearest']:
             msg_method = 'assigned from grid'
         else:
-            if self.array_grid is None:
-                raise NotImplementedError("General interpolation is supported on ArrayGrid only.")
+            if self.array_grid is None and self.rbf_grid is None:
+                raise NotImplementedError("General interpolation is supported on ArrayGrid and RbfGrid only.")
         
             msg_method = 'calculated from {method} interpolation'
 
