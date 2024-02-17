@@ -30,13 +30,13 @@ class ModelGridConfig(GridConfig):
             self.normalized = normalized
             self.pca = pca
 
-    def add_args(self, parser):
+    def add_args(self, parser, config):
         # TODO: remove
         # choices = [k for k in ModelGridConfig.CONTINUUM_MODEL_TYPES.keys()]
         # parser.add_argument('--continuum-model', type=str, choices=choices, help='Continuum model.\n')
         pass
 
-    def init_from_args(self, args):
+    def init_from_args(self, config, args):
         if 'continuum_model' in args and args['continuum_model'] is not None:
             self.continuum_model_type = ModelGridConfig.CONTINUUM_MODEL_TYPES[args['continuum_model']]
 

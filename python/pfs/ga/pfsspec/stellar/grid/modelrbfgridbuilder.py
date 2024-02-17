@@ -38,13 +38,13 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
 
         parser.add_argument('--step', type=str, choices=ModelRbfGridBuilder.STEPS, help='RBF step to perform.\n')
 
-    def init_from_args(self, config, args):
+    def init_from_args(self, script, config, args):
         self.debug = self.get_arg('debug', False, args)
         self.step = self.get_arg('step', self.step, args)
         self.pca = (self.step == 'pca')
 
-        RbfGridBuilder.init_from_args(self, config, args)
-        ModelGridBuilder.init_from_args(self, config, args)
+        RbfGridBuilder.init_from_args(self, script, config, args)
+        ModelGridBuilder.init_from_args(self, script, config, args)
       
     def create_input_grid(self):
         # It doesn't really matter if the input is already a PCA grid or just a direct

@@ -38,11 +38,11 @@ class ModelGridBuilder():
         parser.add_argument('--pca', action='store_true', help='Run on a PCA input grid.')
         parser.add_argument('--rbf', action='store_true', help='Run on an RBF params grid.')
 
-    def init_from_args(self, config, args):
+    def init_from_args(self, script, config, args):
         self.pca = self.get_arg('pca', self.pca, args)
         self.rbf = self.get_arg('rbf', self.rbf, args)
         
-        self.grid_config.init_from_args(args)
+        self.grid_config.init_from_args(config, args)
         
         # Create the default continuum model and initialize based on command-line arguments
         self.continuum_model = self.grid_config.create_continuum_model()

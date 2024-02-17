@@ -12,11 +12,11 @@ class Bosz(ModelGridConfig):
         else:
             pass
 
-    def add_args(self, parser):
-        super().add_args(parser)
+    def add_args(self, parser, config):
+        super().add_args(parser, config)
 
-    def init_from_args(self, args):
-        super().init_from_args(args)
+    def init_from_args(self, config, args):
+        super().init_from_args(config, args)
 
     def init_axes(self, grid):
         grid.init_axis('M_H', np.arange(-2.5, 1.0, 0.25))
