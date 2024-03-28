@@ -743,10 +743,6 @@ class ModelGridRVFit(RVFit):
         bounds = pack_bounds(bounds, rv_bounds)
         bounds = self.get_bounds_array(bounds)
 
-        if self.trace is not None:
-            self.trace.on_prepare_fit(rv_0, rv_bounds, rv_step,
-                params_0, params_fixed, params_free, params_bounds, params_steps)
-
         return (rv_0, rv_bounds, rv_prior, rv_step,
                 params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
                 log_L_fun, pack_params, unpack_params, pack_bounds,
@@ -785,6 +781,12 @@ class ModelGridRVFit(RVFit):
         log_L_0 = llh(x_0)
         if np.isinf(log_L_0) or np.isnan(log_L_0):
             raise Exception(f"Invalid starting point for RV fitting.")
+        
+        if self.trace is not None:
+            self.trace.on_fit_rv_start(spectra, None,
+                                       rv_0, rv_bounds, rv_prior, rv_step,
+                                       params_0, params_bounds, params_priors, params_steps,
+                                       log_L_fun)
         
         # Generate the initial simplex
         if steps is not None:
@@ -891,7 +893,13 @@ class ModelGridRVFit(RVFit):
                     # ModelGridRVFit
                     t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
                     tt[arm] = t
-            self.trace.on_fit_rv(spectra, tt, rv_fit, params_fit)
+
+            # TODO: pass in continuum model for plotting
+            #       pass in covariance matrix
+            self.trace.on_fit_rv_finish(spectra, None, tt,
+                                        rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
+                                        params_0, params_fit, params_err, params_bounds, params_priors, params_steps,
+                                        log_L_fun)
 
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
                             params_fit=params_fit, params_err=params_err,

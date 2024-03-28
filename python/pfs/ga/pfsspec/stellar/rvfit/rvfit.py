@@ -12,9 +12,6 @@ from collections.abc import Iterable
 from collections import namedtuple
 
 from pfs.ga.pfsspec.core.util.args import *
-from pfs.ga.pfsspec.core import Trace
-from pfs.ga.pfsspec.core import Spectrum
-import pfs.ga.pfsspec.core.plotting.styles as styles
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
@@ -150,7 +147,7 @@ class RVFit():
 
         self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
 
-        # TODO: add more options for flux correction model
+        # TODO: add more options for flux correction model, move arg init to the class itself
         self.flux_corr = PolynomialFluxCorrection()
         self.flux_corr.degree = get_arg('flux_corr_deg', self.flux_corr.degree, args)
 
@@ -640,6 +637,8 @@ class RVFit():
 
         return flux_corr
     
+    # TODO: this uses emcee but isn't very good and has been replaced by a simple
+    #       adaptive MCMC that works better; consider deleting
     # def sample_log_L(self, log_L_fun, x_0,
     #                  walkers=None, burnin=None, samples=None, thin=None, cov=None):
         
@@ -1212,6 +1211,11 @@ class RVFit():
             x_0, bounds, steps) = self.prepare_fit(spectra, templates,
                                             rv_0=rv_0, rv_bounds=rv_bounds,
                                             rv_prior=rv_prior)
+        
+        if self.trace is not None:
+            self.trace.on_fit_rv_start(spectra, templates,
+                                       rv_0, rv_bounds, rv_prior, rv_step,
+                                       log_L_fun)
 
         # Cost function
         def llh(rv):
@@ -1276,7 +1280,12 @@ class RVFit():
                     # ModelGridRVFit
                     t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
                     tt[arm] = t
-            self.trace.on_fit_rv(spectra, tt, rv_fit)
+
+            # TODO: pass in continuum model for plotting
+            #       pass in covariance matrix
+            self.trace.on_fit_rv_finish(spectra, templates, tt, 
+                                        rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
+                                        log_L_fun)
         
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
                             a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
