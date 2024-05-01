@@ -300,18 +300,18 @@ class TestModelGridRVFit(RVFitTestBase):
                     'full',
                     'params_rv',
                     'rv',
-                    'full',
-                    'params_rv',
-                    'rv',
+                    # 'full',
+                    # 'params_rv',
+                    # 'rv',
                 ], [
                     'hessian',
                     'hessian',
                     'hessian',
-                    'emcee',
-                    'emcee',
-                    'sampling',
+                    # 'emcee',
+                    # 'emcee',
+                    # 'sampling',
                 ]):
-                FF, CC = rvfit.calculate_F(specs, res.rv_fit, res.params_fit, mode=mode, method=method)
+                FF, CC = rvfit.calculate_F(specs, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])

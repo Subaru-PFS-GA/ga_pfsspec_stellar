@@ -106,8 +106,8 @@ class RVFitTestBase(StellarTestBase):
         rvfit = self.get_rvfit(flux_correction=flux_correction, use_priors=use_priors, **params_0)
        
         if flux_correction:
-            phi_shape = (5,)
-            chi_shape = (5, 5)
+            phi_shape = (6,)
+            chi_shape = (6, 6)
         else:
             phi_shape = ()
             chi_shape = ()

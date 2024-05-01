@@ -597,22 +597,25 @@ class ModelGridRVFit(RVFit):
 
         # Evaluate the Hessian of the priors
         # Here we assume independent priors so really just take the second derivatives
-        def pi(params_rv):
-            params, rv = unpack_params(params_rv)
-            
-            pi_rv = rv_prior.pdf(rv) if rv_prior is not None else 1.0
+        if params_priors is not None:
+            def pi(params_rv):
+                params, rv = unpack_params(params_rv)
+                
+                pi_rv = np.exp(self.eval_prior(rv_prior, rv))
 
-            pi_params = {}
-            for i, p in enumerate(params_free):
-                if p in params_priors and params_priors[p] is not None:
-                    pi_params[p] = params_priors[p].pdf(params[p])
-                else:
-                    pi_params[p] = 1.0
+                pi_params = {}
+                for i, p in enumerate(params_free):
+                    if p in params_priors:
+                        pi_params[p] = np.exp(self.eval_prior(params_priors[p], params[p]))
+                    else:
+                        pi_params[p] = 1.0
 
-            return pack_params(pi_params, pi_rv)
+                return pack_params(pi_params, pi_rv)
 
-        dd_pi = nd.Derivative(pi, order=2)
-        dd_pi_0 = dd_pi(x_0)
+            dd_pi = nd.Derivative(pi, order=2)
+            dd_pi_0 = dd_pi(x_0)
+        else:
+            dd_pi_0 = np.zeros_like(d_phi_0)
 
         # Assemble the Fisher matrix
         
@@ -626,10 +629,6 @@ class ModelGridRVFit(RVFit):
         F[:da, da:] = -d_phi_0
         F[da:, :da] = -d_phi_0.T
         F[da:, da:] = -nu_0 * dd_nu_0 + matmul_safe(d_phi_0.T, chi_0_inv, d_phi_0) + np.diag(dd_pi_0)
-
-
-        # F[da:, da:] = -nu_0 * dd_nu_0 + d_phi_0.T @ chi_0_inv @ d_phi_0 + np.diag(dd_pi_0)
-        # F[da:, da:] = -nu_0 * dd_nu_0 + chi_0_inv * (d_phi_0.T @ d_phi_0) + np.diag(dd_pi_0)
 
         return F, np.linalg.inv(F)
 
@@ -753,8 +752,14 @@ class ModelGridRVFit(RVFit):
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
                method="Nelder-Mead", max_iter=None,
                calculate_error=True, calculate_cov=True):
+        
+        assert isinstance(spectra, dict)
                 
         max_iter = max_iter if max_iter is not None else self.max_iter
+
+        # Initialize flux correction model
+        if self.flux_corr is None:
+            self.init_flux_corr(spectra, rv_bounds=rv_bounds)
         
         (rv_0, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
@@ -876,11 +881,15 @@ class ModelGridRVFit(RVFit):
         else:
             C = None
 
-        # If tracing, evaluate the template at the best fit parameters
+        # If tracing, evaluate the template at the best fit parameters for each exposure
         if self.trace is not None:
-            tt = {}
+            # Evaluate the basis functions
+            # TODO: move this outside of function and pass in as arguments
+            bases, basis_size = self.get_flux_corr_basis(spectra)
+
+            tt = { arm: [] for arm in spectra }
             for arm in spectra:
-                for spec in spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]:
+                for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]):
                     temp = templates[arm]
                     
                     psf = self.template_psf[arm] if self.template_psf is not None else None
@@ -892,7 +901,9 @@ class ModelGridRVFit(RVFit):
                     # caching, convolution is skipped by the derived classes such as
                     # ModelGridRVFit
                     t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
-                    tt[arm] = t
+                    self.apply_flux_corr(t, bases[arm][ei], a_fit, renorm=True)
+
+                    tt[arm].append(t)
 
             # TODO: pass in continuum model for plotting
             #       pass in covariance matrix

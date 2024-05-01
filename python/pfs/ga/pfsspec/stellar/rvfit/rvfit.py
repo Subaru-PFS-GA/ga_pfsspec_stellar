@@ -11,6 +11,7 @@ import numdifftools as nd
 from collections.abc import Iterable
 from collections import namedtuple
 
+from pfs.ga.pfsspec.core.util.copy import *
 from pfs.ga.pfsspec.core.util.args import *
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import MCMC
@@ -52,8 +53,16 @@ class RVFit():
             self.rv_prior = None
             self.rv_step = None             # RV step size for MCMC sampling
 
-            self.use_flux_corr = False      # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
-            self.flux_corr = None           # Flux correction model
+            self.amplitude_per_arm = False      # Estimate flux multiplier for each arm independently
+            self.amplitude_per_fiber = False    
+            self.amplitude_per_exp = False
+
+            self.use_flux_corr = False          # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
+            self.flux_corr = None               # Flux correction model, optionally for each arm
+            self.flux_corr_degree = 5           # Flux correction degree
+            self.flux_corr_per_arm = False      # Do flux correction independently for each arm
+            self.flux_corr_per_fiber = False    # Do flux correction independently for each fiber
+            self.flux_corr_per_exp = False      # Do flux correction independently for each exposure
 
             self.spec_norm = None           # Spectrum (observation) normalization factor
             self.temp_norm = None           # Template normalization factor
@@ -87,8 +96,16 @@ class RVFit():
             self.rv_prior = orig.rv_prior
             self.rv_step = orig.rv_step
 
+            self.amplitude_per_arm = orig.amplitude_per_arm
+            self.amplitude_per_fiber = orig.amplitude_per_fiber    
+            self.amplitude_per_exp = orig.amplitude_per_exp
+
             self.use_flux_corr = orig.use_flux_corr
-            self.flux_corr = orig.flux_corr
+            self.flux_corr = safe_deep_copy(orig.flux_corr)
+            self.flux_corr_degree = orig.flux_corr_degree
+            self.flux_corr_per_arm = orig.flux_corr_per_arm
+            self.flux_corr_per_fiber = orig.flux_corr_per_fiber
+            self.flux_corr_per_exp = orig.flux_corr_per_exp
 
             self.spec_norm = orig.spec_norm
             self.temp_norm = orig.temp_norm
@@ -117,9 +134,16 @@ class RVFit():
     def add_args(self, config, parser):
         Parameter('rv').add_args(parser)
 
+        parser.add_argument('--amplitude-per-arm', action='store_true', dest='amplitude_per_arm', help='Flux correction per arm.\n')
+        parser.add_argument('--amplitude-per-fiber', action='store_true', dest='amplitude_per_fiber', help='Flux correction per fiber.\n')
+        parser.add_argument('--amplitude-per-exp', action='store_true', dest='amplitude_per_exp', help='Flux correction per exposure.\n')
+
         parser.add_argument('--flux-corr', action='store_true', dest='flux_corr', help='Do flux correction.\n')
         parser.add_argument('--no-flux-corr', action='store_false', dest='flux_corr', help='No flux correction.\n')
         parser.add_argument('--flux-corr-deg', type=int, help='Degree of flux correction polynomial.\n')
+        parser.add_argument('--flux-corr-per-arm', action='store_true', dest='flux_corr_per_arm', help='Flux correction per arm.\n')
+        parser.add_argument('--flux-corr-per-fiber', action='store_true', dest='flux_corr_per_fiber', help='Flux correction per fiber.\n')
+        parser.add_argument('--flux-corr-per-exp', action='store_true', dest='flux_corr_per_exp', help='Flux correction per exposure.\n')
 
         parser.add_argument('--resampler', type=str, choices=list(RVFit.RESAMPLERS.keys()), default='fluxcons', help='Template resampler.\n')
 
@@ -145,11 +169,16 @@ class RVFit():
         self.rv_prior = rv.get_dist()
         self.rv_step = step                         # RV step size for MCMC sampling
 
-        self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
+        self.amplitude_per_arm = get_arg('amplitude_per_arm', self.amplitude_per_arm, args)
+        self.amplitude_per_fiber = get_arg('amplitude_per_fiber', self.amplitude_per_fiber, args)
+        self.amplitude_per_exp = get_arg('amplitude_per_exp', self.amplitude_per_exp, args)
 
         # TODO: add more options for flux correction model, move arg init to the class itself
-        self.flux_corr = PolynomialFluxCorrection()
-        self.flux_corr.degree = get_arg('flux_corr_deg', self.flux_corr.degree, args)
+        self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
+        self.flux_corr_degree = get_arg('flux_corr_deg', self.flux_corr_degree, args)
+        self.flux_corr_per_arm = get_arg('flux_corr_per_arm', self.flux_corr_per_arm, args)
+        self.flux_corr_per_fiber = get_arg('flux_corr_per_fiber', self.flux_corr_per_fiber, args)
+        self.flux_corr_per_exp = get_arg('flux_corr_per_exp', self.flux_corr_per_exp, args)            
 
         # Use Interp1dResampler when template PSF accounts for pixelization
         resampler = get_arg('resampler', None, args)
@@ -227,7 +256,7 @@ class RVFit():
 
         return spec
     
-    def determine_wlim(self, spectra, rv_bounds=None):
+    def determine_wlim(self, spectra: dict, rv_bounds=None):
         # Determine wavelength limits necessary for the template LSF convolution
 
         if rv_bounds is not None:
@@ -237,9 +266,9 @@ class RVFit():
             zmin = zmax = 1
 
         self.template_wlim = {}
-        for k in spectra:
+        for arm in spectra:
             wmin, wmax = None, None
-            for s in spectra[k] if isinstance(spectra[k], list) else [ spectra[k] ]:
+            for s in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
                 w = s.wave[0] * (1 + zmin)
                 wmin = w if wmin is None else min(wmin, w)
 
@@ -247,7 +276,7 @@ class RVFit():
                 wmax = w if wmax is None else max(wmax, w)
 
             # Buffer the wave limits a little bit
-            self.template_wlim[k] = (wmin - self.template_wlim_buffer, wmax + self.template_wlim_buffer)
+            self.template_wlim[arm] = (wmin - self.template_wlim_buffer, wmax + self.template_wlim_buffer)
     
     def process_template_impl(self, arm, template, spectrum, rv, psf=None, wlim=None):
         # 1. Make a copy, not in-place update
@@ -268,13 +297,10 @@ class RVFit():
             t.multiply(1.0 / self.temp_norm)
 
         # TODO: add continuum normalization?
-
-        if self.trace is not None:
-            self.trace.on_process_template(arm, rv, template, t)
             
         return t
 
-    def process_template(self, arm, template, spectrum, rv, psf=None, wlim=None, diff=False, resample=True, renorm=False, flux_corr=False, a=None):
+    def process_template(self, arm, template, spectrum, rv, psf=None, wlim=None, diff=False, resample=True):
         # Preprocess the template to match the observation. This step
         # involves shifting the high resolution template the a given RV,
         # convolving it with the PSF, still at high resolution, and normalizing
@@ -319,28 +345,15 @@ class RVFit():
             # Compute convolved template from scratch
             temp = self.process_template_impl(arm, template, spectrum, rv, psf=psf, wlim=wlim)
 
+        if self.trace is not None:
+            self.trace.on_process_template(arm, rv, template, temp)
+
         # Resample template to the binning of the observation
         if resample:
             temp.apply_resampler(self.template_resampler, spectrum.wave, spectrum.wave_edges)
 
-        # Optionally apply flux correction. Note that a = None during the fitting process,
-        # this feature is provided for evaluating the results only, so it's okay to
-        # calculate the basis function on the fly.
-        if a is not None:
-            if flux_corr:
-                # Evaluate the basis function
-                f = self.flux_corr.get_basis_callable()
-                basis = f(temp.wave)
-                temp.multiply(np.dot(basis, a))
-            else:
-                temp.multiply(a)
-
-        # Normalize template to match the flux scale of the fitted spectrum
-        if renorm and self.spec_norm is not None:
-            temp.multiply(self.spec_norm)
-
-        if self.trace is not None:
-            self.trace.on_resample_template(arm, rv, spectrum, template, temp)
+            if self.trace is not None:
+                self.trace.on_resample_template(arm, rv, spectrum, template, temp)
 
         return temp
     
@@ -377,26 +390,153 @@ class RVFit():
             wave = template.wave
 
         return wave, dfdlogl
+
+    def get_param_count(self, spectra):
+        # Determine the number of linear coefficients of the flux correction. Even when flux correction
+        # is not used, the amplitude (absolute calibration) can very from arm to arm.
+
+        # Flux correction can be an overall model for all arms or different for each arm and the same
+        # amplitude and coefficients can be used for all exposures made with that arm, or a different
+        # amplitude for every single exposure.
+
+        # Count amplitudes
+
+        if self.amplitude_per_exp:
+            amp_count = 0
+            for arm in spectra:
+                if isinstance(spectra[arm], list):
+                    amp_count += len(spectra[arm])
+                else:
+                    amp_count += 1
+        elif self.amplitude_per_arm:
+            amp_count = len(spectra)
+        else:
+            amp_count = 1
+        
+        if self.amplitude_per_fiber:
+            raise NotImplementedError()
+        
+        # Flux correction model parameters
+
+        coeff_count = 0
+
+        if self.use_flux_corr:
+            if self.flux_corr_per_arm:
+                # Different flux correction model for each arm
+                for arm in self.flux_corr:
+                    param_count = self.flux_corr[arm].get_param_count()
+
+                    if self.flux_corr_per_exp and isinstance(spectra[arm], list):
+                        param_count *= len(spectra[arm])
+                        
+                    coeff_count += param_count
+            else:
+                # A single flux correction model over the entire wavelength range
+                # but the coefficients might be evaluated separately for every exposure
+                param_count = self.flux_corr.get_param_count()
+
+                if self.flux_corr_per_exp:
+                    exp_count = 0
+                    for arm in spectra:
+                        if isinstance(spectra[arm], list):
+                            exp_count += len(spectra[arm])
+                        else:
+                            exp_count += 1
+                    param_count *= exp_count
+
+                coeff_count = param_count
+                    
+            if self.flux_corr_per_fiber:
+                raise NotImplementedError()
+        else:
+            coeff_count = 0
+
+        return amp_count, coeff_count
     
     def eval_flux_corr_basis(self, spectra):
-        # Evaluate the basis functions on the wavelength grid of the spectra
+        # Evaluate the basis function for each exposure of every arm on the wavelength
+        # grid of the actual exposure. The basis will have the size of the total number of
+        # linear coefficients, taking config options such as `amplutide_per_exp` and 
+        # `self.flux_corr_per_exp` into account. Basis vectors which correspond to a 
+        # different arm or exposure will be set to zero.
 
-        basis = {}
-        basis_size = None
-        f = self.flux_corr.get_basis_callable()
-        for k in spectra:
-            basis[k] = []
-            for spec in spectra[k] if isinstance(spectra[k], list) else [spectra[k]]:
-                basis[k].append(f(spec.wave))
-                if basis_size is None:
-                    basis_size = basis[k][-1].shape[-1]
-                elif basis_size != basis[k][-1].shape[-1]:
-                    raise Exception('Inconsistent basis size')
+        # Note, that the basis vectors don't include the constant function, those will be
+        # added separately to the basis based on `amplitude_per_arm` and `amplitude_per_exp`.
 
-        if self.trace is not None:        
-            self.trace.on_eval_flux_corr_basis(spectra, basis)
-                
+        # Calculate the total number of amplitudes and linear coefficients
+        amp_count, coeff_count = self.get_param_count(spectra)
+        basis_size = amp_count + coeff_count
+        basis = { arm: [] for arm in spectra}
+
+        amp_i = 0
+        coeff_i = 0
+        for arm_i, arm in enumerate(spectra):
+            # Loop over each exposure in the arm
+            for spec in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
+                # Allocate array for the basis vectors
+                bb = np.zeros((spec.wave.shape[0], basis_size), dtype=spec.flux.dtype)
+
+                if self.amplitude_per_exp:
+                    # Each exposure has its own free parameters for the amplitude
+                    bb[:, amp_i] = 1.0
+                    amp_i += 1
+                elif self.amplitude_per_arm:
+                    # Amplitude is different for each arm
+                    bb[:, arm_i] = 1.0
+                else:
+                    # Amplitude is the same for each spectrum
+                    bb[:, 0] = 1.0
+
+                if self.use_flux_corr:
+                    if self.flux_corr_per_arm:
+                        # Flux correction function is different for each arm
+
+                        cc = self.flux_corr[arm].get_param_count()
+                        f = self.flux_corr[arm].get_basis_callable()
+                    else:
+                        # Flux correction function is the same for all arms
+
+                        cc = self.flux_corr.get_param_count()
+                        f = self.flux_corr.get_basis_callable()
+
+                    s = np.s_[:, amp_count + coeff_i : amp_count + coeff_i + cc]
+                    bb[s] = f(spec.wave)
+    
+                    # If flux correction coefficients are different for each exposure
+                    if self.flux_corr_per_exp:
+                        coeff_i += cc
+
+                basis[arm].append(bb)
+
+            # If flux correction coefficients are different for each arm
+            if self.use_flux_corr and self.flux_corr_per_arm and not self.flux_corr_per_exp:
+                coeff_i += cc
+
         return basis, basis_size
+    
+    def get_flux_corr_basis(self, spectra):
+        if self.flux_corr_basis_cache is None:
+            self.flux_corr_basis_cache, self.flux_corr_basis_size = self.eval_flux_corr_basis(spectra)
+
+        bases, basis_size = self.flux_corr_basis_cache, self.flux_corr_basis_size
+
+        return bases, basis_size
+    
+    def apply_flux_corr(self, temp, basis, a, renorm=True):
+        # Apply flux correction to a template.
+        # This feature is provided for evaluating the results only, not used
+        # during the fitting process
+
+        if self.use_flux_corr:
+            # Full flux correction
+            temp.multiply(np.dot(basis, a))
+        else:
+            # This is an amplitude only
+            temp.multiply(a)
+
+        # Normalize template to match the flux scale of the fitted spectrum
+        if renorm and self.spec_norm is not None:
+            temp.multiply(self.spec_norm)
 
     def eval_phi_chi(self, spectra, templates, rv):
         """
@@ -414,20 +554,19 @@ class RVFit():
         if self.trace is not None:
             trace_state = RVFitTraceState()
 
-        if not self.use_flux_corr:
-            bases = None
-            phi = np.zeros(rvv.shape)
-            chi = np.zeros(rvv.shape)
-            ndf = np.zeros(rvv.shape)
-        else:
-            # TODO: move this outside of function and pass in as arguments
-            # Evaluate the basis for each spectrum
-            if self.flux_corr_basis_cache is None:
-                self.flux_corr_basis_cache, self.flux_corr_basis_size = self.eval_flux_corr_basis(spectra)
-            bases, basis_size = self.flux_corr_basis_cache, self.flux_corr_basis_size            
-            phi = np.zeros(rvv.shape + (basis_size,))
-            chi = np.zeros(rvv.shape + (basis_size, basis_size))
-            ndf = np.zeros(rvv.shape)
+        # TODO: move this outside of function and pass in as arguments
+        # Calculate the number of flux-correction parameters, including
+        # the amplitudes which might be different for each arm and exposure
+        amp_count, coeff_count = self.get_param_count(spectra)
+        param_count = amp_count + coeff_count
+
+        phi = np.zeros(rvv.shape + (param_count,))
+        chi = np.zeros(rvv.shape + (param_count, param_count))
+        ndf = np.zeros(rvv.shape)
+
+        # Evaluate the basis functions
+        # TODO: move this outside of function and pass in as arguments
+        bases, basis_size = self.get_flux_corr_basis(spectra)
                 
         # For each value of rv0, sum up log_L contributions from spectrum - template pairs
         for i in range(rvv.size):
@@ -452,6 +591,8 @@ class RVFit():
                     # TODO: Make sure template is not double-convolved in normal RVFit
                     spec = self.process_spectrum(arm, ei, specs[ei])
                     temp = self.process_template(arm, templates[arm], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
+
+                    # TODO: move this masking logic outside and cache between calls to eval_phi_chi
                     
                     # Determine mask
                     mask = None
@@ -481,6 +622,9 @@ class RVFit():
                     else:
                         sigma2 = None
 
+                    # TODO: when moving the mask logic from above, keep this below because it
+                    #       is template dependent
+
                     # Weight (optional)
                     if self.use_weight and temp.weight is not None:
                         weight = temp.weight / temp.weight.sum() * temp.weight.size
@@ -489,11 +633,8 @@ class RVFit():
                         weight = None
 
                     # Flux correction (optional)
-                    if bases is not None:
-                        basis = bases[arm][ei]
-                        mask &= ~np.any(np.isnan(basis), axis=-1)       # Be cautious in case any item in wave is nan
-                    else:
-                        basis = None
+                    basis = bases[arm][ei]
+                    mask &= ~np.any(np.isnan(basis), axis=-1)       # Be cautious in case any item in wave is nan
 
                     # Verify that the mask is not empty or too few points to fit
                     if mask.sum() < 10:
@@ -511,12 +652,12 @@ class RVFit():
                         pp /= sigma2[mask]
                         cc /= sigma2[mask]
 
-                    if basis is None:
-                        pass
-                    else:
-                        pp = pp[:, None] * basis[mask, :]
-                        cc = cc[:, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
-
+                    # Size of phi and chi is amp_count + coeff_count
+                    pp = pp[:, None] * basis[mask, :]
+                    cc = cc[:, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
+                
+                    # i indexes the rv values we are calculating phi and chi for
+                    # sum goes over the spectral pixels
                     phi[i] += np.sum(pp, axis=0)
                     chi[i] += np.sum(cc, axis=0)
 
@@ -537,19 +678,20 @@ class RVFit():
                 log_L = self.eval_log_L(phi[np.newaxis, i], chi[np.newaxis, i])
                 self.trace.on_eval_phi_chi(rvv[i], trace_state.spectra, trace_state.templates, trace_state.bases, trace_state.sigma2, trace_state.weights, trace_state.masks, log_L[0], phi[i], chi[i])
 
+        if not self.use_flux_corr:
+            # Single amplitude
+            phi = phi.reshape(rvv.shape)
+            chi = chi.reshape(rvv.shape)
+            ndf = ndf.reshape(rvv.shape)
+        else:
+            phi = phi.reshape(rvv.shape + (basis_size,))
+            chi = chi.reshape(rvv.shape + (basis_size, basis_size))
+            ndf = ndf.reshape(rvv.shape)
+
         if not isinstance(rv, np.ndarray):
             phi = phi[0]
             chi = chi[0]
             ndf = ndf[0]
-        else:
-            if bases is None:
-                phi = phi.reshape(rv.shape)
-                chi = chi.reshape(rv.shape)
-                ndf = ndf.reshape(rv.shape)
-            else:
-                phi = phi.reshape(rv.shape + (basis_size,))
-                chi = chi.reshape(rv.shape + (basis_size, basis_size))
-                ndf = ndf.reshape(rv.shape)
 
         return phi, chi, ndf
     
@@ -763,8 +905,12 @@ class RVFit():
 
             def unpack_params(params):
                 rv = params
+
+                # Invert np.atleast_1d
                 if rv.size == 1:
                     rv = rv.item()
+                elif rv.ndim > 1 and rv.shape[0] == 1:
+                    rv = rv.reshape(rv.shape[1:])
                 return rv
             
             def pack_bounds(rv_bounds):
@@ -903,7 +1049,7 @@ class RVFit():
 
         n = x_0.size
         if n == 1:
-            p = np.polyfit(x, log_L, 2)
+            p = np.polyfit(x.item(), log_L, 2)
             return np.array([[2.0 * p[0]]]), np.array([[-0.5 / p[0]]])
         else:
             # Fit n-D quadratic formula
@@ -958,8 +1104,8 @@ class RVFit():
         d_phi_chi = nd.Derivative(phi_chi, step=step)
         dd_phi_chi = nd.Derivative(phi_chi, step=step, n=2)
 
-        d_phi_0, d_chi_0 = unpack_phi_chi(d_phi_chi(rv_0), phi_0.size)
-        dd_phi_0, dd_chi_0 = unpack_phi_chi(dd_phi_chi(rv_0), phi_0.size)
+        d_phi_0, d_chi_0 = unpack_phi_chi(d_phi_chi(np.atleast_1d(rv_0)), phi_0.size)
+        dd_phi_0, dd_chi_0 = unpack_phi_chi(dd_phi_chi(np.atleast_1d(rv_0)), phi_0.size)
 
         if not self.use_flux_corr:
             # TODO: use special calculations from Alex
@@ -1193,6 +1339,42 @@ class RVFit():
         return (rv_0, rv_bounds, rv_prior, rv_step,
                 log_L_fun, pack_params, unpack_params, pack_bounds,
                 x_0, bounds, steps)
+    
+    def create_flux_corr(self, wlim, rv_bounds, round_to=100):
+        # Given the wavelength coverage and rv_bounds, calculate the appropriate
+        # domain for the flux correction basis and initialize a the flux correction model
+
+        wmin = np.floor(wlim[0] * (1 + Physics.vel_to_z(rv_bounds[0])) / round_to) * round_to
+        wmax = np.ceil(wlim[1] * (1 + Physics.vel_to_z(rv_bounds[0])) / round_to) * round_to
+
+        return PolynomialFluxCorrection(degree=self.flux_corr_degree, wlim=(wmin, wmax))
+    
+    def init_flux_corr(self, spectra, rv_bounds=None):
+        # Initialize the flux correction model depending on the configuration
+
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+    
+        if self.flux_corr_per_arm:
+            # Use a different flux correction (at least in terms of domain) for each arm
+            self.flux_corr = {}
+            for arm in spectra:
+                wmin, wmax = None, None
+                for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
+                    w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
+                    wmin = min(wmin or w[0], w[0])
+                    wmax = max(wmax or w[1], w[1])
+
+                self.flux_corr[arm] = self.create_flux_corr((wmin, wmax), rv_bounds)
+        else:
+            # Use the same flux correction for each arm, the domain will cover every arm
+            wmin, wmax = None, None
+            for arm in spectra:
+                for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
+                    w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
+                    wmin = min(wmin or w[0], w[0])
+                    wmax = max(wmax or w[1], w[1])
+
+            self.flux_corr = self.create_flux_corr((wmin, wmax), rv_bounds)
 
     def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
                method='bounded', calculate_error=True):
@@ -1205,6 +1387,10 @@ class RVFit():
 
         assert isinstance(spectra, dict)
         assert isinstance(templates, dict)
+
+        # Initialize flux correction model
+        if self.flux_corr is None:
+            self.init_flux_corr(spectra, rv_bounds=rv_bounds)
 
         (rv_0, rv_bounds, rv_prior, rv_step,
             log_L_fun, pack_params, unpack_params, pack_bounds,
@@ -1367,6 +1553,8 @@ class RVFit():
                     walkers=walkers, gamma=0.99)
         
         # A leading dimension is required by the mcmc sampler in x_0
+        # res_x.shape: (num_vars, samples, walkers)
+        # res_lp.shape: (samples, walkers)
         res_x, res_lp, accept_rate = mcmc.sample(x_0[None, ...], burnin, samples, gamma=gamma)
 
         rv = unpack_params(res_x)

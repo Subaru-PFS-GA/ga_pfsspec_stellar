@@ -24,7 +24,9 @@ class RVFitTrace(Trace):
                          log_level=log_level)
         
         self.plot_rv_prior = False
+        self.plot_rv_guess = False
         self.plot_input_spec = False
+        self.plot_fit_spec = False
         self.plot_spec_flux_err = False
         self.plot_spec_mask = False
         self.plot_spec_cont = False
@@ -51,6 +53,7 @@ class RVFitTrace(Trace):
 
         self.plot_rv_prior = get_arg('plot_rv_prior', self.plot_rv_prior, args)
         self.plot_input_spec = get_arg('plot_input_spec', self.plot_input_spec, args)
+        self.plot_fit_spec = get_arg('plot_fit_spec', self.plot_fit_spec, args)
         self.plot_spec_flux_err = get_arg('plot_spec_flux_err', self.plot_spec_flux_err, args)
         self.plot_spec_mask = get_arg('plot_spec_mask', self.plot_spec_mask, args)
         self.plot_spec_cont = get_arg('plot_spec_cont', self.plot_spec_cont, args)
@@ -65,7 +68,7 @@ class RVFitTrace(Trace):
         self.rv_iter = [ rv_0 ]
 
         if self.plot_input_spec:
-            self._plot_spectra('rvfit_exposures', spectra)
+            self._plot_spectra('rvfit_input', spectra)
             self.flush_figures()
         
         # TODO: plot rv_0, prior and bounds here
@@ -80,6 +83,14 @@ class RVFitTrace(Trace):
         self.rv_iter.append(rv_fit)
         
         # TODO: plot whatever requested
+        if self.plot_fit_spec:
+            self._plot_spectra('rvfit_best', spectra, templates=templates, processed_templates=processed_templates,
+                               plot_spectra=True, plot_processed_templates=True,
+                               plot_flux_err=True, plot_residuals=False)
+            self._plot_spectra('rvfit_residuals', spectra, templates=templates, processed_templates=processed_templates,
+                               plot_spectra=False, plot_processed_templates=False,
+                               plot_flux_err=False, plot_residuals=True)
+            self.flush_figures()
 
     def on_process_spectrum(self, arm, i, spectrum, processed_spectrum):
         if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
@@ -133,7 +144,7 @@ class RVFitTrace(Trace):
         pass
 
     def on_guess_rv(self, rv, log_L, rv_guess, fit, function, pp, pcov):
-        if self.plot_level >= Trace.PLOT_LEVEL_INFO:
+        if self.plot_rv_guess or self.plot_level >= Trace.PLOT_LEVEL_INFO:
             (f, ax) = self.get_page('guess_rv', 1, 1)
             ax.plot(rv, log_L, '.')
             if fit is not None:
@@ -153,44 +164,14 @@ class RVFitTrace(Trace):
             self.make_outdir(fn)
             with open(fn, "w") as f:
                 f.writelines([ s + '\n' for s in spectrum.history ])
-
-    # def plot_spectrum(self, key, arm, wave, flux=None, error=None, cont=None, model=None, label=None):
-    #     """
-    #     Plot a spectrum
-    #     """
-
-    #     def plot(ax, mask=()):
-    #         if flux is not None:
-    #             ax.plot(wave[mask], flux[mask], label=label, **styles.solid_line())
-    #         if error is not None:
-    #             ax.plot(wave[mask], error[mask], **styles.solid_line())
-    #         if cont is not None:
-    #             ax.plot(wave[mask], cont[mask], **styles.solid_line())
-    #         if model is not None:
-    #             ax.plot(wave[mask], model[mask], **styles.solid_line())
-
-    #     (f, axs) = self.get_figure(key, 2, 1)
-    #     plot(axs[0])
-    #     plot(axs[1], (np.abs(wave - wave.mean()) < 20.0))
                 
-    def _plot_spectra(self, key, spectra):
+    def _plot_spectra(self, key, spectra, templates=None, processed_templates=None,
+                      plot_spectra=True, plot_flux_err=True,
+                      plot_templates=True,
+                      plot_processed_templates=True,
+                      plot_residuals=False):
         # Number of exposures
         nexp = np.max([ len(spectra[arm]) for arm in spectra.keys() ])
-
-        
-        # ss = [ s for arm in spectra.keys() for s in spectra[arm] ]
-        # ww = np.concatenate([ s.wave for s in ss])
-        # ff = np.concatenate([ s.flux for s in ss])
-        # mm = ~np.isnan(ww) & ~np.isnan(ff)
-
-        # wave_min = np.min(ww[mm])
-        # wave_max = np.max(ww[mm])
-
-        # wave_min -= 0.05 * (wave_max - wave_min)
-        # wave_max += 0.05 * (wave_max - wave_min)
-        
-        # flux_min = 0
-        # flux_max = 1.1 * np.quantile(ff[mm], 0.95)
 
         ncols = 1
         nrows = 4
@@ -212,14 +193,26 @@ class RVFitTrace(Trace):
                 spec = specs[i]
 
                 # TODO: define arm color in styles
-                p.plot_spectrum(specs[i])
+                if plot_spectra:
+                    p.plot_spectrum(specs[i], plot_flux_err=plot_flux_err)
+
+                if plot_templates and templates is not None:
+                    raise NotImplementedError()
+
+                if plot_processed_templates and processed_templates is not None:
+                    temp = processed_templates[arm][i]
+                    p.plot_template(temp)
+
+                if plot_residuals and processed_templates is not None:
+                    temp = processed_templates[arm][i]
+                    p.plot_residual(spec, temp)
 
             # TODO: Add SNR, exp time, obs date
             p.title = spec.get_id_string()
             p.apply()
 
-        # TODO: match limits
         f.match_limits()
 
         pass
 
+    

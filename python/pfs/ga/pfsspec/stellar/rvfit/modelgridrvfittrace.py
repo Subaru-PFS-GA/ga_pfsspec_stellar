@@ -54,15 +54,13 @@ class ModelGridRVFitTrace(RVFitTrace):
                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
                          params_0, params_fit, params_err, params_bounds, params_priors, params_steps,
                          log_L_fun):
-
-        super().on_fit_rv_finish(spectra, templates, processed_templates,
-                                 rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
-                         log_L_fun)
         
         for p in params_fit:
             self.params_iter[p].append(params_fit[p])
 
-        # TODO: plot
+        super().on_fit_rv_finish(spectra, templates, processed_templates,
+                            rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
+                            log_L_fun)
 
     def on_calculate_log_L(self, spectra, templates, rv, params, a):
         pass

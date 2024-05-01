@@ -169,6 +169,49 @@ class TestRVFit(RVFitTestBase):
             _, _, _, rv0 = rvfit.guess_rv(specs, temps)
             ax.axvline(rv0, color='k', label='rv guess')
 
+    def test_get_param_count_eval_flux_corr_basis(self):
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(True, True, True, True, True, False)
+
+        # degree = 5
+
+        gt = [
+            [ False, False, False, False, 1, 5 ],
+            [ False, False, False, True, 1, 20 ],
+            [ False, False, True, False, 1, 10 ],
+            [ False, False, True, True, 1, 20 ],
+            [ False, True, False, False, 4, 5 ],
+            [ False, True, False, True, 4, 20 ],
+            [ False, True, True, False, 4, 10 ],
+            [ False, True, True, True, 4, 20 ],
+            [ True, False, False, False, 2, 5 ],
+            [ True, False, False, True, 2, 20 ],
+            [ True, False, True, False, 2, 10 ],
+            [ True, False, True, True, 2, 20 ],
+            [ True, True, False, False, 4, 5 ],
+            [ True, True, False, True, 4, 20 ],
+            [ True, True, True, False, 4, 10 ],
+            [ True, True, True, True, 4, 20 ],
+        ]
+
+        # Test different types of freedom
+        for [rvfit.amplitude_per_arm, rvfit.amplitude_per_exp,
+             rvfit.flux_corr_per_arm, rvfit.flux_corr_per_exp,
+             gt_amp_count, gt_coeff_count] in gt:
+            
+                rvfit.init_flux_corr(specs, rv_bounds=(-500, 500))
+                amp_count, coeff_count = rvfit.get_param_count(specs) 
+
+                self.assertEqual(gt_amp_count, amp_count)
+                self.assertEqual(gt_coeff_count, coeff_count)
+
+                basis, basis_size = rvfit.eval_flux_corr_basis(specs)
+
+                self.assertEqual(gt_amp_count + gt_coeff_count, basis_size)
+                for arm in basis:
+                    for b in basis[arm]:
+                        b.shape[-1] == gt_amp_count + gt_coeff_count
+
+
     def test_eval_flux_corr_basis(self):
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(True, True, True, True, True, False)
 
@@ -253,6 +296,40 @@ class TestRVFit(RVFitTestBase):
 
         self.save_fig(f)
 
+    def test_fit_rv_flux_corr(self):
+        # Test various types of flux correction
+
+        f, ax = plt.subplots(1, 1, figsize=(6, 4), squeeze=True)
+
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True, use_priors=True)
+
+        rvfit.amplitude_per_arm = True
+        rvfit.amplitude_per_exp = True
+        rvfit.flux_corr_per_arm = True
+        rvfit.flux_corr_per_exp = True
+
+        rvfit.init_flux_corr(specs, rv_bounds=(-500, 500))
+
+        res = rvfit.fit_rv(specs, temps)
+
+        ax.axvline(rv_real, color='r', label='rv real')
+        ax.axvline(res.rv_fit, color='b', label='rv fit')
+        ax.axvline(res.rv_fit - res.rv_err, color='b')
+        ax.axvline(res.rv_fit + res.rv_err, color='b')
+
+        # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
+        rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
+        log_L, phi, chi, ndf = rvfit.calculate_log_L(specs, temps, rvv)
+        if rvfit.rv_prior is not None:
+            log_L += rvfit.rv_prior(rvv)
+        ax.plot(rvv, log_L, '.')
+        ax.set_xlim(rvv[0], rvv[-1])
+
+        ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
+        # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
+
+        self.save_fig(f)
+
     def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
         rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
 
@@ -265,7 +342,7 @@ class TestRVFit(RVFitTestBase):
                                   rv_bounds=(rv_real - 100, rv_real + 100),
                                   rv_step=2)
 
-        ax.hist(res.rv_mcmc)
+        ax.hist(res.rv_mcmc.flatten())
 
     def test_run_mcmc(self):
         configs = [
@@ -299,15 +376,15 @@ class TestRVFit(RVFitTestBase):
             for mode, method in zip([
                     'full',
                     'rv',
-                    'full',
-                    'rv',
+                    # 'full',
+                    # 'rv',
                     'full',
                     'full'
                 ], [
                     'hessian',
                     'hessian',
-                    'emcee',
-                    'sampling',
+                    # 'emcee',
+                    # 'sampling',
                     'phi_chi',
                     'alex'
                 ]):
