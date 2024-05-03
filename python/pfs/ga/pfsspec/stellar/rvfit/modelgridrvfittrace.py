@@ -4,6 +4,7 @@ import numpy as np
 from pfs.ga.pfsspec.core import Trace
 from pfs.ga.pfsspec.core.plotting import styles
 from pfs.ga.pfsspec.core.util.args import *
+from pfs.ga.pfsspec.core.plotting import DiagramPage, DiagramAxis, CornerPlot
 from .rvfittrace import RVFitTrace
 
 class ModelGridRVFitTrace(RVFitTrace):
@@ -53,6 +54,7 @@ class ModelGridRVFitTrace(RVFitTrace):
     def on_fit_rv_finish(self, spectra, templates, processed_templates,
                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
                          params_0, params_fit, params_err, params_bounds, params_priors, params_steps,
+                         params_free, cov,
                          log_L_fun):
         
         for p in params_fit:
@@ -61,6 +63,41 @@ class ModelGridRVFitTrace(RVFitTrace):
         super().on_fit_rv_finish(spectra, templates, processed_templates,
                             rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
                             log_L_fun)
+        
+        # TODO: move it to a function and remove duplicate lines
+        # Plot corner plot of parameters
+        nparam = len(params_fit) + 1        # including RV
+        f = self.get_diagram_page('rvfit_cov', npages=1, nrows=nparam, ncols=nparam)
+
+        # Collect the axes from the free parameters and RV
+        axes = []
+        priors = []
+        for p in params_free:
+            # limits = params_bounds[p]
+            limits = (params_fit[p] - 10 * params_err[p], params_fit[p] + 10 * params_err[p])
+            axes.append(DiagramAxis(limits, label=p))
+            priors.append((params_priors[p], limits, None, None))
+
+        # limits = rv_bounds
+        limits = (rv_fit - 10 * rv_err, rv_fit + 10 * rv_err)
+        axes.append(DiagramAxis(limits, label='RV'))
+        priors.append((rv_prior, limits, None, None))
+
+        cc = CornerPlot(f, axes)
+
+        # Plot the covariance contours
+        mu = np.array([ params_fit[p] for p in params_free ] + [ rv_fit ])
+        if cov is not None and not np.any(np.isnan(cov)):
+            cc.plot_covariance(mu, cov, sigma=[1, 2, 3])
+        
+        # Plot the best fit values with error bars
+        args = [ (params_fit[p], params_err[p]) for p in params_free ] + [ (rv_fit, rv_err) ]
+        cc.errorbar(*args, sigma=[1, 2, 3])
+
+        # Plot the priors            
+        cc.plot_priors(*priors, normalize=True)
+
+        self.flush_figures()
 
     def on_calculate_log_L(self, spectra, templates, rv, params, a):
         pass

@@ -910,6 +910,7 @@ class ModelGridRVFit(RVFit):
             self.trace.on_fit_rv_finish(spectra, None, tt,
                                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
                                         params_0, params_fit, params_err, params_bounds, params_priors, params_steps,
+                                        params_free, C,
                                         log_L_fun)
 
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,

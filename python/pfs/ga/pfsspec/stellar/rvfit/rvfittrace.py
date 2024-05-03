@@ -1,7 +1,7 @@
 import os
 import numpy as np
 
-from pfs.ga.pfsspec.core.plotting import SpectrumPlot, PriorPlot, styles
+from pfs.ga.pfsspec.core.plotting import SpectrumPlot, DistributionPlot, styles
 from pfs.ga.pfsspec.core import Trace
 from pfs.ga.pfsspec.core.util.args import *
 
@@ -77,7 +77,7 @@ class RVFitTrace(Trace):
             self.flush_figures()
         
         if self.plot_priors:
-            self._plot_prior('rvfit_rv_prior', rv_0, rv_bounds, rv_prior, rv_step)
+            self._plot_prior('rvfit_rv_prior', rv_prior, rv_bounds, rv_0, rv_step)
             self.flush_figures()
 
     def on_guess_rv(self, rv, log_L, rv_guess, log_L_fit, function, pp, pcov):
@@ -203,7 +203,7 @@ class RVFitTrace(Trace):
 
                 # TODO: define arm color in styles
                 if plot_spectra:
-                    p.plot_spectrum(specs[i], plot_flux_err=plot_flux_err, wlim=wlim)
+                    p.plot_spectrum(specs[i], plot_flux_err=plot_flux_err, wlim=wlim, auto_limits=True)
 
                 if plot_templates and templates is not None:
                     raise NotImplementedError()
@@ -225,12 +225,12 @@ class RVFitTrace(Trace):
 
         pass
 
-    def _plot_prior(self, key, param_0, param_bounds, param_prior, param_step):
+    def _plot_prior(self, key, param_prior, param_bounds, param_0, param_step):
         f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1, page_size=(5.5, 3.5))
-        p = PriorPlot()
+        p = DistributionPlot()
         ax = f.add_diagram((0, 0, 0), p)
 
-        p.plot_prior(param_0, param_bounds, param_prior, param_step)
+        p.plot_prior(param_prior, param_bounds, param_0, param_step)
 
     def _plot_rv_guess(self, key,
                        rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
@@ -255,9 +255,9 @@ class RVFitTrace(Trace):
 
         # Plot the prior on RV
         if self.plot_priors:
-            p = PriorPlot(ax)
+            p = DistributionPlot(ax)
             ax = f.add_diagram((0, 0, 0), p)
-            p.plot_prior(rv_0, rv_bounds, rv_prior, rv_step, normalize=True)
+            p.plot_prior(rv_prior, rv_bounds, rv_0, rv_step, normalize=True)
 
         # Plot fit results
         if self.plot_rv_fit and rv_fit is not None:
