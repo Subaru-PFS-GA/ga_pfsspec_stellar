@@ -914,7 +914,7 @@ class ModelGridRVFit(RVFit):
                                         log_L_fun)
 
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
-                            params_fit=params_fit, params_err=params_err,
+                            params_free=params_free, params_fit=params_fit, params_err=params_err,
                             a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                             cov=C)
     
