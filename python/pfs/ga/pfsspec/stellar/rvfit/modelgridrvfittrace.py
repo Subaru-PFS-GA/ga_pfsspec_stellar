@@ -8,7 +8,7 @@ from pfs.ga.pfsspec.core.plotting import DiagramPage, DiagramAxis, CornerPlot
 from .rvfittrace import RVFitTrace
 
 class ModelGridRVFitTrace(RVFitTrace):
-    def __init__(self, outdir='.',
+    def __init__(self, figdir='.', logdir='.',
                  plot_inline=False,
                  plot_level=Trace.PLOT_LEVEL_NONE,
                  log_level=Trace.LOG_LEVEL_NONE):
@@ -16,7 +16,7 @@ class ModelGridRVFitTrace(RVFitTrace):
         self.plot_params_priors = False
         self.plot_params_cov = False
 
-        super().__init__(outdir=outdir, plot_inline=plot_inline, plot_level=plot_level, log_level=log_level)
+        super().__init__(figdir=figdir, logdir=logdir, plot_inline=plot_inline, plot_level=plot_level, log_level=log_level)
     
     def reset(self):
         super().reset()

@@ -13,12 +13,12 @@ class RVFitTrace(Trace):
 
     #region Initializers
 
-    def __init__(self, outdir='.', 
+    def __init__(self, figdir='.', logdir='.',
                  plot_inline=False, 
                  plot_level=Trace.PLOT_LEVEL_NONE, 
                  log_level=Trace.LOG_LEVEL_NONE):
         
-        super().__init__(outdir=os.path.join(outdir, 'rvfit'), 
+        super().__init__(figdir=figdir, logdir=logdir,
                          plot_inline=plot_inline, 
                          plot_level=plot_level,
                          log_level=log_level)
@@ -168,7 +168,7 @@ class RVFitTrace(Trace):
         Save the processing history of a spectrum
         """
         if spectrum.history is not None:
-            fn = os.path.join(self.outdir, filename)
+            fn = os.path.join(self.logdir, filename)
             self.make_outdir(fn)
             with open(fn, "w") as f:
                 f.writelines([ s + '\n' for s in spectrum.history ])
