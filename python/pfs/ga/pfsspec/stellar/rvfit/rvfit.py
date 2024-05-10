@@ -16,7 +16,7 @@ from pfs.ga.pfsspec.core.util.args import *
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
-from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler, Interp1dResampler
+from pfs.ga.pfsspec.core.obsmod.resampling import RESAMPLERS
 from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 from .rvfittrace import RVFitTrace
@@ -30,18 +30,13 @@ class RVFit():
     The class supports various methods to determine the uncertainty of estimated parameters.
     """
 
-    RESAMPLERS = {
-        'interp': Interp1dResampler,
-        'fluxcons': FluxConservingResampler,
-    }
-
     def __init__(self, trace=None, orig=None):
         
         if not isinstance(orig, RVFit):
             self.trace = trace              # Collect debug info
 
             self.template_psf = None        # Dict of psf to downgrade templates with
-            self.template_resampler = FluxConservingResampler()  # Resample template to instrument pixels
+            self.template_resampler = RESAMPLERS['fluxcons']()  # Resample template to instrument pixels
             self.template_cache_resolution = 50  # Cache templates with this resolution in RV
             self.template_wlim = None       # Model wavelength limits for each spectrograph arm
             self.template_wlim_buffer = 100 # Wavelength buffer in A, depends on line spread function
@@ -81,7 +76,7 @@ class RVFit():
             self.mcmc_gamma = 0.99          # Adaptive MCMC proposal memory
             self.mcmc_thin = 1              # MCMC trace thinning
         else:
-            self.trace = orig.trace
+            self.trace = trace if trace is not None else orig.trace
 
             self.template_psf = orig.template_psf
             self.template_resampler = orig.template_resampler
@@ -145,7 +140,7 @@ class RVFit():
         parser.add_argument('--flux-corr-per-fiber', action='store_true', dest='flux_corr_per_fiber', help='Flux correction per fiber.\n')
         parser.add_argument('--flux-corr-per-exp', action='store_true', dest='flux_corr_per_exp', help='Flux correction per exposure.\n')
 
-        parser.add_argument('--resampler', type=str, choices=list(RVFit.RESAMPLERS.keys()), default='fluxcons', help='Template resampler.\n')
+        parser.add_argument('--resampler', type=str, choices=list(RESAMPLERS.keys()), default='fluxcons', help='Template resampler.\n')
 
         parser.add_argument('--mask', action='store_true', dest='use_mask', help='Use mask from spectra.\n')
         parser.add_argument('--no-mask', action='store_false', dest='use_mask', help='Do not use mask from spectra.\n')
@@ -184,8 +179,8 @@ class RVFit():
         resampler = get_arg('resampler', None, args)
         if resampler is None:
             pass
-        elif resampler in RVFit.RESAMPLERS:
-            self.template_resampler = RVFit.RESAMPLERS[resampler]()
+        elif resampler in RESAMPLERS:
+            self.template_resampler = RESAMPLERS[resampler]()
         else:
             raise NotImplementedError()
 
@@ -763,10 +758,6 @@ class RVFit():
         return log_L, phi, chi, ndf
         
     def eval_flux_corr(self, spectra, templates, rv, a=None):
-        # Evaluate the basis for each spectrum
-        if self.flux_corr_basis_cache is None:
-            self.flux_corr_basis_cache, self.flux_corr_basis_size = self.eval_flux_corr_basis(spectra)
-
         if a is None:
             phi, chi, ndf = self.eval_phi_chi(spectra, templates, rv)
             a = self.eval_a(phi, chi)

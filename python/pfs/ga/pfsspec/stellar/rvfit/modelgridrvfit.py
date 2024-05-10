@@ -247,6 +247,10 @@ class ModelGridRVFit(RVFit):
             log_L = log_L.squeeze()
 
         return log_L, axes, labels
+    
+    def eval_flux_corr(self, spectra, rv, params, a=None):
+        templates, missing = self.get_templates(spectra, params)
+        return super().eval_flux_corr(spectra, templates, rv, a)
         
     #region Fisher matrix evaluation
 
