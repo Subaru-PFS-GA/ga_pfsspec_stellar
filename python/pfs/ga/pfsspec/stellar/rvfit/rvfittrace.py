@@ -223,8 +223,6 @@ class RVFitTrace(Trace):
 
         f.match_limits()
 
-        pass
-
     def _plot_prior(self, key, param_prior, param_bounds, param_0, param_step):
         f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1, page_size=(5.5, 3.5))
         p = DistributionPlot()

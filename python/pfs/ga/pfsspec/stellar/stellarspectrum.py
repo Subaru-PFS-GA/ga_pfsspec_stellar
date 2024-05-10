@@ -1,7 +1,7 @@
 import numpy as np
 
 from pfs.ga.pfsspec.core import Spectrum
-from pfs.ga.pfsspec.core import Physics
+from pfs.ga.pfsspec.core import Physics, Astro
 
 class StellarSpectrum(Spectrum):
     # TODO: make it a mixin instead of an inherited class
