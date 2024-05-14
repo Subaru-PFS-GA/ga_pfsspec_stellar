@@ -57,19 +57,7 @@ class ModelGridDownloader(Downloader):
 
         # Download file with wget
         outfile = os.path.join(self.outdir, fn)
-        outdir, _ = os.path.split(outfile)
-        if not os.path.isdir(outdir):
-            os.mkdir(outdir)
-
-        cmd = [ 'wget', url ]
-        cmd.extend(['--tries=3', '--timeout=1', '--wait=1'])
-        cmd.extend(['--no-verbose'])
-        cmd.extend(['-O', outfile])
-        if self.resume:
-            cmd.append('--continue')
-        subprocess.run(cmd, stdout=subprocess.DEVNULL)
-        if os.path.getsize(outfile) == 0:
-            os.remove(outfile)
+        self.wget_download(url, outfile, resume=self.resume, create_dir=True)
 
     def create_grid(self):
         raise NotImplementedError()
