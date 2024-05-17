@@ -26,3 +26,22 @@ class ModelSpectrum(StellarSpectrum):
                            'L_H',
                            'interp_param']
         return params
+
+    def get_name(self):
+        params = {
+            '[M/H]': self.M_H,
+            '[Fe/H]': self.Fe_H,
+            '$T_\mathrm{eff}$': self.T_eff,
+            '$\log g$': self.log_g,
+            '[a/M]': self.a_M,
+        }
+
+
+        name = ''
+        for param, value in params.items():
+            if value is not None and ~np.isnan(value) and ~np.isinf(value):
+                if name != '':
+                    name += ', '
+                name += f'{param}$= {value:.2f}$'
+
+        return name

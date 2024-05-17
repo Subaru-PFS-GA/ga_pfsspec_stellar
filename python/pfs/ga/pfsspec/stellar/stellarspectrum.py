@@ -55,7 +55,7 @@ class StellarSpectrum(Spectrum):
 
     def set_rv(self, rv):
         z = Physics.vel_to_z(rv)
-        self.set_redshift(z)
+        self.apply_redshift(z)
 
     def normalize_by_T_eff(self, T_eff=None):
         T_eff = T_eff or self.T_eff

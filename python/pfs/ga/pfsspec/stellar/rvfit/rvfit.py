@@ -335,7 +335,7 @@ class RVFit():
             # Shift from quantized RV to requested RV
             temp = temp.copy()
             temp.set_restframe()
-            temp.set_redshift(Physics.vel_to_z(rv))
+            temp.apply_redshift(Physics.vel_to_z(rv))
         else:
             # Compute convolved template from scratch
             temp = self.process_template_impl(arm, template, spectrum, rv, psf=psf, wlim=wlim)
@@ -533,6 +533,27 @@ class RVFit():
         if renorm and self.spec_norm is not None:
             temp.multiply(self.spec_norm)
 
+    def get_full_mask(self, spec):
+        mask = None
+
+        if self.use_mask and spec.mask is not None:
+            # TODO: allow specifying a bitmask
+            mask = spec.mask_as_bool(bits=self.mask_bits)
+        
+        if mask is None:
+            mask = np.full_like(spec.wave, True, dtype=bool)
+        
+        # Mask out nan values which might occur if spectrum mask is not properly defined
+        mask &= ~np.isnan(spec.wave)
+        mask &= ~np.isnan(spec.flux)
+        mask &= ~np.isnan(spec.flux_err)
+
+        # Flux error
+        if self.use_error and spec.flux_err is not None:
+            mask &= (spec.flux_err / spec.flux) > 1e-5
+
+        return mask
+
     def eval_phi_chi(self, spectra, templates, rv):
         """
         Calculate the log-likelihood of an observed spectrum for a template with RV.
@@ -590,35 +611,12 @@ class RVFit():
                     # TODO: move this masking logic outside and cache between calls to eval_phi_chi
                     
                     # Determine mask
-                    mask = None
-                    if self.use_mask and spec.mask is not None:
-                        # TODO: allow specifying a bitmas
-                        mask = spec.mask_as_bool(bits=self.mask_bits)
-                    
-                    if mask is None:
-                        mask = np.full_like(spec.wave, True, dtype=bool)
-                    
-                    # Mask out nan values which might occur if spectrum mask is not properly defined
-                    mask &= ~np.isnan(spec.wave)
-                    mask &= ~np.isnan(spec.flux)
-                    mask &= ~np.isnan(spec.flux_err)
-
+                    mask = self.get_full_mask(spec)
                     mask &= ~np.isnan(temp.flux)
 
                     # Flux error
                     if self.use_error and spec.flux_err is not None:
                         sigma2 = spec.flux_err ** 2
-                        mask &= ~np.isnan(sigma2)
-                        
-                        # TODO: add option to set this limit
-                        # Mask out bins where sigma2 is unusually small
-                        # Here we assume that flux is normalized in the unity range
-                        mask &= sigma2 > 1e-5
-                    else:
-                        sigma2 = None
-
-                    # TODO: when moving the mask logic from above, keep this below because it
-                    #       is template dependent
 
                     # Weight (optional)
                     if self.use_weight and temp.weight is not None:
@@ -632,9 +630,9 @@ class RVFit():
                     mask &= ~np.any(np.isnan(basis), axis=-1)       # Be cautious in case any item in wave is nan
 
                     # Verify that the mask is not empty or too few points to fit
-                    if mask.sum() < 10:
+                    if mask.sum() == 0:
                         raise Exception("Too few unmasked values to fit the spectrum.")
-
+                    
                     # Calculate phi and chi and sum up along wavelength
                     pp = spec.flux[mask] * temp.flux[mask]
                     cc = temp.flux[mask] ** 2
