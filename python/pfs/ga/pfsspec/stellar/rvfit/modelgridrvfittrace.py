@@ -8,7 +8,9 @@ from pfs.ga.pfsspec.core.plotting import DiagramPage, DiagramAxis, CornerPlot
 from .rvfittrace import RVFitTrace
 
 class ModelGridRVFitTrace(RVFitTrace):
-    def __init__(self, figdir='.', logdir='.',
+    def __init__(self,
+                 id=None,
+                 figdir='.', logdir='.',
                  plot_inline=False,
                  plot_level=Trace.PLOT_LEVEL_NONE,
                  log_level=Trace.LOG_LEVEL_NONE):
@@ -16,7 +18,7 @@ class ModelGridRVFitTrace(RVFitTrace):
         self.plot_params_priors = False
         self.plot_params_cov = False
 
-        super().__init__(figdir=figdir, logdir=logdir, plot_inline=plot_inline, plot_level=plot_level, log_level=log_level)
+        super().__init__(id=id, figdir=figdir, logdir=logdir, plot_inline=plot_inline, plot_level=plot_level, log_level=log_level)
     
     def reset(self):
         super().reset()
@@ -67,7 +69,7 @@ class ModelGridRVFitTrace(RVFitTrace):
         # TODO: move it to a function and remove duplicate lines
         # Plot corner plot of parameters
         nparam = len(params_fit) + 1        # including RV
-        f = self.get_diagram_page('rvfit_cov', npages=1, nrows=nparam, ncols=nparam)
+        f = self.get_diagram_page('pfsGA-RVFit-cov-{id}', npages=1, nrows=nparam, ncols=nparam)
 
         # Collect the axes from the free parameters and RV
         axes = []

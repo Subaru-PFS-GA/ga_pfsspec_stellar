@@ -11,11 +11,11 @@ class TestSpectrum(StellarTestBase):
         spec = grid.get_nearest_model(M_H=0.0, T_eff=7000, log_g=1.45, C_M=0, a_M=0)
         return spec
         
-    def test_set_redshift(self):
+    def test_apply_redshift(self):
         spec = self.get_test_spectrum()
         spec.plot()
 
-        spec.set_redshift(0.003)
+        spec.apply_redshift(0.003)
         spec.plot()
 
         self.save_fig()

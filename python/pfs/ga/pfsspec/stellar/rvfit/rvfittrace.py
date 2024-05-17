@@ -2,10 +2,10 @@ import os
 import numpy as np
 
 from pfs.ga.pfsspec.core.plotting import SpectrumPlot, DistributionPlot, styles
-from pfs.ga.pfsspec.core import Trace
+from pfs.ga.pfsspec.core import Trace, SpectrumTrace
 from pfs.ga.pfsspec.core.util.args import *
 
-class RVFitTrace(Trace):
+class RVFitTrace(Trace, SpectrumTrace):
     """
     Implements call-back function to profile and debug RV fitting. Allows for
     generating plots of intermediate steps.
@@ -13,12 +13,15 @@ class RVFitTrace(Trace):
 
     #region Initializers
 
-    def __init__(self, figdir='.', logdir='.',
+    def __init__(self,
+                 id=None,
+                 figdir='.', logdir='.',
                  plot_inline=False, 
                  plot_level=Trace.PLOT_LEVEL_NONE, 
                  log_level=Trace.LOG_LEVEL_NONE):
         
-        super().__init__(figdir=figdir, logdir=logdir,
+        super().__init__(id=id,
+                         figdir=figdir, logdir=logdir,
                          plot_inline=plot_inline, 
                          plot_level=plot_level,
                          log_level=log_level)
@@ -73,11 +76,13 @@ class RVFitTrace(Trace):
         self.rv_iter = [ rv_0 ]
 
         if self.plot_input_spec:
-            self._plot_spectra('rvfit_input', spectra)
+            self._plot_spectra('pfsGA-RVfit-input-{id}', spectra,
+                               title='RVFit input spectra - {id}')
             self.flush_figures()
         
         if self.plot_priors:
-            self._plot_prior('rvfit_rv_prior', rv_prior, rv_bounds, rv_0, rv_step)
+            self._plot_prior('pfsGA-RVFit-RV-prior-{id}', rv_prior, rv_bounds, rv_0, rv_step,
+                             title='Prior on RV - {id}')
             self.flush_figures()
 
     def on_guess_rv(self, rv, log_L, rv_guess, log_L_fit, function, pp, pcov):
@@ -87,7 +92,8 @@ class RVFitTrace(Trace):
         self.guess_rv_results = (rv, log_L, rv_guess, log_L_fit, function, pp, pcov)
 
         if self.plot_rv_guess or self.plot_level >= Trace.PLOT_LEVEL_INFO:
-            self._plot_rv_guess('rvfit_rv_guess')
+            self._plot_rv_guess('pfsGA-RVFit-RV-guess-{id}',
+                                title='RV guess - {id}')
     
     def on_fit_rv_iter(self, rv):
         self.rv_iter.append(rv)
@@ -98,33 +104,52 @@ class RVFitTrace(Trace):
         
         self.rv_iter.append(rv_fit)
         
-        # TODO: plot whatever requested
+        # Plot the final results based on the configuration settings
         for key, config in self.plot_fit_spec.items():
             self._plot_spectra(key, spectra, templates=templates, processed_templates=processed_templates,
                                **config)
 
         if self.plot_rv_fit:
-            self._plot_rv_guess('rvfit_rv_fit',
+            self._plot_rv_guess('pfsGA-RVFit-RV-fit-{id}',
                                 rv_0, rv_bounds, rv_prior, rv_step,
-                                rv_fit, rv_err)
+                                rv_fit, rv_err,
+                                title='RVFit results - {id}')
 
         self.flush_figures()
 
     def on_process_spectrum(self, arm, i, spectrum, processed_spectrum):
         if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
-            self.plot_spectrum(f'spectrum_{arm}_{i}', arm, spectrum.wave, spectrum.flux)
-            self.plot_spectrum(f'processed_spectrum_{arm}_{i}', arm, processed_spectrum.wave, processed_spectrum.flux)
+
+            self._plot_spectrum(f'pfsGA-RVFit-spectrum-{arm}-{i}-{{id}}', arm,
+                                spectrum=spectrum,
+                                plot_spectrum=True,
+                                title='Observed spectrum - {id}')
+            
+            self._plot_spectrum(f'pfsGA-RVFit-spectrum-processed-{arm}-{i}-{{id}}', arm,
+                                spectrum=spectrum, processed_spectrum=processed_spectrum,
+                                plot_spectrum=False, plot_processed_spectrum=True,
+                                title='Processed spectrum - {id}')
+
             self.flush_figures()
 
         if self.log_level >= Trace.LOG_LEVEL_NONE:
-            self.save_history(f'spectrum_{arm}_{i}.log', spectrum)
+            self._save_spectrum_history(f'pfsGA-RVFit-spectrum-{arm}-{i}-{{id}}.log', spectrum)
 
         self.process_spectrum_count += 1
 
     def on_process_template(self, arm, rv, template, processed_template):
         if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
-            self.plot_spectrum(f'template_{arm}', arm, template.wave, template.flux)
-            self.plot_spectrum(f'processed_template_{arm}', arm, processed_template.wave, processed_template.flux)
+
+            self._plot_spectrum(f'pfsGA-RVFit-template-{arm}-{{id}}', arm,
+                                template=template,
+                                plot_template=True,
+                                title='Original template - {id}')
+            
+            self._plot_spectrum(f'pfsGA-RVFit-template-processed-{arm}-{{id}}', arm,
+                                template=template, processed_template=processed_template,
+                                plot_template=False, plot_processed_template=True,
+                                title='Processed template - {id}')
+
             self.flush_figures()
 
         self.process_template_count += 1
@@ -132,11 +157,16 @@ class RVFitTrace(Trace):
     def on_resample_template(self, arm, rv, spectrum, template, resampled_template):
         if self.resample_template_count == 0:
             if self.plot_level:
-                self.plot_spectrum(f'resampled_template_{arm}', arm, resampled_template.wave, resampled_template.flux)
+
+                self._plot_spectrum(f'pfsGA-RVFit-template-resampled-{arm}-{{id}}', arm,
+                                    template=template, processed_template=resampled_template,
+                                    plot_template=False, plot_processed_template=True,
+                                    title='Resampled template - {id}')
+
                 self.flush_figures()
 
             if self.log_level >= Trace.LOG_LEVEL_NONE:
-                self.save_history(f'resampled_template_{arm}.log', resampled_template)
+                self._save_spectrum_history(f'pfsGA-RVFit-resampled-template-{arm}-{{id}}.log', resampled_template)
 
         self.resample_template_count += 1
 
@@ -162,69 +192,13 @@ class RVFitTrace(Trace):
         pass
 
     #endregion
-
-    def save_history(self, filename, spectrum):
-        """
-        Save the processing history of a spectrum
-        """
-        if spectrum.history is not None:
-            fn = os.path.join(self.logdir, filename)
-            self.make_outdir(fn)
-            with open(fn, "w") as f:
-                f.writelines([ s + '\n' for s in spectrum.history ])
                 
-    def _plot_spectra(self, key, spectra, templates=None, processed_templates=None,
-                      wlim=None,
-                      plot_spectra=True, plot_flux_err=True,
-                      plot_templates=True,
-                      plot_processed_templates=True,
-                      plot_residuals=False):
-        # Number of exposures
-        nexp = np.max([ len(spectra[arm]) for arm in spectra.keys() ])
+    def _plot_prior(self, key, param_prior, param_bounds, param_0, param_step,
+                    title=None):
 
-        ncols = 1
-        nrows = 4
-        npages = int(np.ceil(nexp / (ncols * nrows)))
-        f = self.get_diagram_page(key, npages, nrows, ncols, diagram_size=(6.5, 2.0))
-       
-        for i, (j, k, l) in enumerate(np.ndindex((npages, nrows, ncols))):
-            if i == nexp:
-                break
-
-            p = SpectrumPlot()
-            ax = f.add_diagram((j, k, l), p)
-
-            p.plot_mask = self.plot_spec_mask
-            p.plot_flux_err = self.plot_spec_flux_err
-            p.plot_cont = self.plot_spec_cont
-
-            for arm, specs in spectra.items():
-                spec = specs[i]
-
-                # TODO: define arm color in styles
-                if plot_spectra:
-                    p.plot_spectrum(specs[i], plot_flux_err=plot_flux_err, wlim=wlim, auto_limits=True)
-
-                if plot_templates and templates is not None:
-                    raise NotImplementedError()
-
-                if plot_processed_templates and processed_templates is not None:
-                    temp = processed_templates[arm][i]
-                    p.plot_template(temp, wlim=wlim)
-
-                if plot_residuals and processed_templates is not None:
-                    temp = processed_templates[arm][i]
-                    p.plot_residual(spec, temp, wlim=wlim)
-
-            # TODO: Add SNR, exp time, obs date
-            p.title = spec.get_id_string()
-
-            p.apply()
-
-        f.match_limits()
-
-    def _plot_prior(self, key, param_prior, param_bounds, param_0, param_step):
-        f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1, page_size=(5.5, 3.5))
+        f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1,
+                                  title=title,
+                                  page_size=(5.5, 3.5))
         p = DistributionPlot()
         ax = f.add_diagram((0, 0, 0), p)
 
@@ -232,12 +206,17 @@ class RVFitTrace(Trace):
 
     def _plot_rv_guess(self, key,
                        rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
-                       rv_fit=None, rv_err=None):
+                       rv_fit=None, rv_err=None,
+                       title=None):
         
         # Plot the RV prior, initial value, guess and final fitted value
 
-        f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1, page_size=(5.5, 3.5))
+        f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1,
+                                  title=title,
+                                  page_size=(5.5, 3.5))
         ax = f.add_axes((0, 0, 0))
+
+        text = ''
 
         # Plot RV guess results
         if self.guess_rv_results is not None and self.plot_rv_guess:
@@ -250,6 +229,8 @@ class RVFitTrace(Trace):
             if fit is not None:
                 ax.plot(rv, (fit - b) / (a - b), **styles.solid_line())
             ax.axvline(rv_guess, **styles.blue_line(**styles.solid_line()))
+
+            text += f'$v_\\mathrm{{los, guess}} = {rv_guess:0.2f}$ km s$^{-1}$\n'
 
         # Plot the prior on RV
         if self.plot_priors:
@@ -264,5 +245,11 @@ class RVFitTrace(Trace):
             if rv_err is not None:
                 ax.axvline(rv_fit - 3 * rv_err, **styles.red_line(**styles.dashed_line()))
                 ax.axvline(rv_fit + 3 * rv_err, **styles.red_line(**styles.dashed_line()))
+
+                text += f'$v_\\mathrm{{los, fit}} = {rv_fit:0.2f} \\pm {rv_err:0.2f}$ km s$^{-1}$\n'
+            else:
+                text += f'$v_\\mathrm{{los, fit}} = {rv_fit:0.2f}$ km s$^{-1}$\n'
+
+        ax.text(0.95, 0.95, text, transform=ax.transAxes, ha='right', va='top')
 
         self.flush_figures()
