@@ -1,11 +1,10 @@
-import logging
 import os
 import gc
 import numpy as np
-import time
 import h5py
 from tqdm import tqdm
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core.util.array_filters import *
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.core.grid import RbfGrid
@@ -102,7 +101,7 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
 
         value = input_grid.get_value(name, s=s)
         if value is None:
-            self.logger.warning('Skipping RBF fit to array `{}` since it is empty.'.format(name))
+            logger.warning('Skipping RBF fit to array `{}` since it is empty.'.format(name))
         else:
             slice = input_grid.get_slice()
             mask = input_grid.get_value_index(name, s=slice)
@@ -112,9 +111,9 @@ class ModelRbfGridBuilder(RbfGridBuilder, ModelGridBuilder):
 
             if self.padding:
                 value, input_axes, mask = pad_array(input_axes, value, mask=mask)
-                self.logger.info('Array `{}` padded to shape {}'.format(name, value.shape))
+                logger.info('Array `{}` padded to shape {}'.format(name, value.shape))
 
-            self.logger.info('Fitting RBF to array `{}` of size {} using {} with {} and eps={}'.format(name, value.shape, method, function, epsilon))
+            logger.info('Fitting RBF to array `{}` of size {} using {} with {} and eps={}'.format(name, value.shape, method, function, epsilon))
             rbf = self.fit_rbf(value, input_axes, mask=mask, 
                 method=method, function=function, epsilon=epsilon,
                 callback=lambda A, di: self.weight_matrix_callback(name, A, di))

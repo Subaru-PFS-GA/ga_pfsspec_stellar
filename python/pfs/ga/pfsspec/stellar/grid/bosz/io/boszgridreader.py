@@ -1,7 +1,3 @@
-import os
-import glob
-import logging
-
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.io import ModelGridReader

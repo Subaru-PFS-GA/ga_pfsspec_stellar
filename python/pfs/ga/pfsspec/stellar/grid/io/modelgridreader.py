@@ -1,9 +1,8 @@
 import os
 import glob
-import logging
-import multiprocessing
 import time
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core.grid.io import GridReader
 
 class ModelGridReader(GridReader):
@@ -86,14 +85,14 @@ class ModelGridReader(GridReader):
                     params = spec.get_params()
                     return index, params, spec
                 except Exception as e:
-                    logging.error('Error parsing {}'.format(fn))
+                    logger.error('Error parsing {}'.format(fn))
                     time.sleep(0.01)    # ugly hack
                     tries -= 1
                     if tries == 0:
                         raise e
 
         else:
-            logging.debug('Cannot find file {}'.format(fn))
+            logger.debug('Cannot find file {}'.format(fn))
             return None
 
     def process_file(self, file):
@@ -125,7 +124,7 @@ class ModelGridReader(GridReader):
         self.reader.path = input_path
 
         if os.path.isdir(input_path):
-            self.logger.info('Running in grid mode')
+            logger.info('Running in grid mode')
             self.path = input_path
 
             # Load the first spectrum to get wavelength grid.
@@ -133,10 +132,10 @@ class ModelGridReader(GridReader):
             fn = os.path.join(self.path, fn)
             spec = self.reader.read(fn)
         else:
-            self.logger.info('Running in file list mode')
+            logger.info('Running in file list mode')
             self.files = glob.glob(os.path.expandvars(input_path))
             self.files.sort()
-            self.logger.info('Found {} files.'.format(len(self.files)))
+            logger.info('Found {} files.'.format(len(self.files)))
 
             # Load the first spectrum to get wavelength grid
             spec = self.reader.read(self.files[0])
@@ -146,7 +145,7 @@ class ModelGridReader(GridReader):
         if self.pipeline is not None:
             self.pipeline.run(spec)
 
-        self.logger.info('Found spectrum with {} wavelength elements.'.format(spec.wave.shape))
+        logger.info('Found spectrum with {} wavelength elements.'.format(spec.wave.shape))
 
         # Initialize output
 

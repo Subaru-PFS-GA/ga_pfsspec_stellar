@@ -1,11 +1,10 @@
-import logging
-
 import numpy as np
 from numpy.linalg import LinAlgError
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 import numdifftools as nd
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
@@ -803,7 +802,7 @@ class ModelGridRVFit(RVFit):
             xx_0[:x_0.size] = x_0 - np.eye(x_0.size) * steps * 5
             xx_0[-1] = x_0
         else:
-            logging.warning('No step size is specified, cannot generate initial simplex.')
+            logger.warning('No step size is specified, cannot generate initial simplex.')
             xx_0 = None
         
         if self.trace is not None:

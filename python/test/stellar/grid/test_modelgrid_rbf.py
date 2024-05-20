@@ -1,5 +1,4 @@
 import os
-import logging
 from tqdm import tqdm
 import numpy as np
 
@@ -40,8 +39,6 @@ class TestModelGrid_Rbf(TestBase):
         self.assertIsNotNone(spec)
 
     def test_interpolate_model_rbf_performance(self):
-        # logging.basicConfig(level=logging.DEBUG)
-
         args = {}
         grid = self.get_test_grid(args)
         rbf_raw = grid.grid

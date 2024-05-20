@@ -1,7 +1,6 @@
 import copy
 import numpy as np
 import scipy as sp
-import logging
 
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.util.array_filters import *

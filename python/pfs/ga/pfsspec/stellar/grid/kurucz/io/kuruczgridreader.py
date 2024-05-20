@@ -1,6 +1,6 @@
 import os
-import logging
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.stellar.grid.io import ModelGridReader
 from .kuruczspectrumreader import KuruczSpectrumReader
 
@@ -28,7 +28,7 @@ class KuruczGridReader(ModelGridReader):
         
         self.grid.build_value_indexes(rebuild=True)
 
-        self.logger.info("Grid loaded with flux shape {}".format(self.grid.get_value_shape('flux')))
+        logger.info("Grid loaded with flux shape {}".format(self.grid.get_value_shape('flux')))
 
     @staticmethod
     def get_filename(**kwargs):

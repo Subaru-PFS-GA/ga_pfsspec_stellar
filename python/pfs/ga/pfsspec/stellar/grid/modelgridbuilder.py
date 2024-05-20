@@ -1,6 +1,7 @@
 import os
 import numpy as np
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.core.grid import RbfGrid
 from pfs.ga.pfsspec.core.grid import GridBuilder
@@ -231,11 +232,11 @@ class ModelGridBuilder():
         return params
 
     def copy_value(self, input_grid, output_grid, name):
-        self.logger.info('Copying value array `{}`'.format(name))
+        logger.info('Copying value array `{}`'.format(name))
         raise NotImplementedError()
 
     def copy_rbf(self, input_grid, output_grid, name):
-        self.logger.info('Copying RBF array `{}`'.format(name))
+        logger.info('Copying RBF array `{}`'.format(name))
         rbf = input_grid.values[name]
         output_grid.set_value(name, rbf)
 

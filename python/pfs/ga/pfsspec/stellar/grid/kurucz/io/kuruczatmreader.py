@@ -1,5 +1,3 @@
-import os
-import logging
 import numpy as numpy
 
 from pfs.ga.pfsspec.stellar.io import AtmReader

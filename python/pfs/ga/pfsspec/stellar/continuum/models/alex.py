@@ -3,13 +3,13 @@ import numpy as np
 from scipy.signal import find_peaks
 from scipy.spatial import ConvexHull
 from scipy.interpolate import interp1d
-import logging
 
 try:
     import alphashape
 except:
     alphashape = None
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.util.array_filters import *
 from ..continuummodel import ContinuumModel, ContinuumModelTrace
@@ -564,7 +564,7 @@ class Alex(ContinuumModel):
 
             return pp
         except Exception as ex:
-            # logging.warning(ex)
+            # logger.warning(ex)
             if self.trace is not None:
                 self.trace.blended_fit[i] = False
             return np.array(model.get_param_count() * [np.nan])

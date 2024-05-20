@@ -1,7 +1,6 @@
 import copy
 import numpy as np
 import scipy as sp
-import logging
 
 from pfs.ga.pfsspec.stellar.continuum import ContinuumModel
 from pfs.ga.pfsspec.stellar.continuum import ModelParameter

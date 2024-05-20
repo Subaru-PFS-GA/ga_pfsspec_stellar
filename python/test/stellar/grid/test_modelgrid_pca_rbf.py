@@ -1,5 +1,4 @@
 import os
-import logging
 from tqdm import tqdm
 import numpy as np
 
@@ -58,8 +57,6 @@ class TestModelGrid_Pca_Rbf(TestBase):
         params = grid.get_continuum_parameters_at(idx)
 
     def test_interpolate_model_rbf_performance(self):
-        # logging.basicConfig(level=logging.DEBUG)
-
         args = {}
         grid = self.get_test_grid(args)
         rbf_raw = grid.grid.grid

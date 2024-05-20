@@ -1,5 +1,3 @@
-import os
-import logging
 from typing import Callable
 import numpy as np
 from scipy.optimize import curve_fit, minimize

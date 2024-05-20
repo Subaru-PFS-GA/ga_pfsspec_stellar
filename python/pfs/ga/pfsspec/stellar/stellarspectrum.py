@@ -1,5 +1,6 @@
 import numpy as np
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core import Spectrum
 from pfs.ga.pfsspec.core import Physics, Astro
 
@@ -59,13 +60,13 @@ class StellarSpectrum(Spectrum):
 
     def normalize_by_T_eff(self, T_eff=None):
         T_eff = T_eff or self.T_eff
-        self.logger.debug('Normalizing spectrum with black-body of T_eff={}'.format(T_eff))
+        logger.debug('Normalizing spectrum with black-body of T_eff={}'.format(T_eff))
         n = 1e-7 * Physics.planck(self.wave*1e-10, T_eff)
         self.multiply(1 / n)
 
     def denormalize_by_T_eff(self, T_eff=None):
         T_eff = T_eff or self.T_eff
-        self.logger.debug('Denormalizing spectrum with black-body of T_eff={}'.format(T_eff))
+        logger.debug('Denormalizing spectrum with black-body of T_eff={}'.format(T_eff))
         n = 1e-7 * Physics.planck(self.wave*1e-10, T_eff)
         self.multiply(n)
 

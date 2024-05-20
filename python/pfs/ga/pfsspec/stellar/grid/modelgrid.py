@@ -1,6 +1,4 @@
-import os
-import logging
-import itertools
+
 import importlib
 import numpy as np
 import h5py
@@ -8,6 +6,7 @@ from random import choice
 from scipy.interpolate import RegularGridInterpolator, CubicSpline
 from scipy.interpolate import interp1d, interpn
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core import PfsObject
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.util.array import *
@@ -60,7 +59,7 @@ class ModelGrid(PfsObject):
         and grid type to be used. This includes the config class, PCA and RBF.
         """
 
-        logging.info(f'Inferring model grid config and type from HDF5 file {filename}.')
+        logger.info(f'Inferring model grid config and type from HDF5 file {filename}.')
 
         # Peek into the HDF5 file
         with h5py.File(filename, 'r') as f:
@@ -83,7 +82,7 @@ class ModelGrid(PfsObject):
         module = importlib.import_module(f'.{modelgrid_config.lower()}', 'pfs.ga.pfsspec.stellar.grid')
         modelgrid_config_type = getattr(module, modelgrid_config)
 
-        logging.info(f'Inferred model grid type {modelgrid_type}({modelgrid_config}), pca={is_pca}')
+        logger.info(f'Inferred model grid type {modelgrid_type}({modelgrid_config}), pca={is_pca}')
 
         # Instantiate the class
         grid = modelgrid_type(modelgrid_config_type(pca=is_pca), grid_type)
@@ -543,7 +542,7 @@ class ModelGrid(PfsObject):
 
             return spec
         else:
-            logging.warning(f'Spectrum cannot be interpolated to parameters {kwargs} using {method} interpolation on grid of type `{type(self.grid).__name__}` with config `{type(self.config).__name__}`')
+            logger.warning(f'Spectrum cannot be interpolated to parameters {kwargs} using {method} interpolation on grid of type `{type(self.grid).__name__}` with config `{type(self.config).__name__}`')
             return None
    
     #endregion

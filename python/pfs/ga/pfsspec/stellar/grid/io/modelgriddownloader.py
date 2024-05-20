@@ -1,11 +1,7 @@
 import os
-import glob
-import logging
-import subprocess
-import multiprocessing
-import time
 from tqdm import tqdm
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core.util import SmartParallel
 from pfs.ga.pfsspec.core.io import Downloader
 from pfs.ga.pfsspec.core.grid import GridEnumerator
@@ -67,9 +63,9 @@ class ModelGridDownloader(Downloader):
 
     def download_grid(self, resume=False):
         # Iterate over the grid points and call a function for each
-        self.logger.info("Downloading grid {}.".format(type(self.grid).__name__))
+        logger.info("Downloading grid {}.".format(type(self.grid).__name__))
         if self.top is not None:
-            self.logger.info("Downloading grid will stop after {} items.".format(self.top))
+            logger.info("Downloading grid will stop after {} items.".format(self.top))
 
         g = GridEnumerator(self.grid, s=self.grid.get_slice(), top=self.top)
         t = tqdm(total=len(g))
@@ -78,7 +74,7 @@ class ModelGridDownloader(Downloader):
                 # Nothing to do here, file is saved in process_item
                 t.update(1)
 
-        self.logger.info("Grid downloaded.")
+        logger.info("Grid downloaded.")
 
     def run(self):
         self.download_grid(resume=self.resume)

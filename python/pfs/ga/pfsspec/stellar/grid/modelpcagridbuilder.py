@@ -3,6 +3,7 @@ import numpy as np
 import time
 from tqdm import tqdm
 
+from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.core.grid import RbfGrid
@@ -122,7 +123,7 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
         # input is an ArrayGrid since output is always an ArrayGrid.
         cmgrid = self.params_grid or self.input_grid
         if cmgrid is not None and cmgrid.continuum_model is not None:
-            self.logger.info('Copying continuum parameters from input grid.')
+            logger.info('Copying continuum parameters from input grid.')
             if isinstance(cmgrid.grid, ArrayGrid):
                 for p in cmgrid.continuum_model.get_interpolated_params():
                     slice = cmgrid.get_slice()
@@ -132,7 +133,7 @@ class ModelPcaGridBuilder(PcaGridBuilder, ModelGridBuilder):
                     self.output_grid.grid.grid.set_value(p.name, params)
                     self.output_grid.grid.grid.value_indexes[p.name] = index
             elif isinstance(cmgrid.grid, RbfGrid):
-                self.logger.info('Interpolating continuum parameters from input RBF grid.')
+                logger.info('Interpolating continuum parameters from input RBF grid.')
 
                 output_axes = { p: ax for _, p, ax in self.output_grid.enumerate_axes(squeeze=False) }
                 points = ArrayGrid.get_meshgrid_points(output_axes, interpolation='xyz', squeeze=False, indexing='ij')
