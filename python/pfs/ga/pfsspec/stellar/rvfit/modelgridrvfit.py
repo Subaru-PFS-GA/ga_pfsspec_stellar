@@ -893,21 +893,27 @@ class ModelGridRVFit(RVFit):
 
             tt = { arm: [] for arm in spectra }
             for arm in spectra:
-                for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]):
-                    temp = templates[arm]
+                ei = 0
+                for ii, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]):
+                    if spec is not None:
+                        temp = templates[arm]
+                        
+                        psf = self.template_psf[arm] if self.template_psf is not None else None
+                        wlim = self.template_wlim[arm] if self.template_wlim is not None else None
                     
-                    psf = self.template_psf[arm] if self.template_psf is not None else None
-                    wlim = self.template_wlim[arm] if self.template_wlim is not None else None
-                
-                    # This is a generic call to preprocess the template which might or
-                    # might not include a convolution, depending on the RVFit implementation.
-                    # When template convolution is pushed down to the model grid to support
-                    # caching, convolution is skipped by the derived classes such as
-                    # ModelGridRVFit
-                    t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
-                    self.apply_flux_corr(t, bases[arm][ei], a_fit, renorm=True)
+                        # This is a generic call to preprocess the template which might or
+                        # might not include a convolution, depending on the RVFit implementation.
+                        # When template convolution is pushed down to the model grid to support
+                        # caching, convolution is skipped by the derived classes such as
+                        # ModelGridRVFit
+                        t = self.process_template(arm, temp, spec, rv_fit, psf=psf, wlim=wlim)
+                        self.apply_flux_corr(t, bases[arm][ei], a_fit, renorm=True)
 
-                    tt[arm].append(t)
+                        tt[arm].append(t)
+
+                        ei += 1
+                    else:
+                        tt[arm].append(None)
 
             # TODO: pass in continuum model for plotting
             #       pass in covariance matrix

@@ -209,11 +209,10 @@ class RVFit():
         t = []
         for arm in spectra:
             for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                spec = self.process_spectrum(arm, ei, spec)
-
-                # TODO: use mask from spectrum
-
-                s.append(spec.flux[~np.isnan(spec.flux) & (spec.flux > 0)])
+                if spec is not None:
+                    mask = spec.mask_as_bool()
+                    spec = self.process_spectrum(arm, ei, spec)
+                    s.append(spec.flux[mask & ~np.isnan(spec.flux) & (spec.flux > 0)])
             
             if self.template_psf is not None:
                 psf = self.template_psf[arm]
@@ -230,8 +229,12 @@ class RVFit():
             else:
                 rv = 0.0
 
-            temp = self.process_template(arm, templates[arm], spec, rv, psf=psf, wlim=wlim)
-            t.append(temp.flux)
+            if spec is not None:
+                temp = self.process_template(arm, templates[arm], spec, rv, psf=psf, wlim=wlim)
+                t.append(temp.flux)
+
+        if len(s) == 0 or len(t) == 0:
+            raise ValueError('No valid flux values found in spectra or templates')
 
         spec_flux = np.concatenate(s)
         temp_flux = np.concatenate(t)
@@ -263,15 +266,22 @@ class RVFit():
         self.template_wlim = {}
         for arm in spectra:
             wmin, wmax = None, None
+            found = False
             for s in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
-                w = s.wave[0] * (1 + zmin)
-                wmin = w if wmin is None else min(wmin, w)
+                if s is not None:
+                    w = s.wave[0] * (1 + zmin)
+                    wmin = w if wmin is None else min(wmin, w)
 
-                w = s.wave[-1] * (1 + zmax)
-                wmax = w if wmax is None else max(wmax, w)
+                    w = s.wave[-1] * (1 + zmax)
+                    wmax = w if wmax is None else max(wmax, w)
+
+                    found = True
 
             # Buffer the wave limits a little bit
-            self.template_wlim[arm] = (wmin - self.template_wlim_buffer, wmax + self.template_wlim_buffer)
+            if found:
+                self.template_wlim[arm] = (wmin - self.template_wlim_buffer, wmax + self.template_wlim_buffer)
+            else:
+                self.template_wlim[arm] = None
     
     def process_template_impl(self, arm, template, spectrum, rv, psf=None, wlim=None):
         # 1. Make a copy, not in-place update
@@ -386,7 +396,7 @@ class RVFit():
 
         return wave, dfdlogl
 
-    def get_param_count(self, spectra):
+    def get_param_count(self, spectra: dict):
         # Determine the number of linear coefficients of the flux correction. Even when flux correction
         # is not used, the amplitude (absolute calibration) can very from arm to arm.
 
@@ -394,19 +404,29 @@ class RVFit():
         # amplitude and coefficients can be used for all exposures made with that arm, or a different
         # amplitude for every single exposure.
 
-        # Count amplitudes
+        # Count amplitudes, skip missing exposures (None)
 
         if self.amplitude_per_exp:
             amp_count = 0
             for arm in spectra:
-                if isinstance(spectra[arm], list):
-                    amp_count += len(spectra[arm])
-                else:
-                    amp_count += 1
+                for s in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
+                    if s is not None:
+                        amp_count += 1
         elif self.amplitude_per_arm:
-            amp_count = len(spectra)
+            amp_count = 0
+            for arm in spectra:
+                found = False
+                for s in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
+                    if s is not None:
+                        found = True
+                        break
+                if found:
+                    amp_count += 1
         else:
             amp_count = 1
+
+        if amp_count == 0:
+            raise ValueError('No valid spectra found')
         
         if self.amplitude_per_fiber:
             raise NotImplementedError()
@@ -421,8 +441,12 @@ class RVFit():
                 for arm in self.flux_corr:
                     param_count = self.flux_corr[arm].get_param_count()
 
-                    if self.flux_corr_per_exp and isinstance(spectra[arm], list):
-                        param_count *= len(spectra[arm])
+                    if self.flux_corr_per_exp:
+                        exp_count = 0
+                        for s in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
+                            if s is not None:
+                                exp_count += 1
+                        param_count *= exp_count
                         
                     coeff_count += param_count
             else:
@@ -433,10 +457,9 @@ class RVFit():
                 if self.flux_corr_per_exp:
                     exp_count = 0
                     for arm in spectra:
-                        if isinstance(spectra[arm], list):
-                            exp_count += len(spectra[arm])
-                        else:
-                            exp_count += 1
+                        for s in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
+                            if s is not None:
+                                exp_count += 1
                     param_count *= exp_count
 
                 coeff_count = param_count
@@ -468,40 +491,41 @@ class RVFit():
         for arm_i, arm in enumerate(spectra):
             # Loop over each exposure in the arm
             for spec in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
-                # Allocate array for the basis vectors
-                bb = np.zeros((spec.wave.shape[0], basis_size), dtype=spec.flux.dtype)
+                if spec is not None:
+                    # Allocate array for the basis vectors
+                    bb = np.zeros((spec.wave.shape[0], basis_size), dtype=spec.flux.dtype)
 
-                if self.amplitude_per_exp:
-                    # Each exposure has its own free parameters for the amplitude
-                    bb[:, amp_i] = 1.0
-                    amp_i += 1
-                elif self.amplitude_per_arm:
-                    # Amplitude is different for each arm
-                    bb[:, arm_i] = 1.0
-                else:
-                    # Amplitude is the same for each spectrum
-                    bb[:, 0] = 1.0
-
-                if self.use_flux_corr:
-                    if self.flux_corr_per_arm:
-                        # Flux correction function is different for each arm
-
-                        cc = self.flux_corr[arm].get_param_count()
-                        f = self.flux_corr[arm].get_basis_callable()
+                    if self.amplitude_per_exp:
+                        # Each exposure has its own free parameters for the amplitude
+                        bb[:, amp_i] = 1.0
+                        amp_i += 1
+                    elif self.amplitude_per_arm:
+                        # Amplitude is different for each arm
+                        bb[:, arm_i] = 1.0
                     else:
-                        # Flux correction function is the same for all arms
+                        # Amplitude is the same for each spectrum
+                        bb[:, 0] = 1.0
 
-                        cc = self.flux_corr.get_param_count()
-                        f = self.flux_corr.get_basis_callable()
+                    if self.use_flux_corr:
+                        if self.flux_corr_per_arm:
+                            # Flux correction function is different for each arm
 
-                    s = np.s_[:, amp_count + coeff_i : amp_count + coeff_i + cc]
-                    bb[s] = f(spec.wave)
-    
-                    # If flux correction coefficients are different for each exposure
-                    if self.flux_corr_per_exp:
-                        coeff_i += cc
+                            cc = self.flux_corr[arm].get_param_count()
+                            f = self.flux_corr[arm].get_basis_callable()
+                        else:
+                            # Flux correction function is the same for all arms
 
-                basis[arm].append(bb)
+                            cc = self.flux_corr.get_param_count()
+                            f = self.flux_corr.get_basis_callable()
+
+                        s = np.s_[:, amp_count + coeff_i : amp_count + coeff_i + cc]
+                        bb[s] = f(spec.wave)
+        
+                        # If flux correction coefficients are different for each exposure
+                        if self.flux_corr_per_exp:
+                            coeff_i += cc
+
+                    basis[arm].append(bb)
 
             # If flux correction coefficients are different for each arm
             if self.use_flux_corr and self.flux_corr_per_arm and not self.flux_corr_per_exp:
@@ -533,12 +557,16 @@ class RVFit():
         if renorm and self.spec_norm is not None:
             temp.multiply(self.spec_norm)
 
-    def get_full_mask(self, spec):
+    def get_full_mask(self, spec, mask_bits=None):
+        
+        mask_bits = mask_bits if mask_bits is not None else self.mask_bits
+        
         mask = None
 
         if self.use_mask and spec.mask is not None:
             # TODO: allow specifying a bitmask
-            mask = spec.mask_as_bool(bits=self.mask_bits)
+            #       mask bits can be different for each spectrum
+            mask = spec.mask_as_bool(bits=mask_bits)
         
         if mask is None:
             mask = np.full_like(spec.wave, True, dtype=bool)
@@ -590,11 +618,6 @@ class RVFit():
                 trace_state.reset()
 
             for arm in spectra:
-                if not isinstance(spectra[arm], list):
-                    specs = [spectra[arm]]
-                else:
-                    specs = spectra[arm]
-
                 # This is a generic call to preprocess the template which might or
                 # might not include a convolution, depending on the RVFit implementation.
                 # When template convolution is pushed down to the model grid to support
@@ -603,62 +626,69 @@ class RVFit():
                 psf = self.template_psf[arm] if self.template_psf is not None else None
                 wlim = self.template_wlim[arm] if self.template_wlim is not None else None
                 
-                for ei in range(len(specs)):
-                    # TODO: Make sure template is not double-convolved in normal RVFit
-                    spec = self.process_spectrum(arm, ei, specs[ei])
-                    temp = self.process_template(arm, templates[arm], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
+                ei = 0
+                for ii, s in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]):
+                    if s is not None:
+                        # TODO: Make sure template is not double-convolved in normal RVFit
+                        spec = self.process_spectrum(arm, ii, s)
+                        temp = self.process_template(arm, templates[arm], spec, rvv[i], psf=psf, wlim=wlim, diff=True)
 
-                    # TODO: move this masking logic outside and cache between calls to eval_phi_chi
+                        # TODO: move this masking logic outside and cache between calls to eval_phi_chi
+                        
+                        # Determine mask
+                        mask = self.get_full_mask(spec)
+                        mask &= ~np.isnan(temp.flux)
+
+                        # Flux error
+                        if self.use_error and spec.flux_err is not None:
+                            sigma2 = spec.flux_err ** 2
+
+                        # Weight (optional)
+                        if self.use_weight and temp.weight is not None:
+                            weight = temp.weight / temp.weight.sum() * temp.weight.size
+                            mask &= ~np.isnan(weight)
+                        else:
+                            weight = None
+
+                        # Flux correction (optional)
+                        basis = bases[arm][ei]
+                        mask &= ~np.any(np.isnan(basis), axis=-1)       # Be cautious in case any item in wave is nan
+
+                        # Verify that the mask is not empty or too few points to fit
+                        if mask.sum() == 0:
+                            raise Exception("Too few unmasked values to fit the spectrum.")
+                        
+                        # Calculate phi and chi and sum up along wavelength
+                        pp = spec.flux[mask] * temp.flux[mask]
+                        cc = temp.flux[mask] ** 2
+                        
+                        if weight is not None:
+                            pp *= weight[mask]
+                            cc *= weight[mask]
+                        
+                        if sigma2 is not None:
+                            pp /= sigma2[mask]
+                            cc /= sigma2[mask]
+
+                        # Size of phi and chi is amp_count + coeff_count
+                        pp = pp[:, None] * basis[mask, :]
+                        cc = cc[:, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
                     
-                    # Determine mask
-                    mask = self.get_full_mask(spec)
-                    mask &= ~np.isnan(temp.flux)
+                        # i indexes the rv values we are calculating phi and chi for
+                        # sum goes over the spectral pixels
+                        phi[i] += np.sum(pp, axis=0)
+                        chi[i] += np.sum(cc, axis=0)
 
-                    # Flux error
-                    if self.use_error and spec.flux_err is not None:
-                        sigma2 = spec.flux_err ** 2
+                        # Degrees of freedom
+                        ndf[i] += mask.sum()
 
-                    # Weight (optional)
-                    if self.use_weight and temp.weight is not None:
-                        weight = temp.weight / temp.weight.sum() * temp.weight.size
-                        mask &= ~np.isnan(weight)
+                        if self.trace is not None:
+                            trace_state.append(arm, spec, temp, sigma2, weight, mask, basis)
+
+                        ei += 1
                     else:
-                        weight = None
-
-                    # Flux correction (optional)
-                    basis = bases[arm][ei]
-                    mask &= ~np.any(np.isnan(basis), axis=-1)       # Be cautious in case any item in wave is nan
-
-                    # Verify that the mask is not empty or too few points to fit
-                    if mask.sum() == 0:
-                        raise Exception("Too few unmasked values to fit the spectrum.")
-                    
-                    # Calculate phi and chi and sum up along wavelength
-                    pp = spec.flux[mask] * temp.flux[mask]
-                    cc = temp.flux[mask] ** 2
-                    
-                    if weight is not None:
-                        pp *= weight[mask]
-                        cc *= weight[mask]
-                    
-                    if sigma2 is not None:
-                        pp /= sigma2[mask]
-                        cc /= sigma2[mask]
-
-                    # Size of phi and chi is amp_count + coeff_count
-                    pp = pp[:, None] * basis[mask, :]
-                    cc = cc[:, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
-                
-                    # i indexes the rv values we are calculating phi and chi for
-                    # sum goes over the spectral pixels
-                    phi[i] += np.sum(pp, axis=0)
-                    chi[i] += np.sum(cc, axis=0)
-
-                    # Degrees of freedom
-                    ndf[i] += mask.sum()
-
-                    if self.trace is not None:
-                        trace_state.append(arm, spec, temp, sigma2, weight, mask, basis)
+                        if self.trace is not None:
+                            trace_state.append(arm, None, None, None, None, None, None)
 
             if not self.use_flux_corr:
                 ndf[i] -= 1
@@ -756,15 +786,24 @@ class RVFit():
         return log_L, phi, chi, ndf
         
     def eval_flux_corr(self, spectra, templates, rv, a=None):
+        """
+        Evaluate the flux correction for each exposure in each arm
+        """
+
         if a is None:
             phi, chi, ndf = self.eval_phi_chi(spectra, templates, rv)
             a = self.eval_a(phi, chi)
         
         flux_corr = {}
-        for k in spectra:
-            flux_corr[k] = []
-            for i, spec in enumerate(spectra[k] if isinstance(spectra[k], list) else [spectra[k]]):
-                flux_corr[k].append(np.dot(self.flux_corr_basis_cache[k][i], a))
+        for arm in spectra:
+            flux_corr[arm] = []
+            ei = 0
+            for ii, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
+                if spec is not None:
+                    flux_corr[arm].append(np.dot(self.flux_corr_basis_cache[arm][ei], a))
+                    ei += 1
+                else:
+                    flux_corr[arm].append(None)
 
         return flux_corr
     
@@ -1342,28 +1381,43 @@ class RVFit():
         # Initialize the flux correction model depending on the configuration
 
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+
+        # Determine the wave limits for each arm separately or all arms together
     
         if self.flux_corr_per_arm:
             # Use a different flux correction (at least in terms of domain) for each arm
             self.flux_corr = {}
             for arm in spectra:
+                found = False
                 wmin, wmax = None, None
                 for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                    w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
-                    wmin = min(wmin or w[0], w[0])
-                    wmax = max(wmax or w[1], w[1])
+                    if spec is not None:
+                        w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
+                        wmin = min(wmin or w[0], w[0])
+                        wmax = max(wmax or w[1], w[1])
+                        found = True
 
-                self.flux_corr[arm] = self.create_flux_corr((wmin, wmax), rv_bounds)
+                if found:
+                    self.flux_corr[arm] = self.create_flux_corr((wmin, wmax), rv_bounds)
+
+            if len(self.flux_corr) == 0:
+                raise Exception("No valid spectra found to initialize the flux correction model.")
         else:
-            # Use the same flux correction for each arm, the domain will cover every arm
+            # Use the same flux correction for each arm, the domain will cover all arms
             wmin, wmax = None, None
+            found = False
             for arm in spectra:
                 for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                    w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
-                    wmin = min(wmin or w[0], w[0])
-                    wmax = max(wmax or w[1], w[1])
+                    if spec is not None:
+                        w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
+                        wmin = min(wmin or w[0], w[0])
+                        wmax = max(wmax or w[1], w[1])
+                        found = True
 
-            self.flux_corr = self.create_flux_corr((wmin, wmax), rv_bounds)
+            if found:
+                self.flux_corr = self.create_flux_corr((wmin, wmax), rv_bounds)
+            else:
+                raise Exception("No valid spectra found to initialize the flux correction model.")
 
     def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
                method='bounded', calculate_error=True):
