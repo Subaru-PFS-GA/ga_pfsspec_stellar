@@ -14,26 +14,25 @@ class RVFitTrace(Trace, SpectrumTrace):
     #region Initializers
 
     def __init__(self,
-                 id=None,
-                 figdir='.', logdir='.',
-                 plot_inline=False, 
-                 plot_level=Trace.PLOT_LEVEL_NONE, 
-                 log_level=Trace.LOG_LEVEL_NONE):
+                id=None,
+                figdir='.', logdir='.',
+                plot_inline=False, 
+                plot_level=Trace.PLOT_LEVEL_NONE, 
+                log_level=Trace.LOG_LEVEL_NONE):
         
-        super().__init__(id=id,
-                         figdir=figdir, logdir=logdir,
-                         plot_inline=plot_inline, 
-                         plot_level=plot_level,
-                         log_level=log_level)
+        Trace.__init__(self, id=id,
+                figdir=figdir, logdir=logdir,
+                plot_inline=plot_inline, 
+                plot_level=plot_level,
+                log_level=log_level)
+        
+        SpectrumTrace.__init__(self)
         
         self.plot_priors = False
         self.plot_rv_guess = False
         self.plot_rv_fit = False
         self.plot_input_spec = False
         self.plot_fit_spec = {}
-        self.plot_spec_flux_err = False
-        self.plot_spec_mask = False
-        self.plot_spec_cont = False
 
         self.reset()
 
@@ -52,19 +51,18 @@ class RVFitTrace(Trace, SpectrumTrace):
         self.rv_guess = None
 
     def add_args(self, config, parser):
-        super().add_args(config, parser)
+        Trace.add_args(self, config, parser)
+        SpectrumTrace.add_args(self, config, parser)
     
     def init_from_args(self, script, config, args):
-        super().init_from_args(script, config, args)
+        Trace.init_from_args(self, script, config, args)
+        SpectrumTrace.init_from_args(self, script, config, args)
 
         self.plot_priors = get_arg('plot_priors', self.plot_priors, args)
         self.plot_rv_guess = get_arg('plot_rv_guess', self.plot_rv_guess, args)
         self.plot_rv_fit = get_arg('plot_rv_fit', self.plot_rv_fit, args)
         self.plot_input_spec = get_arg('plot_input_spec', self.plot_input_spec, args)
         self.plot_fit_spec = get_arg('plot_fit_spec', self.plot_fit_spec, args)
-        self.plot_spec_flux_err = get_arg('plot_spec_flux_err', self.plot_spec_flux_err, args)
-        self.plot_spec_mask = get_arg('plot_spec_mask', self.plot_spec_mask, args)
-        self.plot_spec_cont = get_arg('plot_spec_cont', self.plot_spec_cont, args)
 
     #endregion
     #region Trace hooks

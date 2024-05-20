@@ -69,7 +69,7 @@ class ModelGridRVFitTrace(RVFitTrace):
         # TODO: move it to a function and remove duplicate lines
         # Plot corner plot of parameters
         nparam = len(params_fit) + 1        # including RV
-        f = self.get_diagram_page('pfsGA-RVFit-cov-{id}', npages=1, nrows=nparam, ncols=nparam)
+        f = self.get_diagram_page('pfsGA-RVFit-params-{id}', npages=1, nrows=nparam, ncols=nparam)
 
         # Collect the axes from the free parameters and RV
         axes = []
