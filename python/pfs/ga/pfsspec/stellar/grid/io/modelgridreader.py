@@ -53,8 +53,8 @@ class ModelGridReader(GridReader):
         grid = self.create_grid()
         grid.add_args(parser)
 
-    def init_from_args(self, config, args):
-        super().init_from_args(config, args)
+    def init_from_args(self, script, config, args):
+        super().init_from_args(script, config, args)
 
         self.pipeline = config['pipelines'][args[self.CONFIG_PIPELINE]]()
         self.pipeline.init_from_args(config, args)
@@ -66,7 +66,7 @@ class ModelGridReader(GridReader):
         if self.grid is None:
             self.grid = self.create_grid()
             self.grid.preload_arrays = self.preload_arrays
-        self.grid.init_from_args(args)
+        self.grid.init_from_args(config, args)
 
     def process_item(self, i):
         # Called when processing the grid point by point
@@ -94,6 +94,9 @@ class ModelGridReader(GridReader):
         else:
             logger.debug('Cannot find file {}'.format(fn))
             return None
+        
+    def process_item_error(self, ex, i):
+        raise NotImplementedError()
 
     def process_file(self, file):
         # Called when processing the grid file by file
@@ -106,7 +109,6 @@ class ModelGridReader(GridReader):
     def store_item(self, res):
         if res is not None:
             index, params, spec = res
-
             self.grid.set_flux_at(index, spec.flux, spec.cont)
 
     def create_grid(self):
@@ -124,7 +126,7 @@ class ModelGridReader(GridReader):
         self.reader.path = input_path
 
         if os.path.isdir(input_path):
-            logger.info('Running in grid mode')
+            logger.info(f'{type(self).__name__} running in grid mode')
             self.path = input_path
 
             # Load the first spectrum to get wavelength grid.
@@ -132,7 +134,7 @@ class ModelGridReader(GridReader):
             fn = os.path.join(self.path, fn)
             spec = self.reader.read(fn)
         else:
-            logger.info('Running in file list mode')
+            logger.info(f'{type(self).__name__} running in file list mode')
             self.files = glob.glob(os.path.expandvars(input_path))
             self.files.sort()
             logger.info('Found {} files.'.format(len(self.files)))

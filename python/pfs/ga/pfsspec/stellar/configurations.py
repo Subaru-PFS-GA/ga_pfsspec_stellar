@@ -1,11 +1,11 @@
 from pfs.ga.pfsspec.core import Pipeline
 from pfs.ga.pfsspec.core.grid import ArrayGrid, RbfGrid
 from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
+from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszGridReader, BoszGridDownloader
 from pfs.ga.pfsspec.stellar.grid.phoenix import Phoenix
-from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszGridReader
-from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszGridDownloader
-from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridReader
-from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridDownloader
+from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridReader, PhoenixGridDownloader
+from pfs.ga.pfsspec.stellar.grid.grid7.io import Grid7GridReader
+from pfs.ga.pfsspec.stellar.grid.grid7 import Grid7
 from pfs.ga.pfsspec.stellar.grid import ModelGridFit, ModelPcaGridBuilder, ModelRbfGridBuilder
 from pfs.ga.pfsspec.stellar.grid import ModelGridConverter
 from pfs.ga.pfsspec.learn.stellar import *
@@ -39,7 +39,13 @@ IMPORT_CONFIGURATIONS = {
             'pipelines': {
                 'basic': Pipeline
             }
-        }
+        },
+        'grid7': {
+            'type': Grid7GridReader,
+            'pipelines': {
+                'basic': Pipeline
+            }
+        },
     }
 }
 

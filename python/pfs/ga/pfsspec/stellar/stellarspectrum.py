@@ -10,6 +10,8 @@ class StellarSpectrum(Spectrum):
         super().__init__(orig=orig)
         
         if not isinstance(orig, StellarSpectrum):
+            self.continuum_normalized = False
+
             self.Fe_H = np.nan
             self.Fe_H_err = np.nan
             self.M_H = np.nan
@@ -26,6 +28,8 @@ class StellarSpectrum(Spectrum):
             self.log_g = np.nan
             self.log_g_err = np.nan
         else:
+            self.continuum_normalized = orig.continuum_normalized
+
             self.Fe_H = orig.Fe_H
             self.Fe_H_err = orig.Fe_H_err
             self.M_H = orig.M_H
