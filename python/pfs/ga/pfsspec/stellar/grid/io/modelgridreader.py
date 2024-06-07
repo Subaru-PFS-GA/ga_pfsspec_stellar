@@ -121,24 +121,55 @@ class ModelGridReader(GridReader):
         raise NotImplementedError()
 
     def open_data(self, args, input_path, output_path):
-        # Initialize input
+        self.open_input_data(args, input_path)
 
+        if not self.resume:
+            axes, wave, wave_edges, is_wave_regular, is_wave_lin, is_wave_log = self.determine_grid_axes(input_path)
+            
+            # Update grid axes with new values
+            if axes is not None:
+                for i, p, ax in self.grid.enumerate_axes():
+                    if p in axes:
+                        ax.values = axes[p]
+
+            
+            # Initialize the wavelength grid based on the first spectrum read
+            self.grid.set_wave(wave, wave_edges=wave_edges)
+
+            # TODO: Here we assume that all spectra of the grid have the
+            #       same binning
+            self.grid.is_wave_regular = is_wave_regular
+            self.grid.is_wave_lin = is_wave_lin
+            self.grid.is_wave_log = is_wave_log
+
+            self.grid.build_axis_indexes()
+        
+        self.open_output_data(args, output_path)    
+
+    def open_input_data(self, args, input_path):
         self.reader.path = input_path
-
+        
         if os.path.isdir(input_path):
             logger.info(f'{type(self).__name__} running in grid mode')
             self.path = input_path
-
-            # Load the first spectrum to get wavelength grid.
-            fn = self.get_example_filename()
-            fn = os.path.join(self.path, fn)
-            spec = self.reader.read(fn)
         else:
             logger.info(f'{type(self).__name__} running in file list mode')
             self.files = glob.glob(os.path.expandvars(input_path))
             self.files.sort()
             logger.info('Found {} files.'.format(len(self.files)))
 
+    def determine_grid_axes(self, input_path):
+        # The default implementation takes the grid axes from the grid config
+        # and tries to load a single file in order to determine the wavelengths.
+        # This method should be overridden if the grid axes cannot be determined
+        # this way.
+    
+        if os.path.isdir(input_path):
+            # Load the first spectrum to get wavelength grid.
+            fn = self.get_example_filename()
+            fn = os.path.join(self.path, fn)
+            spec = self.reader.read(fn)
+        else:
             # Load the first spectrum to get wavelength grid
             spec = self.reader.read(self.files[0])
 
@@ -149,26 +180,16 @@ class ModelGridReader(GridReader):
 
         logger.info('Found spectrum with {} wavelength elements.'.format(spec.wave.shape))
 
-        # Initialize output
+        return None, spec.wave, spec.wave_edges, spec.is_wave_regular, spec.is_wave_lin, spec.is_wave_log
 
+    def open_output_data(self, args, output_path):
         fn = os.path.join(output_path, 'spectra.h5')
 
         if self.resume:
             if self.grid.preload_arrays:
                 raise NotImplementedError("Can only resume import when preload_arrays is False.")
             self.grid.load(fn, format='h5')
-        else:
-            # Initialize the wavelength grid based on the first spectrum read
-            self.grid.set_wave(spec.wave, wave_edges=spec.wave_edges)
-
-            # TODO: Here we assume that all spectra of the grid have the
-            #       same binning
-            self.grid.is_wave_regular = spec.is_wave_regular
-            self.grid.is_wave_lin = spec.is_wave_lin
-            self.grid.is_wave_log = spec.is_wave_log
-
-            self.grid.build_axis_indexes()
-           
+        else:          
             # Force creating output file for direct hdf5 writing
             self.grid.save(fn, format='h5')
 
