@@ -10,6 +10,7 @@ from astropy.io import fits
 
 from pfs.ga.pfsspec.core.io import SpectrumReader
 from pfs.ga.pfsspec.stellar.grid.grid7 import Grid7Spectrum
+from pfs.ga.pfsspec.core.obsmod.resampling import Binning
 
 class Grid7SpectrumReader(SpectrumReader):
     def __init__(self, path=None, format=None, wave_lim=None, resolution=None, orig=None):
@@ -19,10 +20,14 @@ class Grid7SpectrumReader(SpectrumReader):
             self.path = path
             self.format = format
             self.resolution = resolution
+            self.wave = None
+            self.wave_edges = None
         else:
             self.path = path or orig.path
             self.format = format or orig.format
             self.resolution = resolution or orig.resolution
+            self.wave = orig.wave
+            self.wave_edges = orig.wave_edges
 
     def add_args(self, parser):
         super().add_args(parser)
@@ -36,17 +41,25 @@ class Grid7SpectrumReader(SpectrumReader):
         self.format = self.get_arg('format', self.format, args)
         self.resolution = self.get_arg('resolution', self.resolution, args)
 
-    def read(self, file=None):
+    def read(self, file=None):       
+        # Try to read the wave grid from a file
+        if self.wave is None:
+            fn = os.path.join(os.path.dirname(file), '..', '..', 'lambda.bin')
+            if os.path.isfile(fn):
+                with open(fn, 'rb') as f:
+                    self.wave = wave = np.frombuffer(f.read(), dtype=np.float64)
+                    self.wave_edges = wave_edges = Binning.find_wave_edges(wave, binning='lin')
+            else:
+                raise Exception('Cannot find wavelength grid file {}'.format(fn))
+        else:
+            wave = self.wave
+            wave_edges = self.wave_edges
+
+        # Read the flux from the file
         if self.format == 'bin':
             flux = self.read_bin(file)
         else:
             raise NotImplementedError()
-        
-        start = 6300
-        stop = 9100
-        step = 0.14
-        wave = np.arange(start, stop + 0.01 * step, step)
-        wave_edges = np.stack([wave - step / 2, wave + step / 2])
 
         if self.wave_lim is not None:
             mask = (self.wave_lim[0] <= wave) & (wave <= self.wave_lim[1])
@@ -66,7 +79,7 @@ class Grid7SpectrumReader(SpectrumReader):
         spec.continuum_normalized = True
 
         return spec
-
+    
     def read_bin(self, file):
         with gzip.open(file, 'rb') as f:
             flux = 1.0 - np.frombuffer(f.read(), dtype = np.float32)
