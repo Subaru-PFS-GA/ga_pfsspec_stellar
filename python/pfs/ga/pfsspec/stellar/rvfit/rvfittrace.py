@@ -97,7 +97,7 @@ class RVFitTrace(Trace, SpectrumTrace):
         self.rv_iter.append(rv)
     
     def on_fit_rv_finish(self, spectra, templates, processed_templates, 
-                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
+                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                          log_L_fun):
         
         self.rv_iter.append(rv_fit)

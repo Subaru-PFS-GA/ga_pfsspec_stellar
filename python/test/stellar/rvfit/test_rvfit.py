@@ -39,7 +39,7 @@ class TestRVFit(RVFitTestBase):
         rv_scalar = 100.0
         rv_vector = np.array([100.0, 90.0])
 
-        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(mode='a_rv')
+        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(0.0, rv_fixed=False, mode='a_rv')
         
         pp = pack_params(a_scalar, rv_scalar)
         a, rv = unpack_params(pp)
@@ -65,7 +65,7 @@ class TestRVFit(RVFitTestBase):
         npt.assert_equal(aa_vector, a)
         npt.assert_equal(rv_vector, rv)
 
-        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(mode='rv')
+        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(0.0, rv_fixed=False, mode='rv')
 
         pp = pack_params(rv_scalar)
         rv = unpack_params(pp)
@@ -311,6 +311,39 @@ class TestRVFit(RVFitTestBase):
         rvfit.init_flux_corr(specs, rv_bounds=(-500, 500))
 
         res = rvfit.fit_rv(specs, temps)
+
+        ax.axvline(rv_real, color='r', label='rv real')
+        ax.axvline(res.rv_fit, color='b', label='rv fit')
+        ax.axvline(res.rv_fit - res.rv_err, color='b')
+        ax.axvline(res.rv_fit + res.rv_err, color='b')
+
+        # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
+        rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
+        log_L, phi, chi, ndf = rvfit.calculate_log_L(specs, temps, rvv)
+        if rvfit.rv_prior is not None:
+            log_L += rvfit.rv_prior(rvv)
+        ax.plot(rvv, log_L, '.')
+        ax.set_xlim(rvv[0], rvv[-1])
+
+        ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
+        # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
+
+        self.save_fig(f)
+
+    def test_fit_rv_flux_corr_rv_fixed(self):
+        f, ax = plt.subplots(1, 1, figsize=(6, 4), squeeze=True)
+
+        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True, use_priors=True)
+
+        rvfit.amplitude_per_arm = True
+        rvfit.amplitude_per_exp = True
+        rvfit.flux_corr_per_arm = True
+        rvfit.flux_corr_per_exp = True
+
+        rvfit.init_flux_corr(specs, rv_bounds=(-500, 500))
+
+        # Only fit the continuum correction
+        res = rvfit.fit_rv(specs, temps, rv_fixed=True)
 
         ax.axvline(rv_real, color='r', label='rv real')
         ax.axvline(res.rv_fit, color='b', label='rv fit')

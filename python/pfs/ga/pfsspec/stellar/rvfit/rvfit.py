@@ -42,6 +42,7 @@ class RVFit():
             self.cache_templates = False    # Cache PSF-convolved templates
 
             self.rv_0 = None                # RV initial guess
+            self.rv_fixed = False           # Fix RV to the initial guess or default value
             self.rv_bounds = None           # Find RV between these bounds
             self.rv_prior = None
             self.rv_step = None             # RV step size for MCMC sampling
@@ -891,69 +892,104 @@ class RVFit():
     # _hessian depend on the numerical evaluation of the Hessian with respect
     # to the parameters of the fitted model.
 
-    def get_packing_functions(self, mode='full'):
+    def get_packing_functions(self,
+                              rv_0, rv_fixed,
+                              mode='full'):
+        
         if mode == 'full' or mode == 'a_rv':
-            def pack_params(a, rv):
-                rv = np.atleast_1d(rv)
-                if rv.size > 1:
-                    rv = np.reshape(rv, (-1,) + rv.shape)
+            if not rv_fixed:
+                def pack_params(a, rv):
+                    rv = np.atleast_1d(rv)
+                    if rv.size > 1:
+                        rv = np.reshape(rv, (-1,) + rv.shape)
 
-                a = np.atleast_1d(a)
-                a = np.reshape(a, (-1,) + rv.shape[1:])
+                    a = np.atleast_1d(a)
+                    a = np.reshape(a, (-1,) + rv.shape[1:])
 
-                return np.concatenate([a, rv])
+                    return np.concatenate([a, rv])
 
-            def unpack_params(a_rv):
-                a = a_rv[:-1]
-                if a.ndim == 2:
-                    a = np.squeeze(a)
-                elif a.size == 1:
-                    a = a.item()
+                def unpack_params(a_rv):
+                    a = a_rv[:-1]
+                    if a.ndim == 2:
+                        a = np.squeeze(a)
+                    elif a.size == 1:
+                        a = a.item()
 
-                rv = a_rv[-1]
-                if rv.size == 1:
-                    rv = rv.item()
+                    rv = a_rv[-1]
+                    if rv.size == 1:
+                        rv = rv.item()
 
-                return a, rv
-            
-            def pack_bounds(a_bounds, rv_bounds):
-                if a_bounds is None:
-                    raise NotImplementedError()
-                else:
-                    bounds = a_bounds
+                    return a, rv
+                
+                def pack_bounds(a_bounds, rv_bounds):
+                    if a_bounds is None:
+                        raise NotImplementedError()
+                    else:
+                        bounds = a_bounds
 
-                bounds += [ rv_bounds ]
+                    bounds += [ rv_bounds ]
 
-                return bounds
+                    return bounds
+            else:
+                def pack_params(a, rv):
+                    return np.atleast_1d(a)
+
+                def unpack_params(a_rv):
+                    a = a_rv
+                    if a.ndim == 2:
+                        a = np.squeeze(a)
+                    elif a.size == 1:
+                        a = a.item()
+
+                    return a, rv_0
+                
+                def pack_bounds(a_bounds, rv_bounds):
+                    if a_bounds is None:
+                        raise NotImplementedError()
+                    else:
+                        bounds = a_bounds
+
+                    return bounds
         elif mode == 'rv':
-            def pack_params(rv):
-                return np.atleast_1d(rv)
+            if not rv_fixed:
+                def pack_params(rv):
+                    return np.atleast_1d(rv)
 
-            def unpack_params(params):
-                rv = params
+                def unpack_params(params):
+                    rv = params
 
-                # Invert np.atleast_1d
-                if rv.size == 1:
-                    rv = rv.item()
-                elif rv.ndim > 1 and rv.shape[0] == 1:
-                    rv = rv.reshape(rv.shape[1:])
-                return rv
-            
-            def pack_bounds(rv_bounds):
-                return [ rv_bounds ]
+                    # Invert np.atleast_1d
+                    # TODO: review this, seems fishy
+                    if rv.size == 1:
+                        rv = rv.item()
+                    elif rv.ndim > 1 and rv.shape[0] == 1:
+                        rv = rv.reshape(rv.shape[1:])
+                    return rv
+                
+                def pack_bounds(rv_bounds):
+                    return [ rv_bounds ]
+            else:
+                def pack_params(_):
+                    return None
+                
+                def unpack_params(_):
+                    return rv_0
+                
+                def pack_bounds(_):
+                    return []
         else:
             raise NotImplementedError()
         
         return pack_params, unpack_params, pack_bounds
 
-    def get_objective_function(self, spectra, templates, rv_0, rv_prior, mode='full'):
+    def get_objective_function(self, spectra, templates, rv_0, rv_fixed, rv_prior, mode='full'):
         # Return the objection function and parameter packing/unpacking for optimizers
         # pack_params: convert individual arguments into a single 1d array
         # unpack_params: get individual arguments from 1d array
         # pack_bounds: pack parameters bounds into a list of tuples
         # log_L: evaluate the log likelihood
 
-        pack_params, unpack_params, pack_bounds = self.get_packing_functions(mode=mode)
+        pack_params, unpack_params, pack_bounds = self.get_packing_functions(rv_0, rv_fixed, mode=mode)
 
         if mode == 'full' or mode == 'a_rv':
             def log_L(a_rv):
@@ -985,7 +1021,10 @@ class RVFit():
         else:
             return None
 
-    def eval_F(self, spectra, templates, rv_0=None, rv_bounds=None, rv_prior=None, step=None, mode='full', method='hessian'):
+    def eval_F(self, spectra, templates,
+               rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
+               step=None, mode='full', method='hessian'):
+        
         # Evaluate the Fisher matrix around the provided rv_0. The corresponding
         # a_0 best fit flux correction will be evaluated at the optimum.
         # The Hessian will be calculated wrt either RV only, or rv and the
@@ -993,12 +1032,13 @@ class RVFit():
         # matrix will be determined using MCMC.
 
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
+        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_0, rv_prior, mode=mode)
+            spectra, templates, rv_0, rv_fixed, rv_prior, mode=mode)
 
         if mode == 'full' or mode == 'a_rv':
             # Calculate a_0
@@ -1209,7 +1249,10 @@ class RVFit():
 
         return -F, np.linalg.inv(F)
        
-    def calculate_F(self, spectra, templates, rv_0, step=None, mode='full', method='hessian'):
+    def calculate_F(self, spectra, templates,
+                    rv_0, rv_fixed=None,
+                    step=None, mode='full', method='hessian'):
+                    
         # Calculate the Fisher matrix using different methods
 
         if mode == 'full' and method == 'phi_chi':
@@ -1217,7 +1260,9 @@ class RVFit():
         elif mode == 'full' and method == 'alex':
             return self.eval_F_full_alex(spectra, templates, rv_0, step=step)
         else:
-            return self.eval_F(spectra, templates, rv_0, step=step, mode=mode, method=method)
+            return self.eval_F(spectra, templates,
+                               rv_0, rv_fixed=rv_fixed,
+                               step=step, mode=mode, method=method)
 
     def eval_rv_error_alex(self, spectra, templates, rv_0, step=1.0):
         """
@@ -1326,9 +1371,10 @@ class RVFit():
         return rv, log_L, a, rv_guess
     
     def prepare_fit(self, spectra, templates, /, 
-                    rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None):
+                    rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None):
         
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
+        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_step = rv_step if rv_step is not None else self.rv_step
@@ -1340,12 +1386,18 @@ class RVFit():
             _, _, _, rv_0 = self.guess_rv(spectra, templates, 
                                           rv_bounds=rv_bounds, rv_prior=rv_prior,
                                           method='max')
+            
+            if rv_fixed:
+                # TODO: warn that the result will be the guessed RV if no value for rv_0 is provided
+                pass
 
-        # Get objective function
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra, templates,
-            rv_0=rv_0, rv_prior=rv_prior,
-            mode='rv')
+            rv_0=rv_0,
+            rv_fixed=rv_fixed,
+            rv_prior=rv_prior,
+            mode='rv'
+        )
         
         if rv_0 is not None:
             x_0 = pack_params(rv_0)
@@ -1362,7 +1414,7 @@ class RVFit():
         bounds = pack_bounds(rv_bounds)
         bounds = self.get_bounds_array(bounds)
 
-        return (rv_0, rv_bounds, rv_prior, rv_step,
+        return (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
                 log_L_fun, pack_params, unpack_params, pack_bounds,
                 x_0, bounds, steps)
     
@@ -1417,7 +1469,7 @@ class RVFit():
             else:
                 raise Exception("No valid spectra found to initialize the flux correction model.")
 
-    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
+    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_fixed=None,
                method='bounded', calculate_error=True):
         """
         Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
@@ -1433,17 +1485,45 @@ class RVFit():
         if self.flux_corr is None:
             self.init_flux_corr(spectra, rv_bounds=rv_bounds)
 
-        (rv_0, rv_bounds, rv_prior, rv_step,
+        (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             log_L_fun, pack_params, unpack_params, pack_bounds,
             x_0, bounds, steps) = self.prepare_fit(spectra, templates,
-                                            rv_0=rv_0, rv_bounds=rv_bounds,
-                                            rv_prior=rv_prior)
-        
+                                                   rv_0=rv_0,
+                                                   rv_fixed=rv_fixed,
+                                                   rv_bounds=rv_bounds,
+                                                   rv_prior=rv_prior)
+                
         if self.trace is not None:
             self.trace.on_fit_rv_start(spectra, templates,
                                        rv_0, rv_bounds, rv_prior, rv_step,
                                        log_L_fun)
 
+        if not rv_fixed:
+            # Optimize for RV
+            results = self.fit_rv_optimize(spectra, templates,
+                                           rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
+                                           log_L_fun, pack_params, unpack_params, pack_bounds,
+                                           x_0, bounds, steps,
+                                           method, calculate_error)
+        else:
+            # Only calculate the flux correction coefficients
+            # Calculate the flux correction coefficients at best fit values
+            phi_fit, chi_fit, ndf_fit = self.eval_phi_chi(spectra, templates, rv_0)
+            a_fit = self.eval_a(phi_fit, chi_fit)
+            lp = self.eval_log_L_a(phi_fit, chi_fit, a=a_fit)
+
+            results = RVFitResults(rv_fit=rv_0, rv_err=np.nan,
+                                   a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
+                                   cov=None, log_L_fit=lp)
+
+        return results
+
+    def fit_rv_optimize(self, spectra, templates,
+                        rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
+                        log_L_fun, pack_params, unpack_params, pack_bounds,
+                        x_0, bounds, steps,
+                        method, calculate_error):
+        
         # Cost function
         def llh(rv):
             return -log_L_fun(pack_params(rv))
@@ -1481,7 +1561,9 @@ class RVFit():
 
         # Calculate the error from the Fisher matrix
         if calculate_error:
-            _, C = self.eval_F(spectra, templates, rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, mode='rv', method='hessian')
+            _, C = self.eval_F(spectra, templates,
+                               rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
+                               mode='rv', method='hessian')
 
             with np.errstate(invalid='warn'):
                 rv_err = np.sqrt(C[-1, -1])         # sigma
@@ -1511,17 +1593,18 @@ class RVFit():
             # TODO: pass in continuum model for plotting
             #       pass in covariance matrix
             self.trace.on_fit_rv_finish(spectra, templates, tt, 
-                                        rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
+                                        rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                                         log_L_fun)
         
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
                             a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                             cov=C, log_L_fit=lp)
 
-    def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
+    def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                   rv_err=None,
                   randomize=False, random_size=()):
         
+        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_step = rv_step if rv_step is not None else self.rv_step
@@ -1539,7 +1622,7 @@ class RVFit():
         else:
             rv = rv_0
                 
-        if randomize:
+        if randomize and not rv_fixed:
             if rv_step is not None:
                 rv = rv + rv_step * (np.random.rand(*random_size) - 0.5)
             else:
@@ -1560,7 +1643,7 @@ class RVFit():
         return rv, rv_err
 
     def run_mcmc(self, spectra, templates, *,
-                 rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
+                 rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None,
                  cov=None,
                  walkers=None, burnin=None, samples=None, thin=None, gamma=None):
         """
@@ -1578,11 +1661,12 @@ class RVFit():
         thin = thin if thin is not None else self.mcmc_thin
         gamma = gamma if gamma is not None else self.mcmc_gamma
 
-        (rv_0, rv_bounds, rv_prior, rv_step,
+        (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             log_L_fun, pack_params, unpack_params, pack_bounds,
             x_0, bounds, steps) = self.prepare_fit(spectra, templates,
                                             rv_0=rv_0, rv_bounds=rv_bounds,
-                                            rv_prior=rv_prior, rv_step=rv_step)
+                                            rv_prior=rv_prior, rv_step=rv_step,
+                                            rv_fixed=rv_fixed)
         
         if bounds is not None and np.any((np.transpose(x_0) < bounds[..., 0]) | (bounds[..., 1] < np.transpose(x_0))):
             raise Exception("Initial state is outside bounds.")

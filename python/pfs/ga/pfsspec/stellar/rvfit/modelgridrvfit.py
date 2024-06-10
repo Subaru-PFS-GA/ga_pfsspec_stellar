@@ -281,88 +281,156 @@ class ModelGridRVFit(RVFit):
             params_free = [p for i, p, ax in grid.enumerate_axes() if params_fixed is None or p not in params_fixed]
             return params_free  # return from loop after very first iter!
         
-    def get_packing_functions(self, params_0, params_free, params_fixed=None, mode='full'):
+    def get_packing_functions(self,
+                              rv_0, rv_fixed,
+                              params_0, params_free, params_fixed=None,
+                              mode='full'):
+        
         # Return the parameter packing/unpacking functions for optimizers
         # pack_params: convert individual arguments into a single 1d array
         # unpack_params: get individual arguments from 1d array
         # pack_bounds: pack parameters bounds into a list of tuples
 
         if mode == 'a_params_rv':
-            def pack_params(a, params, rv):
-                # Leading dim is number of parameters for each component, rest is batch shape
-                rv = np.atleast_1d(rv)
-                if rv.size > 1:
-                    rv = np.reshape(rv, (-1,) + rv.shape)
-                params = np.array([ params[k] for k in params_free ])
-                a = np.reshape(a, (-1,) + rv.shape[1:])
+            if not rv_fixed:
+                def pack_params(a, params, rv):
+                    # Leading dim is number of parameters for each component, rest is batch shape
+                    rv = np.atleast_1d(rv)
+                    if rv.size > 1:
+                        rv = np.reshape(rv, (-1,) + rv.shape)
+                    params = np.array([ params[k] for k in params_free ])
+                    a = np.reshape(a, (-1,) + rv.shape[1:])
 
-                return np.concatenate([a, params, rv])
-        
-            def unpack_params(a_params_rv):
-                # Leading dim is number of parameters for each component, rest is batch shape
-                params = {}
-                for i, p in enumerate(params_free):
-                    params[p] = a_params_rv[-(len(params_free) + 1) + i]
-                for p in params_fixed:
-                    params[p] = params_fixed[p]
+                    return np.concatenate([a, params, rv])
+            
+                def unpack_params(a_params_rv):
+                    # Leading dim is number of parameters for each component, rest is batch shape
+                    params = {}
+                    for i, p in enumerate(params_free):
+                        params[p] = a_params_rv[-(len(params_free) + 1) + i]
+                    for p in params_fixed:
+                        params[p] = params_fixed[p]
 
-                a = a_params_rv[:-(len(params_free) + 1)]
-                if a.ndim == 2:
-                    a = np.squeeze(a)
-                elif a.size == 1:
-                    a = a.item()
+                    a = a_params_rv[:-(len(params_free) + 1)]
+                    if a.ndim == 2:
+                        a = np.squeeze(a)
+                    elif a.size == 1:
+                        a = a.item()
 
-                rv = a_params_rv[-1]
-                if rv.size == 0:
-                    rv = rv.item()
+                    rv = a_params_rv[-1]
+                    if rv.size == 0:
+                        rv = rv.item()
 
-                return a, params, rv
+                    return a, params, rv
 
-            def pack_bounds(a_bounds, params_bounds, rv_bounds):
-                if a_bounds is None:
-                    raise NotImplementedError()
-                else:
-                    bounds = a_bounds
+                def pack_bounds(a_bounds, params_bounds, rv_bounds):
+                    if a_bounds is None:
+                        raise NotImplementedError()
+                    else:
+                        bounds = a_bounds
 
-                if params_bounds is None:
-                    bounds += [ params_bounds[k] if k in params_bounds else None for k in params_free ]
-                else:
-                    bounds += [ None for k in params_free ]
+                    if params_bounds is None:
+                        bounds += [ params_bounds[k] if k in params_bounds else None for k in params_free ]
+                    else:
+                        bounds += [ None for k in params_free ]
+                        
+                    bounds += [ rv_bounds ]
                     
-                bounds += [ rv_bounds ]
-                
-                return bounds
+                    return bounds
+            else:
+                def pack_params(a, params, _):
+                    # Leading dim is number of parameters for each component, rest is batch shape
+
+                    # TODO: figure out correct shape
+                    raise NotImplementedError()
+
+                    params = np.array([ params[k] for k in params_free ])
+                    a = np.reshape(a, (-1,) + rv.shape[1:])
+
+                    return np.concatenate([a, params])
+            
+                def unpack_params(a_params_rv):
+                    # Leading dim is number of parameters for each component, rest is batch shape
+                    params = {}
+                    for i, p in enumerate(params_free):
+                        params[p] = a_params_rv[-(len(params_free) + 1) + i]
+                    for p in params_fixed:
+                        params[p] = params_fixed[p]
+
+                    a = a_params_rv[:-(len(params_free) + 1)]
+                    if a.ndim == 2:
+                        a = np.squeeze(a)
+                    elif a.size == 1:
+                        a = a.item()
+
+                    return a, params, rv_0
+
+                def pack_bounds(a_bounds, params_bounds, _):
+                    if a_bounds is None:
+                        raise NotImplementedError()
+                    else:
+                        bounds = a_bounds
+
+                    if params_bounds is None:
+                        bounds += [ params_bounds[k] if k in params_bounds else None for k in params_free ]
+                    else:
+                        bounds += [ None for k in params_free ]
+                                            
+                    return bounds
         elif mode == 'full' or mode == 'params_rv':
-            def pack_params(params, rv):
-                # Leading dim is number of parameters, rest is batch shape
-                rv = np.atleast_1d(rv)
-                if rv.size > 1:
-                    rv = np.reshape(rv, (-1,) + rv.shape)
-                params = np.array([ params[k] for k in params_free ])
+            if not rv_fixed:
+                def pack_params(params, rv):
+                    # Leading dim is number of parameters, rest is batch shape
+                    rv = np.atleast_1d(rv)
+                    if rv.size > 1:
+                        rv = np.reshape(rv, (-1,) + rv.shape)
+                    params = np.array([ params[k] for k in params_free ])
 
-                return np.concatenate([params, rv])
-            
-            def unpack_params(params_rv):
-                rv = params_rv[-1]
-                if rv.size == 1:
-                    rv = rv.item()
-
-                params = {}
-                for i, p in enumerate(params_free):
-                    params[p] = params_rv[i]
-                for p in params_fixed:
-                    params[p] = params_fixed[p]
-
-                return params, rv
-            
-            def pack_bounds(params_bounds, rv_bounds):
-                if params_bounds is not None:
-                    bounds = [ params_bounds[k] if k in params_bounds else None for k in params_free ]
-                else:
-                    bounds = [ None for k in params_free ]
-                bounds += [ rv_bounds ] 
+                    return np.concatenate([params, rv])
                 
-                return bounds
+                def unpack_params(params_rv):
+                    rv = params_rv[-1]
+                    if rv.size == 1:
+                        rv = rv.item()
+
+                    params = {}
+                    for i, p in enumerate(params_free):
+                        params[p] = params_rv[i]
+                    for p in params_fixed:
+                        params[p] = params_fixed[p]
+
+                    return params, rv
+                
+                def pack_bounds(params_bounds, rv_bounds):
+                    if params_bounds is not None:
+                        bounds = [ params_bounds[k] if k in params_bounds else None for k in params_free ]
+                    else:
+                        bounds = [ None for k in params_free ]
+                    bounds += [ rv_bounds ] 
+                    
+                    return bounds
+            else:
+                def pack_params(params, _):
+                    # Leading dim is number of parameters, rest is batch shape
+                    params = np.array([ params[k] for k in params_free ])
+                    return params
+
+                def unpack_params(params_rv):
+                    params = {}
+                    for i, p in enumerate(params_free):
+                        params[p] = params_rv[i]
+                    for p in params_fixed:
+                        params[p] = params_fixed[p]
+
+                    return params, rv_0
+
+                def pack_bounds(params_bounds, _):
+                    if params_bounds is not None:
+                        bounds = [ params_bounds[k] if k in params_bounds else None for k in params_free ]
+                    else:
+                        bounds = [ None for k in params_free ]
+
+                    return bounds
         elif mode == 'params':
             def pack_params(params):
                 return np.array([ params[k] for k in params_free ])
@@ -384,29 +452,40 @@ class ModelGridRVFit(RVFit):
                                 
                 return bounds
         elif mode == 'rv':
-            def pack_params(rv):
-                return np.atleast_1d(rv)
-            
-            def unpack_params(rv):
-                rv = rv
-                if rv.size == 1:
-                    rv = rv.item()
+            if not rv_fixed:
+                def pack_params(rv):
+                    return np.atleast_1d(rv)
+                
+                def unpack_params(rv):
+                    rv = rv
+                    if rv.size == 1:
+                        rv = rv.item()
 
-                return params_0, rv
-            
-            def pack_bounds(rv_bounds):
-                return [ rv_bounds ]
-            
+                    return params_0, rv
+                
+                def pack_bounds(rv_bounds):
+                    return [ rv_bounds ]
+            else:
+                def pack_params(_):
+                    return None
+                
+                def unpack_params(_):
+                    return rv_0
+                
+                def pack_bounds(_):
+                    return []
         else:
             raise NotImplementedError()  
         
         return pack_params, unpack_params, pack_bounds
         
-    def get_objective_function(self, spectra, rv_0, rv_prior, params_0, params_priors, params_free, params_fixed=None, mode='full'):
+    def get_objective_function(self, spectra, rv_0, rv_fixed, rv_prior, params_0, params_priors, params_free, params_fixed=None, mode='full'):
         # Return the objection functionfor optimizers
         # log_L: evaluate the log likelihood
 
-        pack_params, unpack_params, pack_bounds = self.get_packing_functions(params_0, params_free, params_fixed=params_fixed, mode=mode)
+        pack_params, unpack_params, pack_bounds = self.get_packing_functions(rv_0, rv_fixed,
+                                                                             params_0, params_free, params_fixed=params_fixed,
+                                                                             mode=mode)
         
         if mode == 'a_params_rv':            
             def log_L(a_params_rv):
@@ -469,7 +548,12 @@ class ModelGridRVFit(RVFit):
         
         return log_L, pack_params, unpack_params, pack_bounds
 
-    def eval_F(self, spectra, rv_0, params_0, rv_bounds=None, rv_prior=None, params_bounds=None, params_priors=None, params_fixed=None, step=None, mode='full', method='hessian'):
+    def eval_F(self, spectra,
+               rv_0, params_0,
+               rv_bounds=None, rv_prior=None, rv_fixed=None,
+               params_bounds=None, params_priors=None, params_fixed=None,
+               step=None, mode='full', method='hessian'):
+        
         # Evaluate the Fisher matrix around the provided rv_0 and params_0
         # values. The corresponding a_0 best fit flux correction will be
         # evaluated at the optimum. The Hessian will be calculated wrt either
@@ -478,6 +562,7 @@ class ModelGridRVFit(RVFit):
         # matrix will be determined using MCMC.
 
         # Collect fixed and free template parameters
+        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
 
@@ -491,11 +576,12 @@ class ModelGridRVFit(RVFit):
         
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, rv_0, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode=mode)
+            spectra, rv_0, rv_fixed, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode=mode)
         
         if mode == 'full':
             return self.eval_F_full(spectra, 
-                                    rv_0, params_0, rv_bounds=rv_bounds, rv_prior=rv_prior, 
+                                    rv_0, params_0,
+                                    rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
                                     params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed,
                                     step=step)
         if mode == 'a_params_rv':               
@@ -521,7 +607,12 @@ class ModelGridRVFit(RVFit):
 
         return self.eval_F_dispatch(x_0, log_L, step, method, bounds)
     
-    def eval_F_full(self, spectra, rv_0, params_0, rv_bounds=None, rv_prior=None, params_bounds=None, params_priors=None, params_fixed=None, step=None):
+    def eval_F_full(self, spectra, 
+                    rv_0, params_0, 
+                    rv_bounds=None, rv_prior=None, rv_fixed=None,
+                    params_bounds=None, params_priors=None, params_fixed=None,
+                    step=None):
+        
         def matinv_safe(a):
             if isinstance(a, np.ndarray):
                 return np.linalg.inv(a)
@@ -548,6 +639,7 @@ class ModelGridRVFit(RVFit):
         # Evaluate the Fisher matrix using Eq. 28 from the paper
 
         # Collect fixed and free template parameters
+        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
 
@@ -561,7 +653,7 @@ class ModelGridRVFit(RVFit):
         
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, rv_0, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode='full')
+            spectra, rv_0, rv_fixed, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode='full')
         
         # Calculate derivatives by the model params and RV only, compose Fisher
         # matrix according to Eq. 28
@@ -635,10 +727,17 @@ class ModelGridRVFit(RVFit):
 
         return F, np.linalg.inv(F)
 
-    def calculate_F(self, spectra, rv_0, params_0, rv_bounds=None, rv_prior=None, params_bounds=None, params_priors=None, params_fixed=None, step=None, mode='full', method='hessian'):
+    def calculate_F(self, spectra, 
+                    rv_0, params_0,
+                    rv_bounds=None, rv_prior=None, rv_fixed=None,
+                    params_bounds=None, params_priors=None, params_fixed=None,
+                    step=None, mode='full', method='hessian'):
+        
         # Calculate the Fisher matrix using different methods
-
-        return self.eval_F(spectra, rv_0, params_0, rv_bounds=rv_bounds, rv_prior=rv_prior, params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed, step=step, mode=mode, method=method)
+        return self.eval_F(spectra, rv_0, params_0,
+                           rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
+                           params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed,
+                           step=step, mode=mode, method=method)
 
     #endregion
 
@@ -676,9 +775,8 @@ class ModelGridRVFit(RVFit):
         return super().guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_steps=rv_steps, method=method)
     
     def prepare_fit(self, spectra, /,
-              rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
-              params_0=None, params_bounds=None, params_priors=None, params_steps=None,
-              params_fixed=None):
+              rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None,
+              params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None):
         
         """
         :param params_0: Dictionary of initial values.
@@ -687,6 +785,7 @@ class ModelGridRVFit(RVFit):
         """
         
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
+        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_step = rv_step if rv_step is not None else self.rv_step
@@ -715,16 +814,13 @@ class ModelGridRVFit(RVFit):
         if params_fixed is None:
             params_fixed = []
             
-        if params_fixed is None:
-            params_fixed = []
-            
         if self.template_wlim is None:
             self.determine_wlim(spectra, rv_bounds=rv_bounds)
 
         # Get objective function
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra,
-            rv_0, rv_prior,
+            rv_0, rv_fixed, rv_prior,
             params_0, params_priors, params_free, params_fixed=params_fixed,
             mode='params_rv')
         
@@ -745,13 +841,13 @@ class ModelGridRVFit(RVFit):
         bounds = pack_bounds(bounds, rv_bounds)
         bounds = self.get_bounds_array(bounds)
 
-        return (rv_0, rv_bounds, rv_prior, rv_step,
+        return (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
                 params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
                 log_L_fun, pack_params, unpack_params, pack_bounds,
                 x_0, bounds, steps)
 
     def fit_rv(self, spectra, *,
-               rv_0=None, rv_bounds=(-500, 500), rv_prior=None,
+               rv_0=None, rv_fixed=None, rv_bounds=(-500, 500), rv_prior=None,
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
                method="Nelder-Mead", max_iter=None,
                calculate_error=True, calculate_cov=True):
@@ -764,11 +860,12 @@ class ModelGridRVFit(RVFit):
         if self.flux_corr is None:
             self.init_flux_corr(spectra, rv_bounds=rv_bounds)
         
-        (rv_0, rv_bounds, rv_prior, rv_step,
+        (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
             log_L_fun, pack_params, unpack_params, pack_bounds,
             x_0, bounds, steps) = self.prepare_fit(spectra, 
-                                            rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior,
+                                            rv_0=rv_0, rv_fixed=rv_fixed,
+                                            rv_bounds=rv_bounds, rv_prior=rv_prior,
                                             params_0=params_0, params_bounds=params_bounds,
                                             params_priors=params_priors, params_steps=None,
                                             params_fixed=params_fixed)
@@ -827,14 +924,18 @@ class ModelGridRVFit(RVFit):
         a_fit = self.eval_a(phi_fit, chi_fit)
         
         if calculate_error:
-            # Error of RV
-            F, C = self.eval_F(spectra, rv_fit, params_fit, params_fixed=params_fixed,
-                               rv_bounds=rv_bounds, rv_prior=rv_prior,
-                               step=rv_step,
-                               mode='rv', method='hessian')
-            
-            with np.errstate(invalid='warn'):
-                rv_err = np.sqrt(C).item()
+            # Error of RV only
+            if not rv_fixed:
+                F, C = self.eval_F(spectra, rv_fit, params_fit,
+                                rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
+                                params_fixed=params_fixed,
+                                step=rv_step,
+                                mode='rv', method='hessian')
+                
+                with np.errstate(invalid='warn'):
+                    rv_err = np.sqrt(C).item()
+            else:
+                rv_err = 0.0
 
             # Error of the parameters one by one
             params_err = {}
@@ -843,9 +944,9 @@ class ModelGridRVFit(RVFit):
                 pf = { s: params_fit[s] for j, s in enumerate(params_free) if j != i }
                 pf.update({ s: params_fixed[s] for j, s in enumerate(params_fixed) })
 
-                F, C = self.eval_F(spectra, rv_fit, pp, params_fixed=pf,
-                                   rv_bounds=rv_bounds, rv_prior=rv_prior,
-                                   params_bounds=params_bounds, params_priors=params_priors,
+                F, C = self.eval_F(spectra, rv_fit, pp,
+                                   rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
+                                   params_bounds=params_bounds, params_priors=params_priors, params_fixed=pf,
                                    step=1e-3,
                                    mode='params', method='hessian')
 
@@ -865,7 +966,7 @@ class ModelGridRVFit(RVFit):
         if calculate_cov:
             # Calculate the correlated errors from the Fisher matrix            
             F, C = self.eval_F(spectra, 
-                               rv_0=rv_fit, rv_bounds=None, rv_prior=None, 
+                               rv_0=rv_fit, rv_bounds=None, rv_prior=None, rv_fixed=rv_fixed,
                                params_0=params_fit, params_fixed=params_fixed,
                                params_bounds=params_bounds, params_priors=params_priors,
                                step=1e-3,
@@ -917,9 +1018,9 @@ class ModelGridRVFit(RVFit):
             # TODO: pass in continuum model for plotting
             #       pass in covariance matrix
             self.trace.on_fit_rv_finish(spectra, None, tt,
-                                        rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
-                                        params_0, params_fit, params_err, params_bounds, params_priors, params_steps,
-                                        params_free, C,
+                                        rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
+                                        params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
+                                        C,
                                         log_L_fun)
 
         return RVFitResults(rv_fit=rv_fit, rv_err=rv_err,
@@ -927,7 +1028,7 @@ class ModelGridRVFit(RVFit):
                             a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                             cov=C)
     
-    def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
+    def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                   params_0=None, params_bounds=None, params_priors=None, params_steps=None,
                   params_fixed=None, cov=None,
                   randomize=False, random_size=()):
@@ -940,7 +1041,7 @@ class ModelGridRVFit(RVFit):
         rv_err = None if cov is None else cov[-1, -1]
         rv, rv_err = super().randomize_init_params(spectra,
                                                    rv_0=rv_0, rv_bounds=rv_bounds,
-                                                   rv_prior=rv_prior, rv_step=rv_step,
+                                                   rv_prior=rv_prior, rv_step=rv_step, rv_fixed=rv_fixed,
                                                    rv_err=rv_err,
                                                    randomize=randomize, random_size=random_size)
 
@@ -951,7 +1052,7 @@ class ModelGridRVFit(RVFit):
         # We need pack_params to construct the covariance matrix
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra,
-            rv_0, rv_prior,
+            rv_0, rv_fixed, rv_prior,
             params_0, params_priors, params_free, params_fixed=params_fixed,
             mode='params_rv')
 
@@ -1000,7 +1101,7 @@ class ModelGridRVFit(RVFit):
         return rv, params, cov
 
     def run_mcmc(self, spectra, *,
-               rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
+               rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                params_0=None, params_bounds=None, params_priors=None, params_steps=None,
                params_fixed=None, cov=None,
                walkers=None, burnin=None, samples=None, thin=None, gamma=None):
@@ -1019,11 +1120,11 @@ class ModelGridRVFit(RVFit):
         thin = thin if thin is not None else self.mcmc_thin
         gamma = gamma if gamma is not None else self.mcmc_gamma
 
-        (rv_0, rv_bounds, rv_prior, rv_step,
+        (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
             log_L_fun, pack_params, unpack_params, pack_bounds,
             x_0, bounds, steps) = self.prepare_fit(spectra, 
-                                            rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
+                                            rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step, rv_fixed=rv_fixed,
                                             params_0=params_0, params_bounds=params_bounds,
                                             params_priors=params_priors, params_steps=params_steps,
                                             params_fixed=params_fixed)

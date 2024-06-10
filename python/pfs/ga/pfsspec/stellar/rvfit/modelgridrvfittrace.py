@@ -54,21 +54,23 @@ class ModelGridRVFitTrace(RVFitTrace):
             self.params_iter[p].append(params[p])
 
     def on_fit_rv_finish(self, spectra, templates, processed_templates,
-                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
-                         params_0, params_fit, params_err, params_bounds, params_priors, params_steps,
-                         params_free, cov,
+                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
+                         params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
+                         cov,
                          log_L_fun):
         
         for p in params_fit:
             self.params_iter[p].append(params_fit[p])
 
         super().on_fit_rv_finish(spectra, templates, processed_templates,
-                            rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step,
+                            rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                             log_L_fun)
         
         # TODO: move it to a function and remove duplicate lines
         # Plot corner plot of parameters
-        nparam = len(params_fit) + 1        # including RV
+        nparam = len(params_fit)
+        if not rv_fixed:
+            nparam += 1
         f = self.get_diagram_page('pfsGA-RVFit-params-{id}', npages=1, nrows=nparam, ncols=nparam)
 
         # Collect the axes from the free parameters and RV
@@ -78,23 +80,30 @@ class ModelGridRVFitTrace(RVFitTrace):
             # limits = params_bounds[p]
             limits = (params_fit[p] - 10 * params_err[p], params_fit[p] + 10 * params_err[p])
             axes.append(DiagramAxis(limits, label=p))
-            priors.append((params_priors[p], limits, None, None))
+            priors.append((params_priors[p] if params_priors is not None and p in params_priors else None,
+                            limits, None, None))
 
         # limits = rv_bounds
-        limits = (rv_fit - 10 * rv_err, rv_fit + 10 * rv_err)
-        axes.append(DiagramAxis(limits, label='RV'))
-        priors.append((rv_prior, limits, None, None))
+        if not rv_fixed:
+            limits = (rv_fit - 10 * rv_err, rv_fit + 10 * rv_err)
+            axes.append(DiagramAxis(limits, label='RV'))
+            priors.append((rv_prior, limits, None, None))
 
         cc = CornerPlot(f, axes)
 
         # Plot the covariance contours
-        mu = np.array([ params_fit[p] for p in params_free ] + [ rv_fit ])
+        all_params = [ params_fit[p] for p in params_free ]
+        if not rv_fixed:
+            all_params.append(rv_fit)
+        mu = np.array(all_params)
         if cov is not None and not np.any(np.isnan(cov)):
             cc.plot_covariance(mu, cov, sigma=[1, 2, 3])
         
         # Plot the best fit values with error bars
-        args = [ (params_fit[p], params_err[p]) for p in params_free ] + [ (rv_fit, rv_err) ]
-        cc.errorbar(*args, sigma=[1, 2, 3])
+        all_params = [ (params_fit[p], params_err[p]) for p in params_free ]
+        if not rv_fixed:
+            all_params.append((rv_fit, rv_err))
+        cc.errorbar(*all_params, sigma=[1, 2, 3])
 
         # Plot the priors            
         cc.plot_priors(*priors, normalize=True)
