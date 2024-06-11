@@ -2,6 +2,7 @@ import importlib
 import numpy as np
 import h5py
 from random import choice
+from collections.abc import Iterable
 from scipy.interpolate import RegularGridInterpolator, CubicSpline
 from scipy.interpolate import interp1d, interpn
 
@@ -171,7 +172,7 @@ class ModelGrid(PfsObject):
         constants = self.grid.get_constants()
         if self.continuum_model is not None:
             wave, _, _ = self.get_wave()
-            constants.update(self.continuum_model.get_constants(wave))
+            constants.update(self.continuum_model.get_constants(wave=wave))
         return constants
 
     def set_constants(self, constants):
@@ -494,7 +495,7 @@ class ModelGrid(PfsObject):
         
         # Determine the wave limits, convert to slice from (wmin, wmax)
         wlim = wlim if wlim is not None else self.get_wave_slice()
-        if isinstance(wlim, tuple):
+        if isinstance(wlim, Iterable):
             wlim = self.get_wave_slice_impl(wlim)
 
         # Get post-processing function to be passed to the grid. The grid object will
