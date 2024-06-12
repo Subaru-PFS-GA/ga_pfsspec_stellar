@@ -12,8 +12,9 @@ except:
 from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.util.array_filters import *
-from ..continuummodel import ContinuumModel, ContinuumModelTrace
-from ..modelparameter import ModelParameter
+from .continuummodel import ContinuumModel
+from .continuummodeltrace import ContinuumModelTrace
+from .modelparameter import ModelParameter
 from ..functions import AlexSigmoid, Legendre
 from ..finders import SigmaClipping
 
@@ -129,7 +130,7 @@ class Alex(ContinuumModel):
 
         self.legendre_deg = self.get_arg('alex_legendre_deg', self.legendre_deg, args)
 
-    def get_constants(self, wave):
+    def get_constants(self, wave=None):
         self.find_limits(wave)
 
         constants = {}
@@ -140,7 +141,7 @@ class Alex(ContinuumModel):
 
         return constants
 
-    def set_constants(self, wave, constants):
+    def set_constants(self, constants, wave=None):
         self.find_limits(wave)
 
         self.legendre_deg = self.set_constant('legendre_deg', constants, self.legendre_deg)
@@ -380,30 +381,20 @@ class Alex(ContinuumModel):
 
         spec.append_history(f'Spectrum is denormalized using model `{type(self).__name__}`.')
 
-    def fill_params(self, name, params):
+    def fill_model_params_grid(self, name, params):
         # Fill in the holes in a parameter grid
 
         if name == 'legendre':
             return params
         else:
-            fill_params = np.full(params.shape, np.nan)
-            for i in range(params.shape[-1]):
-                fill_params[..., i] = fill_holes_filter(params[..., i], fill_filter=np.nanmean, value_filter=np.nanmin)
-            return fill_params
+            return super().fill_model_params_grid(name, params)
 
-    def smooth_params(self, name, params):
+    def smooth_model_params_grid(self, name, params):
         # Smooth the parameters.
         if name == 'legendre':
             return params
         else:
-            shape = params.shape
-            params = params.squeeze()
-            sp = anisotropic_diffusion(params, 
-                                        niter=self.smoothing_iter,
-                                        kappa=self.smoothing_kappa,
-                                        gamma=self.smoothing_gamma)
-            sp = sp.reshape(shape)
-            return sp
+            return super().smooth_model_params_grid(name, params)
 
 #endregion            
 #region Limits and mask
@@ -422,16 +413,16 @@ class Alex(ContinuumModel):
 
         # Mask that defines the entire range we can fit. Precalculate masked wavelength
         # grid and log lambda grid for convenience.
-        [self.wave_mask], _ = self.find_cont_masks(wave, [self.limit_wave[0], self.limit_wave[-1]], dlambda=0)
+        [self.wave_mask], _, _ = self.limits_to_masks(wave, [self.limit_wave[0], self.limit_wave[-1]], dlambda=0)
         self.wave = wave[self.wave_mask]
         self.log_wave = np.log(self.wave)
 
         # Every mask below will refer to the grid defined by wave_mask
 
         # Masks that define the regions where we fit the continuum
-        self.cont_fit_masks, _ = self.find_cont_masks(self.wave, self.limit_wave, dlambda=0.5)
+        self.cont_fit_masks, _, _ = self.limits_to_masks(self.wave, self.limit_wave, dlambda=0.5)
         # Disjoint masks that define where we evaluate the continuum, no gaps here
-        self.cont_eval_masks, _ = self.find_cont_masks(self.wave, self.limit_wave, dlambda=0.0)
+        self.cont_eval_masks, _, _ = self.limits_to_masks(self.wave, self.limit_wave, dlambda=0.0)
         # Continuum models
         self.cont_models = []
         for i in range(len(self.cont_fit_masks)):
@@ -465,21 +456,6 @@ class Alex(ContinuumModel):
         
         # Downsampling of the wavelength grid for fitting the continuum
         self.cont_fit_rate = self.cont_fit_rate_multiplier * dx
-
-    def find_cont_masks(self, wave, limits, dlambda):
-        # Find intervals between the limits
-        masks = []
-        bounds = []
-        for i in range(len(limits) - 1):
-            mask = (wave >= limits[i] + dlambda) & (wave < limits[i + 1] - dlambda)
-            masks.append(mask)
-            wm = wave[mask]
-            if wm.size > 0:
-                bounds.append([wm[0], wm[-1]])
-            else:
-                bounds.append([np.nan, np.nan])
-
-        return masks, bounds
 
     def find_blended_masks(self, wave, cont_masks):
         blended_masks = []
@@ -790,7 +766,8 @@ class Alex(ContinuumModel):
         if self.trace is not None:
             self.trace.legendre_control_points[i] = (x, y, w)
 
-        continuum_finder = SigmaClipping(sigma=[2, 2], max_iter=5)
+        continuum_finder = SigmaClipping(sigma=[2, 2], max_iter=self.max_iter)
+        
         success, params = self.fit_function(0, model, x, y, continuum_finder=continuum_finder)
         
         # Find the minimum difference between the model fitted to the continuum
