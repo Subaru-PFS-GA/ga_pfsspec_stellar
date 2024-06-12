@@ -30,7 +30,7 @@ class ModelFunction():
 
         raise NotImplementedError()
 
-    def find_p0(self, x, y, w=None):
+    def find_p0(self, x, y, w=None, mask=None):
         """
         Find some good initial values for fitting the function.
         """

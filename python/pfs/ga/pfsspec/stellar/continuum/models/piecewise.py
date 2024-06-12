@@ -1,168 +1,202 @@
 import numpy as np
 
 from pfs.ga.pfsspec.core.util.copy import safe_deep_copy
-from pfs.ga.pfsspec.core import Physics
-from pfs.ga.pfsspec.stellar.continuum import ContinuumModel
+from .continuummodel import ContinuumModel
 
 class PiecewiseTrace():
     pass
 
 class Piecewise(ContinuumModel):
     """
-    Piecewise continuum fit between Hydrogen photoionization lines.
+    Fit the continuum model as a piecewise combination of functions within predefined wavelength ranges.
     """
 
     # TODO: allow using different function in each piece, with their own name in params?
 
-    def __init__(self, use_log=None, use_continuum=None, continuum_finder=None, trace=None, orig=None):
-        super().__init__(continuum_finder=continuum_finder, trace=trace, orig=orig)
+    def __init__(self, continuum_finder=None, trace=None, orig=None):
+        super().__init__(continuum_finder=continuum_finder,
+                         trace=trace, orig=orig)
 
         if not isinstance(orig, Piecewise):
-            self.version = 1
+            self.wave_limits = self.get_hydrogen_limits()
+            self.wave_limits_dlambda = 1.0
 
-            self.use_log = use_log if use_log is not None else False                    # Fit log flux instead of flux
-            self.use_continuum = use_continuum if use_continuum is not None else False  # Fit continuum instead of flux
-
-            limits = [2530,] + Physics.HYDROGEN_LIMITS + [17500,]
-            self.photo_limits = Physics.air_to_vac(np.array(limits))
-            self.limits_dlambda = 1
-
+            self.fit_ranges = None
             self.fit_masks = None
-            self.fit_limits = None
+            self.fit_overflow = None
+            
+            self.eval_ranges = None
             self.eval_masks = None
-            self.eval_limits = None
+            self.eval_overflow = None
         else:
-            self.version = orig.version
+            self.wave_limits = orig.wave_limits
+            self.wave_limits_dlambda = orig.wave_limits_dlambda
 
-            self.use_log = use_log if use_log is not None else orig.use_log
-            self.use_continuum = use_continuum if use_continuum is not None else orig.use_continuum
-
-            self.photo_limits = orig.photo_limits
-            self.limits_dlambda = orig.limits_dlambda
-
+            self.fit_ranges = orig.fit_ranges
             self.fit_masks = orig.fit_masks
-            self.fit_limits = orig.fit_limits
+            self.fit_overflow = orig.fit_overflow
+            
+            self.eval_ranges = orig.eval_ranges
             self.eval_masks = orig.eval_masks
-            self.eval_limits = orig.eval_limits
+            self.eval_overflow = orig.eval_overflow
 
-    def get_constants(self, wave):
+        self.version = 1
+
+    @property
+    def name(self):
+        return "piecewise"
+    
+    def create_function(self, i):
+        raise NotImplementedError()
+            
+    def get_constants(self, wave=None):
         """
         Return the constants necessary to evaluate the continuum model
         """
 
-        self.find_limits(wave, self.limits_dlambda)
+        constants = super().get_constants(wave=wave)
+
+        wave = wave if wave is not None else self.wave
+
+        self.find_limits(wave, self.wave_limits_dlambda)
 
         limits = []
-        for i in range(len(self.fit_limits)):
-            limits.append(self.fit_limits[i][0])
-            limits.append(self.fit_limits[i][1])
+        for i in range(len(self.fit_ranges)):
+            limits.append(self.fit_ranges[i][0])
+            limits.append(self.fit_ranges[i][1])
 
-        return { 
-            'piecewise_version': self.version,
-            'piecewise_limits_dlambda': self.limits_dlambda,
-            'piecewise_limits': np.array(limits)
-        }
+        constants.update({ 
+            f'{self.name}_limits': np.array(limits),
+            f'{self.name}_limits_dlambda': self.wave_limits_dlambda,
+        })
 
-    def set_constants(self, wave, constants):
+        return constants
+
+    def set_constants(self, constants, wave=None):
         """
         Load the constants necessary to evaluate the continuum model
         """
 
-        self.version = int(constants['piecewise_version'])
+        super().set_constants(constants, wave=wave)
+
+        wave = wave if wave is not None else self.wave
 
         if self.version == 1:
-            self.limits_dlambda = constants['piecewise_limits_dlambda']
-            self.find_limits(wave, self.limits_dlambda)
+            self.wave_limits_dlambda = constants[f'{self.name}_limits_dlambda']
+            self.find_limits(wave, self.wave_limits_dlambda)
             
-            limits = list(constants['piecewise_limits'])
-            for i in range(len(self.fit_limits)):
-                self.fit_limits[i][0] = limits.pop(0)
-                self.fit_limits[i][1] = limits.pop(0)
+            limits = list(constants[f'{self.name}_limits'])
+            for i in range(len(self.fit_ranges)):
+                self.fit_ranges[i][0] = limits.pop(0)
+                self.fit_ranges[i][1] = limits.pop(0)
         else:
             raise NotImplementedError()
 
     def save_items(self):
-        raise NotImplementedError()
+        super().save_items()
 
     def load_items(self):
-        raise NotImplementedError()
+        super().load_items()
 
     def init_wave(self, wave, force=True):
-        self.find_limits(wave, self.limits_dlambda, force=force)
-        self.wave = wave
+        """
+        Initialize the wave vector cache and masks.
+        """
 
-    def create_function(self):
-        raise NotImplementedError()
+        super().init_wave(wave, force=force)
 
-    def find_masks_between_limits(self, wave, dlambda):
-        masks = []
-        limits = []
+        self.find_limits(wave, self.wave_limits_dlambda, force=force)
 
-        for i in range(len(self.photo_limits) - 1):
-            mask = (wave >= self.photo_limits[i] + dlambda) & (wave < self.photo_limits[i + 1] - dlambda)
+    def find_limits(self, wave=None, dlambda=None, force=False):
 
-            masks.append(mask)
-            wm = wave[mask]
-            
-            # TODO: limits should be independt of the wave grid if we want to transfer the model
-            #       from grid to grid
+        wave = wave if wave is not None else self.wave
+        dlambda = dlambda if dlambda is not None else self.wave_limits_dlambda
 
-            limits.append([self.photo_limits[i] + dlambda, self.photo_limits[i + 1] - dlambda])
-
-            # if wm.size > 0:
-            #     limits.append([wave[mask].min(), wave[mask].max()])
-            # else:
-            #     limits.append([np.nan, np.nan])
-
-        return masks, limits
-
-    def find_limits(self, wave, dlambda, force=False):
         if force or self.fit_masks is None:
-            self.fit_masks, self.fit_limits = self.find_masks_between_limits(wave, dlambda=dlambda)
+            self.fit_masks, self.fit_ranges, self.fit_overflow = self.limits_to_masks(
+                wave, self.wave_limits, dlambda=dlambda,
+                strict=False, omit_overflow=False
+            )
         
         if force or self.eval_masks is None:
-            self.eval_masks, self.eval_limits = self.find_masks_between_limits(wave, dlambda=0)
-            
-            # Extrapolate continuum to the edges
-            # Equality must be allowed here because eval_limits are calculated by taking
-            # wave[mask].min/max which are the actual wavelength grid values
-            self.eval_masks[0] = (wave <= self.eval_limits[0][1])
-            self.eval_masks[-1] = (wave >= self.eval_limits[-1][0])
+            # Same as above but use a dlambda buffer of 0
+            # plus extrapolate continuum to the edges
+
+            limits = safe_deep_copy(self.wave_limits)
+            limits[0], limits[-1] = None, None
+
+            self.eval_masks, self.eval_ranges, self.eval_overflow = self.limits_to_masks(
+                wave, limits, dlambda=0,
+                strict=False, omit_overflow=False
+            )
 
     def get_normalized_x(self, x, wave_min, wave_max):
         return (x - wave_min) / (wave_max - wave_min) - 0.5
 
-    def fit_between_limits(self, flux, flux_err=None):
-        func = self.create_function()
+    def fit_between_limits(self, flux, flux_err=None, wave=None, mask=None):
+        """
+        Fit a function on the flux between the predefined wavelength ranges.
+        """
+
+        wave = wave if wave is not None else self.wave
 
         pp = []
-        for i in range(len(self.fit_masks)):
-            piece_mask = self.fit_masks[i]
-            wave_min, wave_max = self.fit_limits[i]
+        for i in range(len(self.fit_masks)):      
+            success = False
 
-            x = self.get_normalized_x(self.wave[piece_mask], wave_min, wave_max)
-            y = flux[piece_mask]
-            w = 1 / flux_err if flux_err is not None else None          # 1 / sigma
-            p0 = None
-            
-            # To find the initial values, run a broad maximum filter and downsample
-            # This works only when we fit templates, so the error vector is None
-            if flux_err is None:
-                # TODO: make this a function
-                # TODO: make size a variable
-                size = 2 * (x.shape[0] // 50) + 1
-                shift = size // 2
-                idx = np.arange(shift, x.shape[0] - shift) + (np.arange(size) - shift)[:, np.newaxis]
-                if x.shape[0] - 2 * shift > func.get_min_point_count():
-                    p0_found, p0 = func.find_p0(x[shift:-shift], np.max(y[idx], axis=0), w=w[shift:-shift] if w is not None else None)
-                    if not p0_found:
-                        p0 = None
-            
-            if x.shape[0] > func.get_min_point_count():
-                success, p = self.fit_function(i, func, x, y, w=w, p0=p0,
-                    continuum_finder=self.continuum_finder)
-            else:
-                success, p = False, np.full(func.get_param_count(), np.nan)
+            # Prepare the function to be fitted
+            func = self.create_function(i)
+
+            # Determine the mask marking the range of the piece
+            piece_mask = self.fit_masks[i]
+
+            if piece_mask.sum() > 0:
+                # Mask within the piece
+                custom_mask = piece_mask.copy()
+                if mask is not None:
+                    custom_mask &= mask
+                if self.include_mask is not None:
+                    custom_mask &= self.include_mask
+                if self.exclude_mask is not None:
+                    custom_mask &= ~self.exclude_mask
+                
+                # Determine the range of normalization
+                # this is always based on the predefined limits, regardless of
+                # the actual wavelength coverage and the masks
+                wave_min, wave_max = self.fit_ranges[i]
+
+                # Prepare data that we're fitting
+                x = self.get_normalized_x(self.wave[piece_mask], wave_min, wave_max)
+                y = flux[piece_mask]
+                w = 1 / flux_err[piece_mask] if flux_err is not None else None          # 1 / sigma
+                m = custom_mask[piece_mask]
+                
+                if m.sum() > func.get_min_point_count():
+                    # Find initial parameters
+                    success, p0 = func.find_p0(x, y, w=w, mask=m)
+
+                    # TODO: review this, as it's likely wrong            
+                    # # To find the initial values, run a broad maximum filter and downsample
+                    # # This works only when we fit templates, so the error vector is None
+                    # if flux_err is None:
+                    #     # TODO: make this a function
+                    #     # TODO: make size a variable
+                    #     size = 2 * (x.shape[0] // 50) + 1
+                    #     shift = size // 2
+                    #     idx = np.arange(shift, x.shape[0] - shift) + (np.arange(size) - shift)[:, np.newaxis]
+                    #     if x.shape[0] - 2 * shift > func.get_min_point_count():
+                    #         p0_found, p0 = func.find_p0(x[shift:-shift], np.max(y[idx], axis=0), w=w[shift:-shift] if w is not None else None)
+                    #         if not p0_found:
+                    #             p0 = None
+                    
+                
+                    success, p = self.fit_function(
+                        i, func, x, y, w=w, p0=p0, mask=m,
+                        continuum_finder=self.continuum_finder
+                    )
+
+            if not success:
+                p = np.full(func.get_param_count(), np.nan)
 
             pp.append(p)
 
@@ -170,14 +204,15 @@ class Piecewise(ContinuumModel):
 
     def eval_between_limits(self, pp):
         model = np.full(self.wave.shape, np.nan)
-        func = self.create_function()
-        pcount = func.get_param_count()
-
+        
         for i in range(len(self.eval_masks)):
-            piece_mask = self.eval_masks[i]
-            wave_min, wave_max = self.fit_limits[i]         # Must use fit limits!
+            func = self.create_function(i)
+            pcount = func.get_param_count()
 
-            if wave_min is not None and wave_max is not None:
+            piece_mask = self.eval_masks[i]
+            wave_min, wave_max = self.fit_ranges[i]         # Must use fit limits!
+
+            if piece_mask.sum() > 0 and wave_min is not None and wave_max is not None:
                 x = self.get_normalized_x(self.wave[piece_mask], wave_min, wave_max)
                 p = pp[func.name][i * pcount: (i + 1) * pcount]
                 model[piece_mask] = func.eval(x, p)
@@ -185,7 +220,7 @@ class Piecewise(ContinuumModel):
         return model
 
     def get_flux(self, spec):
-        if self.use_continuum:
+        if self.use_spec_continuum:
             flux = spec.cont
             flux_err = None
         else:
@@ -193,31 +228,17 @@ class Piecewise(ContinuumModel):
             flux_err = spec.flux_err
 
         return flux, flux_err
-
-    def transform_flux_forward(self, flux, flux_err=None):
-        if self.use_log:
-            flux_err = (flux_err / flux) if flux_err is not None else None
-            flux = np.log(flux)
-
-        return flux, flux_err
-
-    def transform_flux_reverse(self, flux, flux_err=None):
-        if self.use_log:
-            flux = np.ext(flux)
-            flux_err = flux_err * flux if flux_err is not None else None
-
-        return flux, flux_err
             
-    def fit(self, spec):
-        flux, flux_err = self.get_flux(spec)
-        flux, flux_err = self.transform_flux_forward(flux, flux_err)
-        params = self.fit_between_limits(flux, flux_err=flux_err)
+    def fit_impl(self, flux, flux_err, mask):
+                
+        # Run fitting
+        params = self.fit_between_limits(flux, flux_err=flux_err, mask=mask)
+        
         return params
 
-    def eval(self, params):
+    def eval_impl(self, params):
         flux = self.eval_between_limits(params)
-        flux, _ = self.transform_flux_reverse(flux)
-        return self.wave, flux
+        return flux
 
     def normalize(self, spec, params):
         def normalize_vector(data, model):

@@ -6,8 +6,9 @@ from .piecewise import Piecewise
 from ..functions import ChebyshevFunction as ChebyshevFunction
 
 class PiecewiseChebyshev(Piecewise):
-    def __init__(self, deg=None, use_log=None, use_continuum=None, continuum_finder=None, trace=None, orig=None):
-        super().__init__(use_log=use_log, use_continuum=use_continuum, continuum_finder=continuum_finder, trace=trace, orig=orig)
+    def __init__(self, deg=None, continuum_finder=None, trace=None, orig=None):
+        super().__init__(continuum_finder=continuum_finder,
+                         trace=trace, orig=orig)
 
         if not isinstance(orig, PiecewiseChebyshev):
             self.chebyshev_degrees = deg if deg is not None else 6
@@ -18,7 +19,7 @@ class PiecewiseChebyshev(Piecewise):
     def name(self):
         return "chebyshev"
 
-    def create_function(self):
+    def create_function(self, i):
         return ChebyshevFunction(self.chebyshev_degrees)
 
     def add_args(self, parser):
@@ -27,7 +28,7 @@ class PiecewiseChebyshev(Piecewise):
     def init_from_args(self, args):
         super().init_from_args(args)
 
-    def get_constants(self, wave):
+    def get_constants(self, wave=None):
         """
         Return the constants necessary to evaluate the continuum model
         """
@@ -35,7 +36,7 @@ class PiecewiseChebyshev(Piecewise):
         constants['chebyshev_degrees'] = self.chebyshev_degrees
         return constants
 
-    def set_constants(self, wave, constants):
+    def set_constants(self, constants, wave=None):
         """
         Load the constants necessary to evaluate the continuum model
         """

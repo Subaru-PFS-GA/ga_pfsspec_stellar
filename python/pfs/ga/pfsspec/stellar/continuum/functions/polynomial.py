@@ -1,6 +1,6 @@
 import numpy as np
 
-from ..modelfunction import ModelFunction
+from .modelfunction import ModelFunction
 
 class PolynomialFunction(ModelFunction):
     def __init__(self, poly, deg, domain=None):
@@ -30,6 +30,12 @@ class PolynomialFunction(ModelFunction):
         ll = self.poly(params, domain=self.domain)
         return ll(x)
 
-    def find_p0(self, x, y, w=None):
+    def find_p0(self, x, y, w=None, mask=None):
         # Not necessary to initialize p0 so just report success and return None
+
+        if mask is not None:
+            x = x[mask]
+            y = y[mask]
+            w = w[mask] if w is not None else None
+
         return True, self.fit(x, y, w=w)
