@@ -44,12 +44,12 @@ class ContinuumModel(PfsObject):
             self.mask_bits = None                                           # Mask bits to use when fitting the model
             self.use_log_flux = False                                       # Fit the log of flux
 
-            self.include_ranges = None                                      # Include in control point finding
-            self.include_mask = None
-            self.include_overflow = None
-            self.exclude_ranges = None                                      # Exclude from control point finding
-            self.exclude_mask = None
-            self.exclude_overflow = None
+            self.included_ranges = None                                      # Include in control point finding
+            self.included_mask = None
+            self.included_overflow = None
+            self.excluded_ranges = None                                      # Exclude from control point finding
+            self.excluded_mask = None
+            self.excluded_overflow = None
             
             self.wave = None                                                # Cache for wave when fitting an entire grid
         else:
@@ -64,12 +64,12 @@ class ContinuumModel(PfsObject):
             self.use_spec_mask = orig.use_spec_mask
             self.use_log_flux = orig.use_log_flux
 
-            self.include_ranges = orig.include_ranges
-            self.include_mask = orig.include_mask
-            self.include_overflow = orig.include_overflow
-            self.exclude_ranges = orig.exclude_ranges
-            self.exclude_mask = orig.exclude_mask
-            self.exclude_overflow = orig.exclude_overflow
+            self.included_ranges = orig.included_ranges
+            self.included_mask = orig.included_mask
+            self.included_overflow = orig.included_overflow
+            self.excluded_ranges = orig.excluded_ranges
+            self.excluded_mask = orig.excluded_mask
+            self.excluded_overflow = orig.excluded_overflow
             
             self.wave = orig.wave
 
@@ -196,14 +196,14 @@ class ContinuumModel(PfsObject):
         if force or self.wave is None:
             self.wave = wave
 
-        if self.include_ranges is not None and (force or self.include_mask is None):
-            self.include_mask, self.include_overflow = self.ranges_to_mask(
-                wave, self.include_ranges,
+        if self.included_ranges is not None and (force or self.included_mask is None):
+            self.included_mask, self.included_overflow = self.ranges_to_mask(
+                wave, self.included_ranges,
                 omit_overflow=omit_overflow)
 
-        if self.exclude_ranges is not None and (force or self.exclude_mask is None):
-            self.exclude_mask, self.exclude_overflow = self.ranges_to_mask(
-                wave, self.exclude_ranges,
+        if self.excluded_ranges is not None and (force or self.excluded_mask is None):
+            self.excluded_mask, self.excluded_overflow = self.ranges_to_mask(
+                wave, self.excluded_ranges,
                 omit_overflow=omit_overflow)
 
     def get_hydrogen_limits(self):
@@ -411,11 +411,15 @@ class ContinuumModel(PfsObject):
 
         return flux, flux_err
 
-    def normalize(self, spec, params):
-        raise NotImplementedError()
+    def normalize(self, spec, params, s=None):
+        _, model = self.eval(params)
+        model = model[s or ()]
+        spec.normalize(model)
 
     def denormalize(self, spec, params, s=None):
-        raise NotImplementedError()
+        _, model = self.eval(params)
+        model = model[s or ()]
+        spec.denormalize(model)
 
     def fit_function(self, id, func, x, y, w=None, p0=None, mask=None, continuum_finder=None, **kwargs):
         """

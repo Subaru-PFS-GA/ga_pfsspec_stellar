@@ -155,10 +155,10 @@ class Piecewise(ContinuumModel):
                 custom_mask = piece_mask.copy()
                 if mask is not None:
                     custom_mask &= mask
-                if self.include_mask is not None:
-                    custom_mask &= self.include_mask
-                if self.exclude_mask is not None:
-                    custom_mask &= ~self.exclude_mask
+                if self.included_mask is not None:
+                    custom_mask &= self.included_mask
+                if self.excluded_mask is not None:
+                    custom_mask &= ~self.excluded_mask
                 
                 # Determine the range of normalization
                 # this is always based on the predefined limits, regardless of
@@ -237,33 +237,5 @@ class Piecewise(ContinuumModel):
         return params
 
     def eval_impl(self, params):
-        flux = self.eval_between_limits(params)
-        return flux
-
-    def normalize(self, spec, params):
-        def normalize_vector(data, model):
-            return data / model if data is not None else None
-
-        _, model = self.eval(params)
-
-        spec.wave = self.wave
-        spec.flux = normalize_vector(spec.flux, model)
-        spec.flux_err = normalize_vector(spec.flux_err, model)
-        spec.cont = normalize_vector(spec.cont, model)
-
-        spec.append_history(f'Spectrum is normalized using model `{type(self).__name__}`.')
-
-    def denormalize(self, spec, params, s=None):
-        def denormalize_vector(data, model):
-            return data * model if data is not None else None
-        
-        _, model = self.eval(params)
-        model = model[s or ()]
-
-        # TODO: pass these to the spectrum class instead, here we
-        #       don't know what vectors to normalize
-        spec.flux = denormalize_vector(spec.flux, model)
-        spec.flux_err = denormalize_vector(spec.flux_err, model)
-        spec.cont = denormalize_vector(spec.cont, model)
-
-        spec.append_history(f'Spectrum is denormalized using model `{type(self).__name__}`.')
+        model = self.eval_between_limits(params)
+        return model
