@@ -328,7 +328,7 @@ class ContinuumModel(PfsObject):
 
     #endregion
 
-    def fit(self, spec, mask=None):
+    def fit_spectrum(self, spec, mask=None):
         """
         Fit the continuum to a spectum.
 
@@ -340,10 +340,6 @@ class ContinuumModel(PfsObject):
             Optional additional mask to use. Will be AND-ed with the spectrum mask.
         """
 
-        # Wave is cached because masks can be re-used this way
-        if self.wave is None:
-            self.init_wave(spec.wave, force=True)
-
         # Collect the flux vectors
         if self.use_spec_continuum:
             flux = spec.cont
@@ -352,9 +348,6 @@ class ContinuumModel(PfsObject):
             flux = spec.flux
             flux_err = spec.flux_err
 
-        # Transform the flux if necessary
-        flux, flux_err = self.transform_flux_forward(flux, flux_err)
-
         # Construct the full mask
         m = None
         if self.use_spec_mask:
@@ -362,25 +355,36 @@ class ContinuumModel(PfsObject):
         if mask is not None:
             m = m & mask if m is not None else mask
 
+        # Fit the model
+        self.fit(spec.wave, flux, flux_err, m)
+
+    def fit(self, wave, flux, flux_err, mask):
+
+        # Wave is cached because masks can be re-used this way
+        if self.wave is None:
+            self.init_wave(wave, force=True)
+
+        # Transform the flux if necessary
+        flux, flux_err = self.transform_flux_forward(flux, flux_err)
+
         if self.trace is not None:
             spec = Spectrum()
             spec.wave, spec.flux, spec.flux_err = self.wave, flux, flux_err
-            spec.mask_flags, spec.mask_bits = spec.mask_flags, spec.mask_bits
-            # TODO: auxilliary mask
+            spec.mask = mask
             self.trace.on_fit_start(spec)
 
-        params = self.fit_impl(flux, flux_err, m)
+        params = self.fit_impl(flux, flux_err, mask)
 
         if self.trace is not None:
             # Evaluate the model on the same wavelength grid
             spec = Spectrum()
             spec.wave, spec.cont = self.eval(params)
             spec.flux, spec.flux_err = flux, flux_err
-            spec.mask = m
+            spec.mask = mask
             self.trace.on_fit_finish(spec)
 
         return params
-
+    
     def fit_impl(self, flux, flux_err, mask):
         raise NotImplementedError()
 

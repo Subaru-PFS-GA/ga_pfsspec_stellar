@@ -191,7 +191,7 @@ class Alex(ContinuumModel):
 
 #region Main entrypoints: fit, eval and normalize
 
-    def fit(self, spec):
+    def fit_spectrum(self, spec):
         params = {}
 
         # Fit the spectrum and return the parameters

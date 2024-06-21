@@ -44,7 +44,7 @@ class TestAlexContinuumModel(StellarTestBase):
         trace = AlexContinuumModelTrace()
         model = Alex(trace)
         model.init_wave(spec.wave)
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         self.assertEqual((21,), params['legendre'].shape)
         self.assertEqual((5,), params['blended_0'].shape)
         self.assertEqual((5,), params['blended_1'].shape)
@@ -58,7 +58,7 @@ class TestAlexContinuumModel(StellarTestBase):
         trace = AlexContinuumModelTrace()
         model = Alex(trace)
         model.init_wave(spec.wave)
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         self.assertEqual((21,), params['legendre'].shape)
         self.assertEqual((5,), params['blended_0'].shape)
         self.assertEqual((5,), params['blended_1'].shape)
@@ -71,7 +71,7 @@ class TestAlexContinuumModel(StellarTestBase):
         trace = AlexContinuumModelTrace()
         model = Alex(trace)
         model.init_wave(spec.wave)
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         cont = model.eval(params)
 
     def test_normalize(self):
@@ -81,7 +81,7 @@ class TestAlexContinuumModel(StellarTestBase):
         trace = AlexContinuumModelTrace()
         model = Alex(trace)
         model.init_wave(spec.wave)
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         model.normalize(spec, params)
 
     def test_denormalize(self):
@@ -91,6 +91,6 @@ class TestAlexContinuumModel(StellarTestBase):
         trace = AlexContinuumModelTrace()
         model = Alex(trace)
         model.init_wave(spec.wave)
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         model.normalize(spec, params)
         model.denormalize(spec, params)

@@ -2,8 +2,8 @@ import copy
 import numpy as np
 import scipy as sp
 
-from pfs.ga.pfsspec.stellar.continuum import ContinuumModel
-from pfs.ga.pfsspec.stellar.continuum import ModelParameter
+from .continuummodel import ContinuumModel
+from .modelparameter import ModelParameter
 
 class Log(ContinuumModel):
     # Simply take the logarithm of the flux
@@ -38,7 +38,7 @@ class Log(ContinuumModel):
     def safe_log(self, x):
         return np.log(np.where(x <= 1, 1, x))
 
-    def fit(self, spec):
+    def fit_spectrum(self, spec):
         n = np.array([np.max(self.safe_log(spec.flux))])
         return { 'log': n}
 

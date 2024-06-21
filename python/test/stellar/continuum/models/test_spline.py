@@ -37,7 +37,7 @@ class TestSpline(StellarTestBase):
 
         model = self.get_test_model(spec)
 
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         self.assertIsNotNone(params['spline_t'])
         self.assertIsNotNone(params['spline_c'])
 
@@ -50,7 +50,7 @@ class TestSpline(StellarTestBase):
 
         model = self.get_test_model(spec)
 
-        params = model.fit(spec, mask=mask)
+        params = model.fit_spectrum(spec, mask=mask)
 
         self.assertIsNotNone(params['spline_t'])
         self.assertIsNotNone(params['spline_c'])
@@ -64,7 +64,7 @@ class TestSpline(StellarTestBase):
 
         model = self.get_test_model(spec, included_ranges=[[4500, 8000]], excluded_ranges=[[4800, 4900]])
 
-        params = model.fit(spec, mask=mask)
+        params = model.fit_spectrum(spec, mask=mask)
         
         self.assertIsNotNone(params['spline_t'])
         self.assertIsNotNone(params['spline_c'])
@@ -78,7 +78,7 @@ class TestSpline(StellarTestBase):
         
         model = self.get_test_model(spec)
 
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
 
         self.assertIsNotNone(params['spline_t'])
         self.assertIsNotNone(params['spline_c'])
@@ -88,7 +88,7 @@ class TestSpline(StellarTestBase):
         grid = self.get_test_grid(args)
         spec = grid.get_nearest_model(M_H=0., T_eff=4500, log_g=4, C_M=0, a_M=0)
         model = self.get_test_model(spec)
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         cont = model.eval(params)
 
     def test_normalize(self):
@@ -96,7 +96,7 @@ class TestSpline(StellarTestBase):
         grid = self.get_test_grid(args)
         spec = grid.get_nearest_model(M_H=0., T_eff=4500, log_g=4, C_M=0, a_M=0)
         model = self.get_test_model(spec)
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         model.normalize(spec, params)
 
     def test_denormalize(self):
@@ -104,6 +104,6 @@ class TestSpline(StellarTestBase):
         grid = self.get_test_grid(args)
         spec = grid.get_nearest_model(M_H=0., T_eff=4500, log_g=4, C_M=0, a_M=0)
         model = self.get_test_model(spec)
-        params = model.fit(spec)
+        params = model.fit_spectrum(spec)
         model.normalize(spec, params)
         model.denormalize(spec, params)

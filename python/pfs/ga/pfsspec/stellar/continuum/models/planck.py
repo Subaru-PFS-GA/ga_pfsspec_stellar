@@ -4,8 +4,8 @@ import scipy as sp
 
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.util.array_filters import *
-from pfs.ga.pfsspec.stellar.continuum import ContinuumModel
-from pfs.ga.pfsspec.stellar.continuum import ModelParameter
+from .continuummodel import ContinuumModel
+from .modelparameter import ModelParameter
 
 class Planck(ContinuumModel):
     # Normalize stellar models with the Planck curve associated with
@@ -46,7 +46,7 @@ class Planck(ContinuumModel):
     def safe_log(self, x):
         return np.log(np.where(x <= 1, 1, x))
 
-    def fit(self, spec):
+    def fit_spectrum(self, spec):
         return { 'planck': np.array([spec.T_eff])}
 
     def eval(self, params):
