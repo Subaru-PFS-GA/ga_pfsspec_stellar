@@ -174,10 +174,15 @@ class RVFitTrace(Trace, SpectrumTrace):
     def on_template_cache_miss(self, template, rv_q, rv):
         self.template_cache_miss_count += 1
 
+    def on_calculate_log_L(self, spectra, templates, rv, log_L):
+        pass
+
+    # Callbacks related to flux correction
+
     def on_eval_flux_corr_basis(self, spectra, basis):
         pass
 
-    def on_eval_phi_chi(self, rv, spectra, templates, bases, sigma2, weights, masks, log_L, phi, chi):
+    def on_eval_phi_chi(self, spectra, templates, bases, log_L, phi, chi):
         self.eval_phi_chi_count += 1
 
     def on_eval_log_L(self, phi, chi, log_L):

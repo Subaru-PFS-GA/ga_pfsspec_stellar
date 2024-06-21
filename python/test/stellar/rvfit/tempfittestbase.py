@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import numpy.testing as npt
 
 from pfs.ga.pfsspec.core.physics import Physics
 from pfs.ga.pfsspec.core.grid import ArrayGrid
@@ -15,7 +16,7 @@ from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
 
 from test.pfs.ga.pfsspec.stellar.stellartestbase import StellarTestBase
 
-class RVFitTestBase(StellarTestBase):
+class TempFitTestBase(StellarTestBase):
     def __init__(self, methodName):
         super().__init__(methodName)
 
@@ -43,6 +44,13 @@ class RVFitTestBase(StellarTestBase):
     def get_template(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
         grid = self.get_bosz_grid()
         temp = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
+        return temp
+    
+    def get_normalized_template(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
+        grid = self.get_bosz_grid()
+        temp = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
+        temp.flux /= temp.cont
+        temp.cont = None
         return temp
 
     def get_observation(self, arm='mr', noise_level=1.0, rv=0.0, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
@@ -99,11 +107,31 @@ class RVFitTestBase(StellarTestBase):
 
         return spec
     
-    def get_initialized_rvfit(self, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors, **kwargs):
+    def get_tempfit(self,
+                    flux_correction=False,
+                    use_priors=False,
+                    **kwargs):
+        raise NotImplementedError()
+    
+    def get_initialized_tempfit(self, /, 
+                                flux_correction=False,
+                                continuum_fit=False,
+                                normalize=False,
+                                convolve_template=True,
+                                multiple_arms=True,
+                                multiple_exp=True,
+                                use_priors=True,
+                                **kwargs):
+        
         if kwargs is None or len(kwargs) == 0:
             params_0 = dict(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+        else:
+            params_0 = kwargs
         
-        rvfit = self.get_rvfit(flux_correction=flux_correction, use_priors=use_priors, **params_0)
+        tempfit = self.get_tempfit(flux_correction=flux_correction,
+                                   continuum_fit=continuum_fit,
+                                   use_priors=use_priors,
+                                   **params_0)
        
         if flux_correction:
             phi_shape = (6,)
@@ -121,15 +149,91 @@ class RVFitTestBase(StellarTestBase):
             specs = { k: [self.get_observation(arm=k, rv=self.rv_real, **params_0) for _ in range(2)] for k in arms }
         else:
             specs = { k: self.get_observation(arm=k, rv=self.rv_real, **params_0) for k in arms }
-        temps = { k: self.get_template(**params_0) for k in arms}
+
+        # TODO: normalize templates
+        if not continuum_fit:
+            temps = { k: self.get_template(**params_0) for k in arms}
+        else:
+            temps = { k: self.get_normalized_template(**params_0) for k in arms}
+
         psfs = { k: self.get_test_psf(k) for k in arms}
 
         if convolve_template:
-            rvfit.psf = psfs
+            tempfit.psf = psfs
         else:
-            rvfit.psf = None
+            tempfit.psf = None
 
         if normalize:
-            rvfit.spec_norm, rvfit.temp_norm = rvfit.get_normalization(specs, temps)
+            tempfit.spec_norm, tempfit.temp_norm = tempfit.get_normalization(specs, temps)
 
-        return rvfit, self.rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0
+        return tempfit, self.rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0
+    
+    def get_param_packing_functions_test_helper(self):
+        tempfit = self.get_tempfit()
+
+        a_scalar = np.array(1.0)
+        a_vector = np.array([0.9, 0.8]).T
+        aa_scalar = np.array([1.0, 0.5, 0.2, 0.1])
+        aa_vector = np.array([[0.9, 0.8, 0.7, 0.6, 0.5], [1.0, 0.5, 0.2, 0.1, 0.0]]).T
+        rv_scalar = 100.0
+        rv_vector = np.array([100.0, 90.0])
+
+        pack_params, unpack_params, pack_bounds = tempfit.get_param_packing_functions(mode='a_rv')
+        
+        pp = pack_params(a_scalar, rv_scalar)
+        a, rv = unpack_params(pp)
+        self.assertEqual((2,), pp.shape)
+        npt.assert_equal(a_scalar, a)
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(aa_scalar, rv_scalar)
+        a, rv = unpack_params(pp)
+        self.assertEqual((5,), pp.shape)
+        npt.assert_equal(aa_scalar, a)
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(a_vector, rv_vector)
+        a, rv = unpack_params(pp)
+        self.assertEqual((2, 2), pp.shape)
+        npt.assert_equal(a_vector, a)
+        npt.assert_equal(rv_vector, rv)
+
+        pp = pack_params(aa_vector, rv_vector)
+        a, rv = unpack_params(pp)
+        self.assertEqual((6, 2), pp.shape)
+        npt.assert_equal(aa_vector, a)
+        npt.assert_equal(rv_vector, rv)
+
+        pack_params, unpack_params, pack_bounds = tempfit.get_param_packing_functions(mode='a')
+
+        pp = pack_params(a_scalar)
+        a = unpack_params(pp)
+        self.assertEqual((), np.shape(a))
+        npt.assert_equal(a_scalar, a)
+
+        pp = pack_params(aa_scalar)
+        a = unpack_params(pp)
+        self.assertEqual((4,), pp.shape)
+        npt.assert_equal(aa_scalar, a)
+
+        pp = pack_params(a_vector)
+        a = unpack_params(pp)
+        self.assertEqual((2,), pp.shape)
+        npt.assert_equal(a_vector, a)
+
+        pp = pack_params(aa_vector)
+        a = unpack_params(pp)
+        self.assertEqual((5, 2), pp.shape)
+        npt.assert_equal(aa_vector, a)
+
+        pack_params, unpack_params, pack_bounds = tempfit.get_param_packing_functions(mode='rv')
+
+        pp = pack_params(rv_scalar)
+        rv = unpack_params(pp)
+        self.assertEqual((1,), pp.shape)
+        self.assertEqual(rv_scalar, rv)
+
+        pp = pack_params(rv_vector)
+        rv = unpack_params(pp)
+        self.assertEqual((2,), pp.shape)
+        npt.assert_equal(rv_vector, rv)
