@@ -389,6 +389,18 @@ class RVFit():
 
         return model
 
+    def get_model(self, model, arm, ei, per_arm=True, per_exp=True):
+        """
+        Get the model for the given arm and exposure index
+        """
+
+        if isinstance(model, dict):
+            return model[arm][ei]
+        elif isinstance(model, list):
+            return model[ei]
+        else:
+            return model
+
     def get_normalization(self, spectra, templates, rv_0=None):
         """
         Calculate a normalization factor for the spectra, as well as
@@ -471,22 +483,22 @@ class RVFit():
         This step currently consist only of normalizing the flux with a factor.
         """
 
+        # Do not modifiy the original observed spectrum
         spec = spectrum.copy()
+
+        # Normalize flux and flux_err
         if self.spec_norm is not None:
             spec.multiply(1.0 / self.spec_norm)
 
-        # Determine mask
-        mask = self.get_full_mask(spec)
+        # Determine the binary mask used for template fitting
+        spec.mask = self.get_full_mask(spec)
 
-        # Flux error
+        # Take flux error and calculate its squared
         if self.use_error and spec.flux_err is not None:
-            sigma2 = spec.flux_err ** 2
-            mask &= ~np.isnan(sigma2)
+            spec.sigma2 = spec.flux_err ** 2
+            spec.mask &= ~np.isnan(spec.sigma2)
         else:
-            sigma2 = None
-
-        spec.mask = mask
-        spec.sigma2 = sigma2
+            spec.sigma2 = None
 
         if self.trace is not None:
             self.trace.on_process_spectrum(arm, i, spectrum, spec)
@@ -1430,11 +1442,21 @@ class RVFit():
     def fit_rv_fixed(self, spectra, templates,
                      rv_0, rv_prior):
 
-        a_fit = self.calculate_coeffs(spectra, templates, rv_0)
-        log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, a=a_fit)
+        # Calculate log_L in two steps, this requires passing around the flux correction or
+        # continuum fit parameters
+
+        # a_fit = self.calculate_coeffs(spectra, templates, rv_0)
+        # a_err = np.full_like(a_fit, np.nan)
+        # log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, a=a_fit)
+        
+        # Calculate log_L in a single step, this won't provide the flux correction or
+        # continuum fit parameters
+        a_fit = None
+        a_err = None
+        log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior)
 
         results = TempFitResults(rv_fit=rv_0, rv_err=np.nan,
-                                 a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
+                                 a_fit=a_fit, a_err=a_err,
                                  cov=None, log_L_fit=log_L_fit)
 
         return results

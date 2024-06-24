@@ -133,15 +133,16 @@ class Piecewise(ContinuumModel):
     def get_normalized_x(self, x, wave_min, wave_max):
         return (x - wave_min) / (wave_max - wave_min) - 0.5
 
-    def fit_between_limits(self, flux, flux_err=None, wave=None, mask=None):
+    def fit_between_limits(self, flux, flux_err=None, wave=None, mask=None, continuum_finder=None):
         """
         Fit a function on the flux between the predefined wavelength ranges.
         """
 
         wave = wave if wave is not None else self.wave
+        continuum_finder = continuum_finder if continuum_finder is not None else self.continuum_finder
 
         pp = []
-        for i in range(len(self.fit_masks)):      
+        for i in range(len(self.fit_masks)):
             success = False
 
             # Prepare the function to be fitted
@@ -174,25 +175,9 @@ class Piecewise(ContinuumModel):
                 if m.sum() > func.get_min_point_count():
                     # Find initial parameters
                     success, p0 = func.find_p0(x, y, w=w, mask=m)
-
-                    # TODO: review this, as it's likely wrong            
-                    # # To find the initial values, run a broad maximum filter and downsample
-                    # # This works only when we fit templates, so the error vector is None
-                    # if flux_err is None:
-                    #     # TODO: make this a function
-                    #     # TODO: make size a variable
-                    #     size = 2 * (x.shape[0] // 50) + 1
-                    #     shift = size // 2
-                    #     idx = np.arange(shift, x.shape[0] - shift) + (np.arange(size) - shift)[:, np.newaxis]
-                    #     if x.shape[0] - 2 * shift > func.get_min_point_count():
-                    #         p0_found, p0 = func.find_p0(x[shift:-shift], np.max(y[idx], axis=0), w=w[shift:-shift] if w is not None else None)
-                    #         if not p0_found:
-                    #             p0 = None
-                    
-                
                     success, p = self.fit_function(
                         i, func, x, y, w=w, p0=p0, mask=m,
-                        continuum_finder=self.continuum_finder
+                        continuum_finder=continuum_finder
                     )
 
             if not success:
@@ -202,22 +187,37 @@ class Piecewise(ContinuumModel):
 
         return { func.name: np.concatenate(pp)}
 
-    def eval_between_limits(self, params):
+    def eval_between_limits(self, params, wave=None):
         """
         Evaluate the model for each wavelength range, between the limits.
         """
 
-        model = np.full(self.wave.shape, np.nan)
+        if wave is not None:
+            # A wave vector is provided, can't use the cached masks
+            limits = safe_deep_copy(self.wave_limits)
+            limits[0], limits[-1] = None, None
+
+            eval_masks, _, _ = self.limits_to_masks(
+                wave, limits, dlambda=0,
+                strict=False, omit_overflow=True
+            )
+        else:
+            # Use the cached wave vector and masks
+            wave = self.wave
+            eval_masks = self.eval_masks
+
+        # Initial model is all nans, we'll fill out the meaningful parts later
+        model = np.full(wave.shape, np.nan)
         
-        for i in range(len(self.eval_masks)):
+        for i in range(len(eval_masks)):
             func = self.create_function(i)
             pcount = func.get_param_count()
 
-            piece_mask = self.eval_masks[i]
+            piece_mask = eval_masks[i]
             wave_min, wave_max = self.fit_ranges[i]         # Must use fit limits!
 
             if piece_mask.sum() > 0 and wave_min is not None and wave_max is not None:
-                x = self.get_normalized_x(self.wave[piece_mask], wave_min, wave_max)
+                x = self.get_normalized_x(wave[piece_mask], wave_min, wave_max)
                 p = params[func.name][i * pcount: (i + 1) * pcount]
                 model[piece_mask] = func.eval(x, p)
 
@@ -233,13 +233,13 @@ class Piecewise(ContinuumModel):
 
         return flux, flux_err
             
-    def fit_impl(self, flux, flux_err, mask):
+    def fit_impl(self, flux, flux_err, mask, continuum_finder):
                 
         mask = self.get_full_mask(mask)
-        params = self.fit_between_limits(flux, flux_err=flux_err, mask=mask)
+        params = self.fit_between_limits(flux, flux_err=flux_err, mask=mask, continuum_finder=continuum_finder)
         
         return params
 
-    def eval_impl(self, params):
-        model = self.eval_between_limits(params)
+    def eval_impl(self, params, wave=None):
+        model = self.eval_between_limits(params, wave=wave)
         return model

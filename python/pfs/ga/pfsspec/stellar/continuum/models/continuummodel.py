@@ -1,12 +1,11 @@
 import numpy as np
-from collections.abc import Iterable
 
-from pfs.ga.pfsspec.core import PfsObject
-from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core import Spectrum
 from pfs.ga.pfsspec.core.util.array_filters import *
+from ..continuumobject import ContinuumObject
 
-class ContinuumModel(PfsObject):
+
+class ContinuumModel(ContinuumObject):
     """
     Implements functions to fit and evaluate a continuum model to a stellar spectrum.
 
@@ -29,7 +28,7 @@ class ContinuumModel(PfsObject):
         
         """
         
-        super().__init__()
+        super().__init__(orig=orig)
 
         if not isinstance(orig, ContinuumModel):
             self.version = 1
@@ -43,15 +42,6 @@ class ContinuumModel(PfsObject):
             self.use_spec_mask = True                                       # Use the mask from the spectrum
             self.mask_bits = None                                           # Mask bits to use when fitting the model
             self.use_log_flux = False                                       # Fit the log of flux
-
-            self.included_ranges = None                                      # Include in control point finding
-            self.included_mask = None
-            self.included_overflow = None
-            self.excluded_ranges = None                                      # Exclude from control point finding
-            self.excluded_mask = None
-            self.excluded_overflow = None
-            
-            self.wave = None                                                # Cache for wave when fitting an entire grid
         else:
             self.version = orig.version
             self.trace = trace or orig.trace
@@ -63,15 +53,6 @@ class ContinuumModel(PfsObject):
             self.use_spec_continuum = orig.use_spec_continuum
             self.use_spec_mask = orig.use_spec_mask
             self.use_log_flux = orig.use_log_flux
-
-            self.included_ranges = orig.included_ranges
-            self.included_mask = orig.included_mask
-            self.included_overflow = orig.included_overflow
-            self.excluded_ranges = orig.excluded_ranges
-            self.excluded_mask = orig.excluded_mask
-            self.excluded_overflow = orig.excluded_overflow
-            
-            self.wave = orig.wave
 
     @property
     def name(self):
@@ -179,156 +160,15 @@ class ContinuumModel(PfsObject):
         shape = params.shape
         params = params.squeeze()
         sp = anisotropic_diffusion(params, 
-                                    niter=self.smoothing_iter,
-                                    kappa=self.smoothing_kappa,
-                                    gamma=self.smoothing_gamma)
+                                   niter=self.smoothing_iter,
+                                   kappa=self.smoothing_kappa,
+                                   gamma=self.smoothing_gamma)
         sp = sp.reshape(shape)
         return sp
     
     #endregion
-    #region Functions for handling the wavelength grid, wavelength limits and masks
-    
-    def init_wave(self, wave, force=True, omit_overflow=False):
-        """
-        Initialize the wave vector cache and masks in derived classes.
-        """
 
-        if force or self.wave is None:
-            self.wave = wave
-
-        if self.included_ranges is not None and (force or self.included_mask is None):
-            self.included_mask, self.included_overflow = self.ranges_to_mask(
-                wave, self.included_ranges,
-                omit_overflow=omit_overflow)
-
-        if self.excluded_ranges is not None and (force or self.excluded_mask is None):
-            self.excluded_mask, self.excluded_overflow = self.ranges_to_mask(
-                wave, self.excluded_ranges,
-                omit_overflow=omit_overflow)
-
-    def get_hydrogen_limits(self):
-        limits = [2530,] + Physics.HYDROGEN_LIMITS + [17500,]
-        return Physics.air_to_vac(np.array(limits))
-
-    def limits_to_ranges(self, limits):
-        """
-        Convert a list of limits to a list of ranges.
-        """
-
-        ranges = []
-        for i in range(len(limits) - 1):
-            ranges.append([limits[i], limits[i + 1]])
-        return ranges
-    
-    @staticmethod
-    def lessthan(a, b, strict=False):
-        if strict:
-            return a < b
-        else:
-            return a <= b
-    
-    def ranges_to_mask(self, wave, ranges, mask=None, dlambda=0, strict=False, omit_overflow=False):
-        """
-        Convert a list of wavelength ranges to a mask.
-
-        Assume that the wave vector is sorted.
-
-        Parameters
-        ----------
-        wave : array
-            Wavelength vector.
-        ranges : list of tuples
-            List of wavelength ranges to convert to a mask.
-        mask : array
-            Optional input mask.
-        dlambda : float or tuple
-            Buffer around the limits of the ranges.
-        strict : bool
-            Use strict comparison.
-        omit_overflow : bool
-            Exclude ranges that overflow the wavelength vector.
-
-        Returns
-        -------
-        mask : array
-            Mask for the wavelength vector.
-        overflow : list of bool
-            List of indices of ranges that overflow the wavelength vector.
-        """
-
-        if not isinstance(ranges, Iterable):
-            ranges = [ ranges ]
-
-        if not isinstance(dlambda, Iterable):
-            dlambda = ( dlambda, dlambda )
-
-        # Construct a mask by merging all limits with a buffer of `dlambda`
-        m = np.full(wave.shape, False)
-        overflow = []
-        for i, r in enumerate(ranges):
-            # Handle overflow
-            if r[0] + dlambda[0] < wave[0] or r[1] - dlambda[1] > wave[-1]:
-                overflow.append(i)
-                if omit_overflow:
-                    continue
-
-            # Generate the mask
-            m |= self.lessthan(r[0] + dlambda[0], wave, strict) & \
-                 self.lessthan(wave, r[1] - dlambda[1], strict)
-            
-        # Combine with optional input mask
-        if mask is not None:
-            m &= mask
-
-        return m, overflow
-    
-    def limits_to_masks(self, wave, limits, mask=None, dlambda=0, strict=False, omit_overflow=False):
-        """
-        Convert a list of wavelengths into a list of masks in-between the limits.
-
-        Assume that the wavelength vector is sorted.
-        """
-
-        if not isinstance(dlambda, Iterable):
-            dlambda = ( dlambda, dlambda )
-
-        # Find intervals between the limits
-        masks = []
-        ranges = []
-        overflow = []
-        for i in range(len(limits) - 1):
-            l0, l1 = limits[i], limits[i + 1]
-            
-            l0 = l0 if l0 is not None else wave[0]
-            l1 = l1 if l1 is not None else wave[-1]
-            
-            # Handle overflow
-            if l0 + dlambda[0] < wave[0] or l1 - dlambda[1] > wave[-1]:
-                overflow.append(i)
-                if omit_overflow:
-                    continue
-
-            m = self.lessthan(l0 + dlambda[0], wave, strict) & \
-                self.lessthan(wave, l1 - dlambda[1], strict)
-
-            # Combine with optional input mask
-            if mask is not None:
-                m &= mask
-
-            masks.append(m)
-
-            # Find the actual range after applying the mask
-            w = wave[m]
-            if w.size > 0:
-                ranges.append([w[0], w[-1]])
-            else:
-                ranges.append([np.nan, np.nan])
-
-        return masks, ranges, overflow
-
-    #endregion
-
-    def fit_spectrum(self, spec, mask=None):
+    def fit_spectrum(self, spec, mask=None, continuum_finder=None):
         """
         Fit the continuum to a spectum.
 
@@ -356,13 +196,12 @@ class ContinuumModel(PfsObject):
             m = m & mask if m is not None else mask
 
         # Fit the model
-        self.fit(spec.wave, flux, flux_err, m)
+        return self.fit(spec.wave, flux, flux_err, m)
 
-    def fit(self, wave, flux, flux_err, mask):
+    def fit(self, wave, flux, flux_err, mask=None, continuum_finder=None):
 
         # Wave is cached because masks can be re-used this way
-        if self.wave is None:
-            self.init_wave(wave, force=True)
+        self.init_wave(wave, force=True)
 
         # Transform the flux if necessary
         flux, flux_err = self.transform_flux_forward(flux, flux_err)
@@ -373,7 +212,7 @@ class ContinuumModel(PfsObject):
             spec.mask = mask
             self.trace.on_fit_start(spec)
 
-        params = self.fit_impl(flux, flux_err, mask)
+        params = self.fit_impl(flux, flux_err, mask, continuum_finder)
 
         if self.trace is not None:
             # Evaluate the model on the same wavelength grid
@@ -385,20 +224,20 @@ class ContinuumModel(PfsObject):
 
         return params
     
-    def fit_impl(self, flux, flux_err, mask):
+    def fit_impl(self, flux, flux_err, mask, continuum_finder):
         raise NotImplementedError()
 
-    def eval(self, params):
-        flux = self.eval_impl(params)
+    def eval(self, params, wave=None):
+        flux = self.eval_impl(params, wave=wave)
 
         # Reverse transform the flux if fitting in log
         flux, _ = self.transform_flux_reverse(flux)
 
         # TODO: add trace hook
 
-        return self.wave, flux
+        return wave, flux
     
-    def eval_impl(self, params):
+    def eval_impl(self, params, wave=None):
         raise NotImplementedError()
     
     def transform_flux_forward(self, flux, flux_err=None):
@@ -452,8 +291,8 @@ class ContinuumModel(PfsObject):
                 # Filter points based on the previous iteration of fitting
                 # and run fitting again
                 params = func.fit(x[mask], y[mask], 
-                    w=w[mask] if w is not None else None,
-                    p0=params, **kwargs)    
+                                  w=w[mask] if w is not None else None,
+                                  p0=params, **kwargs)    
             
             if self.trace:
                 self.trace.on_fit_function_iter(id, iter, x, y, w, func.eval(x, params), mask)

@@ -311,146 +311,10 @@ class FluxCorr(CorrectionModel):
         # Only trace when all arms are fitted but for each rv
         if self.trace is not None:
             # First dimension must index rv items
-            log_L = self.eval_log_L(phi, chi)
+            log_L = self.eval_log_L_phi_chi(phi, chi)
             self.trace.on_eval_phi_chi(spectra, templates, bases, log_L, phi, chi)
 
         return phi, chi, ndf
-
-    # TODO: delete
-    # def eval_phi_chi(self, spectra, templates, rv):
-    #     """
-    #     Calculate the log-likelihood of an observed spectrum for a template with RV.
-
-    #     It assumes that the template is already convolved down to the instrumental
-    #     resolution but not resampled to the instrumental bins yet.
-    #     """
-
-    #     if not isinstance(rv, np.ndarray):
-    #         rvv = np.atleast_1d(rv)
-    #     else:
-    #         rvv = rv.flatten()
-
-    #     if self.trace is not None:
-    #         trace_state = RVFitTraceState()
-
-    #     # TODO: move this outside of function and pass in as arguments
-    #     # Calculate the number of flux-correction parameters, including
-    #     # the amplitudes which might be different for each arm and exposure
-    #     amp_count = self.tempfit.get_amp_count(spectra)
-    #     param_count = self.get_coeff_count(spectra)
-    #     coeff_count = amp_count + param_count
-
-    #     phi = np.zeros(rvv.shape + (coeff_count,))
-    #     chi = np.zeros(rvv.shape + (coeff_count, coeff_count))
-    #     ndf = np.zeros(rvv.shape)
-
-    #     # Evaluate the basis functions
-    #     # TODO: move this outside of function and pass in as arguments
-    #     bases, basis_size = self.get_flux_corr_basis(spectra)
-                
-    #     # For each value of rv0, sum up log_L contributions from spectrum - template pairs
-    #     for i in range(rvv.size):
-    #         if self.trace is not None:
-    #             trace_state.reset()
-
-    #         for arm in spectra:
-    #             # This is a generic call to preprocess the template which might or
-    #             # might not include a convolution, depending on the RVFit implementation.
-    #             # When template convolution is pushed down to the model grid to support
-    #             # caching, convolution is skipped by the derived classes such as
-    #             # ModelGridRVFit
-                
-    #             for ei, s in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]):
-    #                 if s is not None:
-    #                     # TODO: Make sure template is not double-convolved in normal RVFit
-    #                     spec = self.tempfit.process_spectrum(arm, ei, s)
-    #                     temp = self.tempfit.process_template(arm, templates[arm], spec, rvv[i])
-    #                     basis = bases[arm][ei]
-
-    #                     mask = spec.mask & ~np.isnan(temp.flux)
-
-    #                     # Weight (optional)
-    #                     if self.tempfit.use_weight and temp.weight is not None:
-    #                         weight = temp.weight / temp.weight.sum() * temp.weight.size
-    #                         mask &= ~np.isnan(weight)
-    #                     else:
-    #                         weight = None
-
-    #                     # Weight (optional)
-    #                     if self.tempfit.use_weight and temp.weight is not None:
-    #                         weight = temp.weight / temp.weight.sum() * temp.weight.size
-    #                         mask &= ~np.isnan(weight)
-    #                     else:
-    #                         weight = None
-
-    #                     # Flux correction
-    #                     mask &= ~np.any(np.isnan(basis), axis=-1)       # Be cautious in case any item in wave is nan
-
-    #                     # Verify that the mask is not empty or too few points to fit
-    #                     if mask.sum() == 0:
-    #                         raise Exception("Too few unmasked values to fit the spectrum.")
-                        
-    #                     # Calculate phi and chi and sum up along wavelength
-    #                     pp = spec.flux[mask] * temp.flux[mask]
-    #                     cc = temp.flux[mask] ** 2
-                        
-    #                     if weight is not None:
-    #                         pp *= weight[mask]
-    #                         cc *= weight[mask]
-                        
-    #                     if sigma2 is not None:
-    #                         pp /= sigma2[mask]
-    #                         cc /= sigma2[mask]
-
-    #                     # Size of phi and chi is amp_count + coeff_count
-    #                     pp = pp[:, None] * basis[mask, :]
-    #                     cc = cc[:, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
-                    
-    #                     # i indexes the rv values we are calculating phi and chi for
-    #                     # sum goes over the spectral pixels
-    #                     phi[i] += np.sum(pp, axis=0)
-    #                     chi[i] += np.sum(cc, axis=0)
-
-    #                     # Degrees of freedom
-    #                     ndf[i] += mask.sum()
-
-    #                     if self.trace is not None:
-    #                         trace_state.append(arm, spec, temp, sigma2, weight, mask, basis)
-    #                 else:
-    #                     if self.trace is not None:
-    #                         trace_state.append(arm, None, None, None, None, None, None)
-
-    #         if not self.use_flux_corr:
-    #             ndf[i] -= 1
-    #         else:
-    #             ndf[i] -= basis_size
-
-    #         # Only trace when all arms are fitted but for each rv
-    #         if self.trace is not None:
-    #             # First dimension must index rv items
-    #             log_L = self.eval_log_L(phi[np.newaxis, i], chi[np.newaxis, i])
-    #             self.trace.on_eval_phi_chi(rvv[i],
-    #                                        trace_state.spectra, trace_state.templates,
-    #                                        trace_state.bases, trace_state.sigma2,
-    #                                        trace_state.weights, trace_state.masks,
-    #                                        log_L[0], phi[i], chi[i])
-
-    #     if not self.use_flux_corr:
-    #         # Single amplitude
-    #         phi = phi.reshape(rvv.shape)
-    #         chi = chi.reshape(rvv.shape)
-    #         ndf = ndf.reshape(rvv.shape)
-    #     else:
-    #         phi = phi.reshape(rvv.shape + (basis_size,))
-    #         chi = chi.reshape(rvv.shape + (basis_size, basis_size))
-    #         ndf = ndf.reshape(rvv.shape)
-
-    #     if not isinstance(rv, np.ndarray):
-    #         phi = phi[0]
-    #         chi = chi[0]
-    #         ndf = ndf[0]
-
-    #     return phi, chi, ndf
     
     def eval_a(self, phi, chi):
         if not self.use_flux_corr:
@@ -469,12 +333,12 @@ class FluxCorr(CorrectionModel):
                 nu2[i] = np.dot(phi[i], np.linalg.solve(chi[i], phi[i]))
         return nu2
     
-    def eval_log_L(self, phi, chi):
+    def eval_log_L_phi_chi(self, phi, chi):
         # Likelihood at the optimum in the flux amplitude / correction parameters.
         log_L = 0.5 * self.eval_nu2(phi, chi)
 
         if self.trace is not None:
-            self.trace.on_eval_log_L(phi, chi, log_L)
+            self.trace.on_eval_log_L_phi_chi(phi, chi, log_L)
 
         return log_L
     
@@ -508,7 +372,7 @@ class FluxCorr(CorrectionModel):
         phi, chi, ndf = self.eval_phi_chi(spectra, templates)
 
         if a is None:
-            log_L = self.eval_log_L(phi, chi)
+            log_L = self.eval_log_L_phi_chi(phi, chi)
         else:
             log_L = self.eval_log_L_a(phi, chi, a)
 
@@ -561,13 +425,33 @@ class FluxCorr(CorrectionModel):
         return flux_corr
         
     def get_objective_function(self, spectra, templates, rv_prior, mode='full'):
-        # Return the objective function and parameter packing/unpacking for optimizers
-        # pack_params: convert individual arguments into a single 1d array
-        # unpack_params: get individual arguments from 1d array
-        # pack_bounds: pack parameters bounds into a list of tuples
-        # log_L: evaluate the log likelihood
+        """
+        Return the objective function and parameter packing/unpacking functions for optimizers
 
-        # TODO: add likelihood function for continuum-fitting case
+        Parameters
+        ----------
+        spectra : dict or dict of list
+            Dictionary of spectra for each arm and exposure
+        templates : dict
+            Dictionary of templates for each arm
+        rv_prior : Distribution or callable
+            RV prior function
+        mode : str
+            Determines how the model parameters are packed.
+
+        Returns
+        -------
+        log_L : callable
+            Log likelihood function
+        pack_params : callable
+            Function to pack individual parameters into a 1d array
+        unpack_params : callable
+            Function to unpack individual parameters from a 1d array
+        pack_bounds : callable
+            Function to pack parameter bounds into a list of tuples
+        """
+
+        # TODO: extend this function to handle the case of template parameters
 
         pack_params, unpack_params, pack_bounds = self.tempfit.get_param_packing_functions(mode=mode)
 
@@ -577,8 +461,8 @@ class FluxCorr(CorrectionModel):
                 log_L = self.tempfit.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
                 return log_L
         elif mode == 'rv':
-            def log_L(params):
-                rv = unpack_params(params)
+            def log_L(rv):
+                rv = unpack_params(rv)
                 log_L = self.tempfit.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
                 return log_L
         elif mode == 'a':

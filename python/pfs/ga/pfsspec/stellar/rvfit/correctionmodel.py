@@ -26,7 +26,7 @@ class CorrectionModel():
     def init_models(self, spectra, rv_bounds=None, force=False):
         raise NotImplementedError()
         
-    def calculate_coeffs(self, spectra, templates, rv, a=None):
+    def calculate_coeffs(self, spectra, templates, a=None):
         raise NotImplementedError()
 
     def get_objective_function(self, spectra, templates, rv_prior, mode='full'):

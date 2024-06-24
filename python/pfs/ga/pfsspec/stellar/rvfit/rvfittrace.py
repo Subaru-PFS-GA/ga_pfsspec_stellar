@@ -43,7 +43,7 @@ class RVFitTrace(Trace, SpectrumTrace):
         self.template_cache_hit_count = 0
         self.template_cache_miss_count = 0
         self.eval_phi_chi_count = 0
-        self.eval_log_L_count = 0
+        self.eval_log_L_phi_chi_count = 0
         self.eval_log_L_a_count = 0
 
         self.rv_iter = None                    # Keep track of convergence
@@ -185,8 +185,8 @@ class RVFitTrace(Trace, SpectrumTrace):
     def on_eval_phi_chi(self, spectra, templates, bases, log_L, phi, chi):
         self.eval_phi_chi_count += 1
 
-    def on_eval_log_L(self, phi, chi, log_L):
-        self.eval_log_L_count += 1
+    def on_eval_log_L_phi_chi(self, phi, chi, log_L):
+        self.eval_log_L_phi_chi_count += 1
 
     def on_eval_log_L_a(self, phi, chi, a, log_L):
         self.eval_log_L_a_count += 1

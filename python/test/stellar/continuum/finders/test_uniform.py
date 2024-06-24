@@ -29,8 +29,8 @@ class TestUniform(StellarTestBase):
 
         return model
     
-    def get_test_finder(self):
-        return 
+    def get_test_finder(self, spec):
+        return Uniform()
     
     def test_find(self):
         args = {}
@@ -38,13 +38,14 @@ class TestUniform(StellarTestBase):
         spec = grid.get_nearest_model(M_H=0., T_eff=4200, log_g=1, C_M=0, a_M=0, wlim=[4000, 9000])
 
         model = self.get_test_model(spec)
-        finder = Uniform()
+        finder = self.get_test_finder(spec)
 
         iter = 5
         needs_more_iter = True
         mask = np.full(spec.wave.shape, True)
         while iter > 0 and needs_more_iter and mask.sum() > 0:
-            params = model.fit(spec, mask=mask)
+            params = model.fit_spectrum(spec, mask=mask)
             _, cont = model.eval(params)
-            mask, needs_more_iter = finder.find(iter, spec.wave, spec.flux, cont=cont)
+            cont, needs_more_iter = finder.find(iter, spec.wave, spec.flux, mask=mask, cont=cont)
+            
             iter -= 1
