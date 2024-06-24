@@ -17,8 +17,17 @@ class Uniform(ContinuumFinder):
             self.npix = npix if npix is not None else orig.npix
 
     def find(self, iter, wave, flux, /, w=None, mask=None, cont=None):
-        t = np.round(np.linspace(0, wave[mask].size, int(wave[mask].size / self.npix)))[1:-1].astype(int)
-        m = np.full(wave.size, False)
-        m[t] = True
+        """
+        Return a mask which is True where the continuum pixels are.
+        
+        This particular continuum finder returns every npix-th pixel as a continuum pixel,
+        to be used in conjunction with the spline fitter.
+        """
+        
+        self.init_wave(wave)
 
-        return m, False
+        t = np.round(np.linspace(0, wave[mask].size, int(wave[mask].size / self.npix)))[1:-1].astype(int)
+        cont_mask = np.full(wave.size, False)
+        cont_mask[t] = True
+
+        return cont_mask, False

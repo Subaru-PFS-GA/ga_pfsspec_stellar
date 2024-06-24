@@ -98,12 +98,12 @@ class Piecewise(ContinuumModel):
     def load_items(self):
         super().load_items()
 
-    def init_wave(self, wave, force=True):
+    def init_wave(self, wave, force=True, omit_overflow=False):
         """
         Initialize the wave vector cache and masks.
         """
 
-        super().init_wave(wave, force=force)
+        super().init_wave(wave, force=force, omit_overflow=omit_overflow)
 
         self.find_limits(wave, self.wave_limits_dlambda, force=force)
 
@@ -202,7 +202,11 @@ class Piecewise(ContinuumModel):
 
         return { func.name: np.concatenate(pp)}
 
-    def eval_between_limits(self, pp):
+    def eval_between_limits(self, params):
+        """
+        Evaluate the model for each wavelength range, between the limits.
+        """
+
         model = np.full(self.wave.shape, np.nan)
         
         for i in range(len(self.eval_masks)):
@@ -214,7 +218,7 @@ class Piecewise(ContinuumModel):
 
             if piece_mask.sum() > 0 and wave_min is not None and wave_max is not None:
                 x = self.get_normalized_x(self.wave[piece_mask], wave_min, wave_max)
-                p = pp[func.name][i * pcount: (i + 1) * pcount]
+                p = params[func.name][i * pcount: (i + 1) * pcount]
                 model[piece_mask] = func.eval(x, p)
 
         return model
@@ -231,7 +235,7 @@ class Piecewise(ContinuumModel):
             
     def fit_impl(self, flux, flux_err, mask):
                 
-        # Run fitting
+        mask = self.get_full_mask(mask)
         params = self.fit_between_limits(flux, flux_err=flux_err, mask=mask)
         
         return params
