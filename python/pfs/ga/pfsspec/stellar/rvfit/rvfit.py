@@ -914,59 +914,109 @@ class RVFit():
     def get_param_packing_functions(self, mode='full'):
         """
         Return parameter packing functions that combine the correction model parameters
-        with the rest of the parameter. These functions are used by the optimizer to
+        with the rest of the parameters. These functions are used by the optimizer to
         compose the array of parameters to optimize over.
+
+        Parameters
+        ----------
+        mode : str
+            Optimization mode, either 'full', 'a', 'rv', or 'a_rv', where 'full' means
+            pack all parameters, 'a' means pack only the correction model parameters,
+            'rv' means pack only the RV, and 'a_rv' means pack both the correction model
+            parameters and the RV.
+
+        Returns
+        -------
+        tuple
+            Tuple of functions that pack and unpack the parameters, and a function that
+            packs the parameter bounds.
+
+        This function returns 2d arrays, where the first index runs over the multiple
+        sets of parameters.
         """
 
-        pp_rv, up_rv, pb_rv = self.get_param_packing_functions_impl(mode=mode)
-        pp_cm, up_cm, pb_cm = self.correction_model.get_param_packing_functions(mode=mode)
+        # Correction model packing functions
+        pp_a, up_a, pb_a = self._get_param_packing_functions_a(mode=mode)
 
-        if mode == 'full' or mode == 'a_rv':
+        # Other parameter packing functions
+        pp_rv, up_rv, pb_rv = self._get_param_packing_functions_rv(mode=mode)
+
+        if mode == 'full' or (pp_a is not None and pp_rv is not None):
+            # Combine correction model coefficients with RV
             def pack_params(a, rv):
-                rv = np.atleast_1d(pp_rv(rv))
-                if rv.size > 1:
-                    rv = np.reshape(rv, (-1,) + rv.shape)
+                rv = pp_rv(rv)
                 
-                a = pp_cm(a)
-                a = np.reshape(a, (-1,) + rv.shape[1:])
+                a = pp_a(a)
+                if a.ndim < 2 and rv.size > 1:
+                    a = a[None, :]
 
-                return np.concatenate([ a, rv ])
+                return np.concatenate([ a, rv ], axis=-1)
             
             def unpack_params(a_rv):
-                rv = up_rv(a_rv[-1])
+                rv = up_rv(a_rv[..., -1])
+
                 if np.ndim(rv) > 1:
                     rv = rv.squeeze(0)
                 if isinstance(rv, np.ndarray) and np.size(rv) == 1:
                     rv = rv.item()
 
-                a = up_cm(a_rv[:-1])
+                a = up_a(a_rv[..., :-1])
 
                 return a, rv
             
             def pack_bounds(a_bounds, rv_bounds):
-                return pb_cm(a_bounds) + pb_rv(rv_bounds)
-            
-        elif mode == 'a':
-            pack_params, unpack_params, pack_bounds = pp_cm, up_cm, pb_cm
-        elif mode == 'rv':
+                return pb_a(a_bounds) + pb_rv(rv_bounds)
+        elif pp_a is not None:
+            pack_params, unpack_params, pack_bounds = pp_a, up_a, pb_a
+        elif pp_rv:
             pack_params, unpack_params, pack_bounds = pp_rv, up_rv, pb_rv
         else:
             raise NotImplementedError()
         
         return pack_params, unpack_params, pack_bounds
+    
+    def _get_param_packing_functions_a(self, mode='full'):
 
-    def get_param_packing_functions_impl(self, mode='full'):
-        """
-        Return functions that pack and unpack the parameters subject to optimization
-        into a single 1d array and back.
-        """
+        modes = mode.split('_')
 
-        if mode == 'full' or 'rv' in mode.split('_'):
+        if mode == 'full' or 'a' in modes:
+            def pack_params(a):
+                a = np.atleast_1d(a)
+                if np.ndim(a) < 2:
+                    a = a[None, :]
+                return a
+
+            def unpack_params(a):
+                if a.ndim == 2 and a.shape[0] == 1:
+                    a = np.squeeze(a, 0)
+                if a.size == 1:
+                    a = a.item()
+                return a
+
+            def pack_bounds(a_bounds):
+                if a_bounds is None:
+                    raise NotImplementedError()
+                else:
+                    bounds = a_bounds
+                return bounds
+        else:
+            pack_params, unpack_params, pack_bounds = None, None, None
+            
+        return pack_params, unpack_params, pack_bounds
+    
+    def _get_param_packing_functions_rv(self, mode='full'):
+
+        modes = mode.split('_')
+
+        if mode == 'full' or 'rv' in modes:
             def pack_params(rv):
-                return np.atleast_1d(rv)
+                rv = np.atleast_1d(rv)
+                if np.ndim(rv) < 2:
+                    rv = rv[:, None]
+                return rv
                 
             def unpack_params(rv):
-                if np.ndim(rv) > 1:
+                if np.ndim(rv) > 1 and rv.shape[0] == 1:
                     rv = rv.squeeze(0)
                 if isinstance(rv, np.ndarray) and np.size(rv) == 1:
                     rv = rv.item()
@@ -975,13 +1025,59 @@ class RVFit():
             def pack_bounds(rv_bounds):
                 return [ rv_bounds ]
             
-        elif 'rv' not in mode.split('_'):
+        elif 'rv' not in modes:
             # Only pack amplitude and flux correction or continuum parameters
             pack_params, unpack_params, pack_bounds = None, None, None
         else:
             raise NotImplementedError()
 
         return pack_params, unpack_params, pack_bounds
+    
+    def get_objective_function(self, spectra, templates, rv_prior, mode='full'):
+        """
+        Return the objective function and parameter packing/unpacking functions for optimizers
+
+        Parameters
+        ----------
+        spectra : dict or dict of list
+            Dictionary of spectra for each arm and exposure
+        templates : dict
+            Dictionary of templates for each arm
+        rv_prior : Distribution or callable
+            RV prior function
+        mode : str
+            Determines how the model parameters are packed.
+
+        Returns
+        -------
+        log_L : callable
+            Log likelihood function
+        pack_params : callable
+            Function to pack individual parameters into a 1d array
+        unpack_params : callable
+            Function to unpack individual parameters from a 1d array
+        pack_bounds : callable
+            Function to pack parameter bounds into a list of tuples
+        """
+
+        pack_params, unpack_params, pack_bounds = self.get_param_packing_functions(mode=mode)
+
+        if mode == 'full' or mode == 'a_rv':
+            def log_L(a_rv):
+                a, rv = unpack_params(a_rv)
+                log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
+                return log_L
+        elif mode == 'rv':
+            def log_L(rv):
+                rv = unpack_params(rv)
+                log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
+                return log_L
+        elif mode == 'a':
+            raise NotImplementedError()
+        else:
+            raise NotImplementedError()
+        
+        return log_L, pack_params, unpack_params, pack_bounds
             
     def get_bounds_array(self, bounds):
         """
@@ -1049,17 +1145,17 @@ class RVFit():
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
         # Get objective function
-        log_L, pack_params, unpack_params, pack_bounds = self.correction_model.get_objective_function(
+        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra, templates, rv_prior, mode=mode)
             
         if mode == 'full' or mode == 'a_rv':
             # Determine the flux correction or continuum fit parameters at the
             # optimum RV
             a_0 = self.calculate_coeffs(spectra, templates, rv_0)
-            x_0 = pack_params(a_0, rv_0)
-            bounds = pack_bounds(a_0.size * [(-np.inf, np.inf)], rv_bounds)
+            x_0 = pack_params(a_0, rv_0)[0]
+            bounds = pack_bounds(np.size(a_0) * [(-np.inf, np.inf)], rv_bounds)
         elif mode == 'rv':
-            x_0 = pack_params(rv_0)
+            x_0 = pack_params(rv_0)[0]
             bounds = pack_bounds(rv_bounds)
         else:
             raise NotImplementedError()
@@ -1353,20 +1449,20 @@ class RVFit():
             if rv_fixed:
                 logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
 
-        log_L_fun, pack_params, unpack_params, pack_bounds = self.correction_model.get_objective_function(
+        log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra, templates,
             rv_prior=rv_prior,
             mode='rv'
         )
         
         if rv_0 is not None:
-            x_0 = pack_params(rv_0)
+            x_0 = pack_params(rv_0)[0]
         else:
             x_0 = None
 
         # Step size for MCMC
         if rv_step is not None:
-            steps = pack_params(rv_step)
+            steps = pack_params(rv_step)[0]
         else:
             steps = None
 
@@ -1378,11 +1474,14 @@ class RVFit():
                 log_L_fun, pack_params, unpack_params, pack_bounds,
                 x_0, bounds, steps)
 
-    def fit_rv(self, spectra, templates, rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_fixed=None,
-               method='bounded', calculate_error=True):
+    def fit_rv(self, spectra, templates,
+               rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_fixed=None,
+               method='bounded', max_iter=None,
+               calculate_error=True):
         """
         Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
-        Spectra are assumed to be of the same object in different wavelength ranges.
+        Spectra are assumed to be of the same object in different wavelength ranges, with multiple
+        exposures.
 
         Parameters
         ----------
@@ -1401,6 +1500,10 @@ class RVFit():
             If True, the RV is fixed and no optimization is performed.
         method : str
             Optimization method to use: 'bounded' or 'grid'
+        max_iter: int
+            Maximum number of iterations for the optimization
+        calculate_error : bool
+            If True, calculate the error of the RV from the Fisher matrix.
 
         If no initial guess is provided, `rv_0` is determined automatically. If `rv_fixed` is
         `True`, the radial velocity is not fitted but the best flux correction or continuum
@@ -1409,6 +1512,8 @@ class RVFit():
 
         assert isinstance(spectra, dict)
         assert isinstance(templates, dict)
+
+        max_iter = max_iter if max_iter is not None else self.max_iter
 
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_models(spectra, rv_bounds)
@@ -1513,10 +1618,13 @@ class RVFit():
             rv_err = None
             C = None
 
-        # If tracing, evaluate the template at the best fit RV.
-        # TODO: can we cache this for better performance?
         if self.trace is not None:
+            # If tracing, evaluate the template at the best fit RV.
+            # TODO: can we cache this for better performance?
+
+            # Apply the correction model to the templates preprocessed to match each spectrum
             tt = self.preprocess_templates(spectra, templates, rv_fit)
+            self.correction_model.apply_correction(spectra, tt, a_fit)
 
             # TODO: pass in continuum model for plotting
             #       pass in covariance matrix

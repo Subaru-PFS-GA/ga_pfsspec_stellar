@@ -52,23 +52,26 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         if calculate_log_L:
             def calculate_log_L_helper(rv):
-                # Tests specific to FluxCorr correction model
-                pp_specs = tempfit.preprocess_spectra(specs)
-                pp_temps = tempfit.preprocess_templates(specs, temps, rv)
-                log_L, phi, chi, ndf = tempfit.correction_model.eval_log_L(pp_specs, pp_temps, return_phi_chi=True)
-                a = tempfit.correction_model.eval_a(phi, chi)
+                if np.shape(rv) == ():
+                    # Tests specific to FluxCorr correction model
+                    pp_specs = tempfit.preprocess_spectra(specs)
+                    pp_temps = tempfit.preprocess_templates(specs, temps, rv)
+                    log_L, phi, chi, ndf = tempfit.correction_model.eval_log_L(pp_specs, pp_temps, return_phi_chi=True)
+                    a = tempfit.correction_model.eval_a(phi, chi)
 
-                ax.plot(rv, log_L, 'o')
+                    ax.plot(rv, log_L, 'o')
 
-                log_L = tempfit.correction_model.eval_log_L(pp_specs, pp_temps, a=a)
+                    log_L = tempfit.correction_model.eval_log_L(pp_specs, pp_temps, a=a)
+
+                tempfit.calculate_log_L(specs, temps, rv)
         
             # Test with scalar
-            calculate_log_L_helper(100)
-            tempfit.calculate_log_L(specs, temps, 100)
+            rv = 100
+            calculate_log_L_helper(rv)
             
             # Test with vector
             rv = np.linspace(-300, 300, 31)
-            tempfit.calculate_log_L(specs, temps, rv)
+            calculate_log_L_helper(rv)
 
         if fit_lorentz or guess_rv or fit_rv or calculate_error:
             rv = np.linspace(-300, 300, 31)
@@ -159,9 +162,6 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
             self.assertEqual(gt_amp_count, amp_count)
             self.assertEqual(gt_coeff_count, coeff_count)
-
-    def test_get_param_packing_functions(self):
-        self.get_param_packing_functions_test_helper()
 
     def test_get_eval_flux_corr_basis(self):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \

@@ -109,6 +109,3 @@ class ModelGridRVFitTrace(RVFitTrace):
         cc.plot_priors(*priors, normalize=True)
 
         self.flush_figures()
-
-    def on_calculate_log_L(self, spectra, templates, rv, params, a):
-        pass

@@ -4,11 +4,11 @@ import numpy.testing as npt
 import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.sampling import Parameter, NormalDistribution, UniformDistribution
-from pfs.ga.pfsspec.core.obsmod.fluxcorr import PolynomialFluxCorrection
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 from pfs.ga.pfsspec.stellar.rvfit import ModelGridRVFit, ModelGridRVFitTrace
+from pfs.ga.pfsspec.stellar.fluxcorr import PolynomialFluxCorrection
 
-from .rvfittestbase import RVFitTestBase
+from .tempfittestbase import TempFitTestBase
 
 class ModelGridRVFitTraceTest(ModelGridRVFitTrace):
     def __init__(self):
@@ -23,7 +23,7 @@ class ModelGridRVFitTraceTest(ModelGridRVFitTrace):
         self.mcmc_x = x
         self.mcmc_log_L = log_L
 
-class TestModelGridRVFit(RVFitTestBase):
+class TestModelGridRVFit(TempFitTestBase):
     
     def get_rvfit(self, flux_correction=False, use_priors=False, **kwargs):
         trace = ModelGridRVFitTraceTest()
@@ -39,7 +39,7 @@ class TestModelGridRVFit(RVFitTestBase):
 
         if flux_correction:
             rvfit.use_flux_corr = True
-            rvfit.flux_corr = PolynomialFluxCorrection()
+            rvfit.flux_corr_type = PolynomialFluxCorrection
 
         if use_priors:
             rvfit.rv_prior = lambda rv: -(rv - self.rv_real)**2 / 100**2
@@ -57,7 +57,7 @@ class TestModelGridRVFit(RVFitTestBase):
 
         return rvfit
     
-    def test_get_packing_functions(self):
+    def test_get_param_packing_functions(self):
         rvfit = self.get_rvfit()
 
         params_scalar = { 'T_eff': 5000.0, 'M_H': -1.0, 'log_g': 1.0 }
@@ -72,7 +72,7 @@ class TestModelGridRVFit(RVFitTestBase):
         rv_vector = np.array([100.0, 90.0])
 
         # a_params_rv
-        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(rv_0=0.0, rv_fixed=False,
+        pack_params, unpack_params, pack_bounds = rvfit.get_param_packing_functions(rv_0=0.0, rv_fixed=False,
                                                                               params_0=params_scalar, params_free=params_free, params_fixed=params_fixed,
                                                                               mode='a_params_rv')
         
@@ -105,7 +105,7 @@ class TestModelGridRVFit(RVFitTestBase):
         npt.assert_equal(rv_vector, rv)
 
         # params_rv
-        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(rv_0=0.0, rv_fixed=False,
+        pack_params, unpack_params, pack_bounds = rvfit.get_param_packing_functions(rv_0=0.0, rv_fixed=False,
                                                                               params_0=params_scalar, params_free=params_free, params_fixed=params_fixed,
                                                                               mode='params_rv')
 
@@ -122,7 +122,7 @@ class TestModelGridRVFit(RVFitTestBase):
         npt.assert_equal(rv_vector, rv)
 
         # params
-        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(rv_0=0.0, rv_fixed=False,
+        pack_params, unpack_params, pack_bounds = rvfit.get_param_packing_functions(rv_0=0.0, rv_fixed=False,
                                                                               params_0=params_scalar, params_free=params_free, params_fixed=params_fixed,
                                                                               mode='params')
 
@@ -136,7 +136,7 @@ class TestModelGridRVFit(RVFitTestBase):
         self.assertEqual((3, 2), pp.shape)
         npt.assert_equal({ **params_vector, **params_fixed }, params)
 
-        pack_params, unpack_params, pack_bounds = rvfit.get_packing_functions(rv_0=0.0, rv_fixed=False,
+        pack_params, unpack_params, pack_bounds = rvfit.get_param_packing_functions(rv_0=0.0, rv_fixed=False,
                                                                               params_0=params_scalar, params_free=params_free, params_fixed=params_fixed,
                                                                               mode='rv')
 
@@ -161,8 +161,29 @@ class TestModelGridRVFit(RVFitTestBase):
         # Provide the template parameters
         spec_norm, temp_norm = rvfit.get_normalization({'mr': spec}, M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
 
-    def rvfit_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors=False, calculate_log_L=False, fit_lorentz=False, guess_rv=False, fit_rv=False, calculate_error=False):
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
+    def rvfit_test_helper(self,
+                          ax,
+                          flux_correction,
+                          normalize,
+                          convolve_template,
+                          multiple_arms,
+                          multiple_exp,
+                          use_priors=False,
+                          calculate_log_L=False,
+                          fit_lorentz=False,
+                          guess_rv=False,
+                          fit_rv=False,
+                          calculate_error=False):
+
+        (rvfit, rv_real, specs, temps, psfs,
+         phi_shape, chi_shape, params_0) = self.get_initialized_tempfit(
+            flux_correction=flux_correction,
+            normalize=normalize,
+            convolve_template=convolve_template,
+            multiple_arms=multiple_arms,
+            multiple_exp=multiple_exp,
+            use_priors=use_priors
+        )
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -201,7 +222,7 @@ class TestModelGridRVFit(RVFitTestBase):
             ax.plot(rv, y1, '-')
   
         if guess_rv or fit_rv or calculate_error:
-            _, _, _, rv0 = rvfit.guess_rv(specs, temps)
+            _, _, rv0 = rvfit.guess_rv(specs, temps)
             ax.axvline(rv0, color='k', label='rv guess')
 
     def test_calculate_log_L(self):
@@ -224,12 +245,22 @@ class TestModelGridRVFit(RVFitTestBase):
                                  multiple_arms, multiple_exp,
                                  use_priors, rv_fixed=False):
         
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
+        (rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+            self.get_initialized_tempfit(
+                flux_correction=flux_correction,
+                normalize=normalize,
+                convolve_template=convolve_template,
+                multiple_arms=multiple_arms,
+                multiple_exp=multiple_exp,
+                use_priors=use_priors
+            )
 
         ax.axvline(rv_real, color='r', label='rv real')
 
         res = rvfit.fit_rv(specs,
-                           rv_0=rv_real + 10, rv_bounds=(rv_real - 100, rv_real + 100), rv_fixed=rv_fixed,
+                           rv_0=rv_real + 10,
+                           rv_bounds=(rv_real - 100, rv_real + 100),
+                           rv_fixed=rv_fixed,
                            params_0=params_0)
                 
         ax.axvline(res.rv_fit, color='b', label='rv fit')
@@ -275,7 +306,16 @@ class TestModelGridRVFit(RVFitTestBase):
         self.save_fig(f)
 
     def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors)
+        
+        (rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+            self.get_initialized_tempfit(
+                flux_correction=flux_correction,
+                normalize=normalize,
+                convolve_template=convolve_template,
+                multiple_arms=multiple_arms,
+                multiple_exp=multiple_exp,
+                use_priors=use_priors
+            )
 
         params_steps = { p: v * 0.01 for p, v in params_0.items() }
 
@@ -284,11 +324,11 @@ class TestModelGridRVFit(RVFitTestBase):
         rvfit.mcmc_burnin = 5
         rvfit.mcmc_samples = 5
         res = rvfit.run_mcmc(specs,
-                                  rv_0=rv_real + 10,
-                                  rv_bounds=(rv_real - 100, rv_real + 100),
-                                  rv_step=2,
-                                  params_0=params_0,
-                                  params_steps=params_steps)
+                             rv_0=rv_real + 10,
+                             rv_bounds=(rv_real - 100, rv_real + 100),
+                             rv_step=2,
+                             params_0=params_0,
+                             params_steps=params_steps)
 
         ax.plot(res.rv_mcmc, res.params_mcmc['T_eff'], '.')
 
@@ -317,7 +357,9 @@ class TestModelGridRVFit(RVFitTestBase):
         f, axs = plt.subplots(len(configs), 1, squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
+            rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+                self.get_initialized_tempfit(**config)
+            
             res = rvfit.fit_rv(specs, rv_0=rv_real)
             
             F = {}
@@ -349,7 +391,9 @@ class TestModelGridRVFit(RVFitTestBase):
 
     def test_eval_F_emcee(self):
         config = dict(flux_correction=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
-        rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = self.get_initialized_rvfit(**config)
+        (rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+            self.get_initialized_tempfit(**config)
+        
         res = rvfit.fit_rv(specs, rv_0=rv_real)
 
         rvfit.mcmc_burnin = 5

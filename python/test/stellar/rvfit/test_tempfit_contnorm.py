@@ -158,9 +158,6 @@ class TestTempFitContNorm(TempFitTestBase):
             self.assertEqual(gt_amp_count, amp_count)
             self.assertEqual(gt_coeff_count, coeff_count)
 
-    def test_get_param_packing_functions(self):
-        self.get_param_packing_functions_test_helper()
-
     def test_calculate_log_L(self):
         configs = [
             dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),

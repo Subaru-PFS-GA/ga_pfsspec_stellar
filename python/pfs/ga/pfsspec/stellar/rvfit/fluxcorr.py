@@ -201,22 +201,6 @@ class FluxCorr(CorrectionModel):
         bases, basis_size = self.flux_corr_basis_cache, self.flux_corr_basis_size
 
         return bases, basis_size
-    
-    def apply_flux_corr(self, temp, basis, a, renorm=True):
-        # Apply flux correction to a template.
-        # This feature is provided for evaluating the results only, not used
-        # during the fitting process
-
-        if self.use_flux_corr:
-            # Full flux correction
-            temp.multiply(np.dot(basis, a))
-        else:
-            # This is an amplitude only
-            temp.multiply(a)
-
-        # Normalize template to match the flux scale of the fitted spectrum
-        if renorm and self.spec_norm is not None:
-            temp.multiply(self.spec_norm)
 
     def calculate_phi_chi(self, spectra, templates, rv):
         """
@@ -314,6 +298,15 @@ class FluxCorr(CorrectionModel):
             log_L = self.eval_log_L_phi_chi(phi, chi)
             self.trace.on_eval_phi_chi(spectra, templates, bases, log_L, phi, chi)
 
+        if np.size(phi) == 1:
+            phi = phi.item()
+
+        if np.size(chi) == 1:
+            chi = chi.item()
+
+        if np.size(ndf) == 1:
+            ndf = ndf.item()
+
         return phi, chi, ndf
     
     def eval_a(self, phi, chi):
@@ -376,9 +369,6 @@ class FluxCorr(CorrectionModel):
         else:
             log_L = self.eval_log_L_a(phi, chi, a)
 
-        if np.size(log_L) == 1:
-            log_L = log_L.item()
-
         if return_phi_chi:
             return log_L, phi, chi, ndf
         else:
@@ -397,7 +387,7 @@ class FluxCorr(CorrectionModel):
             phi, chi, ndf = self.eval_phi_chi(spectra, templates)
             a = self.eval_a(phi, chi)
 
-        if a.ndim > 1:
+        if np.ndim(a) > 1:
             a = a.squeeze(0)
 
         return a
@@ -423,54 +413,6 @@ class FluxCorr(CorrectionModel):
                     flux_corr[arm].append(None)
 
         return flux_corr
-        
-    def get_objective_function(self, spectra, templates, rv_prior, mode='full'):
-        """
-        Return the objective function and parameter packing/unpacking functions for optimizers
-
-        Parameters
-        ----------
-        spectra : dict or dict of list
-            Dictionary of spectra for each arm and exposure
-        templates : dict
-            Dictionary of templates for each arm
-        rv_prior : Distribution or callable
-            RV prior function
-        mode : str
-            Determines how the model parameters are packed.
-
-        Returns
-        -------
-        log_L : callable
-            Log likelihood function
-        pack_params : callable
-            Function to pack individual parameters into a 1d array
-        unpack_params : callable
-            Function to unpack individual parameters from a 1d array
-        pack_bounds : callable
-            Function to pack parameter bounds into a list of tuples
-        """
-
-        # TODO: extend this function to handle the case of template parameters
-
-        pack_params, unpack_params, pack_bounds = self.tempfit.get_param_packing_functions(mode=mode)
-
-        if mode == 'full' or mode == 'a_rv':
-            def log_L(a_rv):
-                a, rv = unpack_params(a_rv)
-                log_L = self.tempfit.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
-                return log_L
-        elif mode == 'rv':
-            def log_L(rv):
-                rv = unpack_params(rv)
-                log_L = self.tempfit.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
-                return log_L
-        elif mode == 'a':
-            raise NotImplementedError()
-        else:
-            raise NotImplementedError()
-        
-        return log_L, pack_params, unpack_params, pack_bounds
 
     def calculate_F_full_phi_chi(self, spectra, templates, rv_0, step=None):
         # Evaluate the Fisher matrix from the first and second derivatives of
@@ -488,7 +430,7 @@ class FluxCorr(CorrectionModel):
         # else:
 
         def pack_phi_chi(phi, chi):
-            return np.concatenate([phi.flatten(), chi.flatten()])
+            return np.concatenate([np.ravel(phi), np.ravel(chi)])
 
         def unpack_phi_chi(phi_chi, size):
             return phi_chi[:size], phi_chi[size:].reshape((size, size))
@@ -505,12 +447,14 @@ class FluxCorr(CorrectionModel):
         d_phi_chi = nd.Derivative(phi_chi, step=step)
         dd_phi_chi = nd.Derivative(phi_chi, step=step, n=2)
 
-        d_phi_0, d_chi_0 = unpack_phi_chi(d_phi_chi(np.atleast_1d(rv_0)), phi_0.size)
-        dd_phi_0, dd_chi_0 = unpack_phi_chi(dd_phi_chi(np.atleast_1d(rv_0)), phi_0.size)
+        d_phi_0, d_chi_0 = unpack_phi_chi(d_phi_chi(np.atleast_1d(rv_0)), np.size(phi_0))
+        dd_phi_0, dd_chi_0 = unpack_phi_chi(dd_phi_chi(np.atleast_1d(rv_0)), np.size(phi_0))
 
         if not self.use_flux_corr:
             # TODO: use special calculations from Alex
-            F = np.empty((2, 2), dtype=phi_0.dtype)
+            # Get the dtype from phi_0, even if it's a scalar
+            np.dtype
+            F = np.empty((2, 2), dtype=float)
             F[0, 0] = chi_0
             F[1, 0] = F[0, 1] = d_phi_0   # TODO: is this correct here?
             F[1, 1] = -a_0 * dd_phi_0 + 0.5 * a_0**2 * dd_chi_0
@@ -614,5 +558,40 @@ class FluxCorr(CorrectionModel):
         dd_nu_0 = dd_nu(rv_0)
 
         return -1.0 / (nu_0 * dd_nu_0)
-       
     
+    def apply_flux_corr(self, temp, basis, a):
+        # Apply flux correction to a template.
+        # This feature is provided for evaluating the results only, not used
+        # during the fitting process
+
+        if self.use_flux_corr:
+            # Full flux correction
+            temp.multiply(np.dot(basis, a))
+        else:
+            # This is an amplitude only
+            temp.multiply(a)
+       
+    def apply_correction(self, spectra, templates, a=None):
+        """
+        Apply the flux correction to the templates. The templates are assumed to be
+        already Doppler shifted and resampled to the same grid as the spectra.
+
+        Parameters
+        ----------
+        spectra : dict of list
+            Dictionary of spectra for each arm and exposure.
+        templates : dict of list
+            Dictionary of templates for each arm and exposure.
+        a : array
+            Flux correction coefficients.
+        """
+
+        if a is None:
+            a = self.calculate_coeffs(spectra, templates)
+
+        for arm in spectra:
+            for ei, (spec, temp) in enumerate(zip(spectra[arm], templates[arm])):
+                if spec is not None:
+                    basis = self.flux_corr_basis_cache[arm][ei]
+                    self.apply_flux_corr(temp, basis, a)
+

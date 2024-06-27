@@ -265,6 +265,41 @@ class ContNorm(CorrectionModel):
 
         return coeffs, continua
     
+    def eval_continuum_fit(self, spectra, templates, coeffs):
+        """
+        Evaluate the continuum fit for each exposure in each arm. Templates
+        are assumed to be Doppler shifted to a certain RV and resampled to
+        the same grid as the spectra.
+        """
+
+        if self.cont_per_arm:
+            continua = {}
+            for arm in spectra:
+                if self.cont_per_exp:
+                    # Fit each exposure separately
+                    continua[arm] = []
+                    for ei, (spec, a, model) in enumerate(zip(spectra[arm], coeffs[arm], self.cont_model[arm],)):
+                        if spec is not None:
+                            _, cont = model.eval(a, wave=spec.wave)
+                            continua[arm].append(cont)
+                        else:
+                            continua[arm].append(None)
+                else:
+                    # Fit all exposures simultaneously
+                    continua[arm] = []
+                    for ei, spec in enumerate(spectra[arm]):
+                        if spec is not None:
+                            model = self.cont_model[arm]
+                            a = coeffs[arm]
+                            _, cont = model.eval(a, wave=spec.wave)
+                            continua[arm].append(cont)
+                        else:
+                            continua[arm].append(None)
+        else:
+            raise Exception('Continuum fitting using a single model for all arms is not supported yet.')
+        
+        return continua
+    
     def concat_coeffs(self, a):
         """
         Concatenate the continuum model parameters into a single 1d array.
@@ -301,79 +336,36 @@ class ContNorm(CorrectionModel):
 
         if a is None:
             a, _ = self.fit_continuum(spectra, templates)
-            a = self.concat_coeffs(a)
-
-        if a.ndim > 1:
-            a = a.squeeze(0)
+            
+        # a = self.concat_coeffs(a)
+        # if a.ndim > 1:
+        #     a = a.squeeze(0)
 
         return a
 
-    def eval_continuum_fit(self, spectra, templates, a=None):
+    def apply_correction(self, spectra, templates, a=None):
         """
-        Evaluate the continuum fit for each exposure in each arm
-        """
-
-        raise NotImplementedError()
-
-        if self.cont_per_arm:
-            # Fit continuum to each arm separately
-            if self.cont_per_exp:
-                pass
-            else:
-                pass
-        else:
-            # Fit continuum to all arms simultaneously
-            if self.cont_per_exp:
-                pass
-            else:
-                pass
-
-        raise NotImplementedError()
-
-    def get_objective_function(self, spectra, templates, rv_prior, mode='full'):
-        """
-        Return the objective function and parameter packing/unpacking functions for optimizers
+        Apply the continuum correction to pre-processed templates. Templates
+        are assumed to be Doppler shifted to a certain RV and resampled to the
+        same grid as the spectra.
 
         Parameters
         ----------
-        spectra : dict or dict of list
-            Dictionary of spectra for each arm and exposure
-        templates : dict
-            Dictionary of templates for each arm
-        rv_prior : Distribution or callable
-            RV prior function
-        mode : str
-            Determines how the model parameters are packed.
-
-        Returns
-        -------
-        log_L : callable
-            Log likelihood function
-        pack_params : callable
-            Function to pack individual parameters into a 1d array
-        unpack_params : callable
-            Function to unpack individual parameters from a 1d array
-        pack_bounds : callable
-            Function to pack parameter bounds into a list of tuples
+        spectra : dict of list
+            Dictionary of spectra for each arm and exposure.
+        templates : dict of list
+            Dictionary of templates for each arm and exposure.
+        a : array
+            Continuum model parameters.
         """
 
-        # TODO: extend this function to handle the case of template parameters
+        if self.use_cont_norm:
+            if a is None:
+                a, continua = self.fit_continuum(spectra, templates)
+            else:
+                continua = self.eval_continuum_fit(spectra, templates, a)
 
-        pack_params, unpack_params, pack_bounds = self.tempfit.get_param_packing_functions(mode=mode)
-
-        if mode == 'full' or mode == 'a_rv':
-            def log_L(a_rv):
-                a, rv = unpack_params(a_rv)
-                log_L = self.tempfit.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
-                return log_L
-        elif mode == 'rv':
-            def log_L(rv):
-                rv = unpack_params(rv)
-                log_L = self.tempfit.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
-                return log_L
-        elif mode == 'a':
-            raise NotImplementedError()
-        else:
-            raise NotImplementedError()
-        
-        return log_L, pack_params, unpack_params, pack_bounds
+            for arm in spectra:
+                for ei, (spec, temp, cont) in enumerate(zip(spectra[arm], templates[arm], continua[arm])):
+                    if temp is not None and cont is not None:
+                        temp.multiply(cont)
