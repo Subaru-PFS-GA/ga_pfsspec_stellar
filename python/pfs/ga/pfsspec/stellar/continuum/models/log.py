@@ -25,10 +25,6 @@ class Log(ContinuumModel):
         params.append(ModelParameter(name='log'))
         return params
 
-    def init_wave(self, wave):
-        self.wave = wave
-        self.wave_mask = np.full(wave.shape, True)
-
     def init_values(self, grid):
         grid.init_value('log')
 

@@ -228,6 +228,9 @@ class ContinuumModel(ContinuumObject):
         raise NotImplementedError()
 
     def eval(self, params, wave=None):
+
+        wave = wave if wave is not None else self.wave
+
         flux = self.eval_impl(params, wave=wave)
 
         # Reverse transform the flux if fitting in log
@@ -310,8 +313,8 @@ class ContinuumModel(ContinuumObject):
 
             # Evaluate the model at the current parameters and run the continuum finder to
             # filter out points that are not part of the continuum
-            model = func.eval(x, params)
-            mask, need_more_iter = continuum_finder.find(iter, x, y, w=w, mask=mask, model=model)
+            cont = func.eval(x, params)
+            mask, need_more_iter = continuum_finder.find(iter, x, y, w=w, mask=mask, cont=cont)
             iter += 1
 
             if not need_more_iter:
