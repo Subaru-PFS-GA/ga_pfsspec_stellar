@@ -5,8 +5,8 @@ from collections.abc import Iterable
 from pfs.ga.pfsspec.core.util.copy import safe_deep_copy
 from pfs.ga.pfsspec.core.util.args import get_arg
 from ..fluxcorr import PolynomialFluxCorrection
-from .rvfittrace import RVFitTrace
-from .rvfittracestate import RVFitTraceState
+from .tempfittrace import TempFitTrace
+from .tempfittracestate import TempFitTraceState
 from .correctionmodel import CorrectionModel
 
 from .setup_logger import logger

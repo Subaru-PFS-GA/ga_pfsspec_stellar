@@ -8,11 +8,11 @@ from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
-from .rvfit import RVFit
+from .tempfit import TempFit
 from .modelgridtempfitresults import ModelGridTempFitResults
-from .modelgridrvfittrace import ModelGridRVFitTrace
+from .modelgridtempfittrace import ModelGridTempFitTrace
 
-class ModelGridRVFit(RVFit):
+class ModelGridTempFit(TempFit):
     """
     Performs radial velocity fitting by interpolating templates from
     a model spectrum grid. It can either maximize the likelihood function
@@ -26,7 +26,7 @@ class ModelGridRVFit(RVFit):
         
         super().__init__(trace=trace, correction_model=correction_model, orig=orig)
 
-        if not isinstance(orig, ModelGridRVFit):
+        if not isinstance(orig, ModelGridTempFit):
             self.template_grids = None       # Model grids for each spectrograph arm
             
             self.params_0 = None             # Dict of initial template parameters
@@ -80,13 +80,13 @@ class ModelGridRVFit(RVFit):
                 self.params_priors[p] = params[p].get_dist()
 
     def create_trace(self):
-        return ModelGridRVFitTrace()
+        return ModelGridTempFitTrace()
 
     def reset(self):
         super().reset()
 
     def create_trace(self):
-        return ModelGridRVFitTrace()
+        return ModelGridTempFitTrace()
 
     def get_templates(self, spectra, params):
         # Return the templates corresponding to the parameters.

@@ -3,7 +3,7 @@ import numpy.testing as npt
 import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.rvfit import RVFit, TempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import TempFit, TempFitTrace
 
 from .tempfittestbase import TempFitTestBase
 
@@ -16,7 +16,7 @@ class TestTempFit(TempFitTestBase):
         
         trace = TempFitTrace()
 
-        tempfit = RVFit(trace=trace, correction_model=None)
+        tempfit = TempFit(trace=trace, correction_model=None)
         tempfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
         tempfit.mcmc_samples = 5
         tempfit.template_resampler = FluxConservingResampler()

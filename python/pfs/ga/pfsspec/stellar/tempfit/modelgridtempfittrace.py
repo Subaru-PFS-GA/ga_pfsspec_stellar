@@ -5,9 +5,9 @@ from pfs.ga.pfsspec.core import Trace
 from pfs.ga.pfsspec.core.plotting import styles
 from pfs.ga.pfsspec.core.util.args import *
 from pfs.ga.pfsspec.core.plotting import DiagramPage, DiagramAxis, CornerPlot
-from .rvfittrace import RVFitTrace
+from .tempfittrace import TempFitTrace
 
-class ModelGridRVFitTrace(RVFitTrace):
+class ModelGridTempFitTrace(TempFitTrace):
     def __init__(self,
                  id=None,
                  figdir='.', logdir='.',

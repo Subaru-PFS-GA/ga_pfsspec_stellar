@@ -1,4 +1,4 @@
-class RVFitTraceState():
+class TempFitTraceState():
     """
     Trace info on preprocessed spectra and templates
     """

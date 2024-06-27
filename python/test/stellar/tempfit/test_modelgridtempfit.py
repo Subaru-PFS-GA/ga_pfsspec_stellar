@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.sampling import Parameter, NormalDistribution, UniformDistribution
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.rvfit import ModelGridRVFit, ModelGridRVFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitTrace
 
 from .tempfittestbase import TempFitTestBase
 
@@ -16,9 +16,9 @@ class TestModelGridTempFit(TempFitTestBase):
                     use_priors=False,
                     **kwargs):
         
-        trace = ModelGridRVFitTrace()
+        trace = ModelGridTempFitTrace()
 
-        tempfit = ModelGridRVFit(trace=trace, correction_model=None)
+        tempfit = ModelGridTempFit(trace=trace, correction_model=None)
         
         tempfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
         tempfit.mcmc_samples = 5

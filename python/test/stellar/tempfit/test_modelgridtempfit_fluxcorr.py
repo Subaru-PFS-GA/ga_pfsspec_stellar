@@ -5,14 +5,14 @@ import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.sampling import Parameter, NormalDistribution, UniformDistribution
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.rvfit import ModelGridRVFit, ModelGridRVFitTrace
-from pfs.ga.pfsspec.stellar.rvfit import FluxCorr
+from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import FluxCorr
 from pfs.ga.pfsspec.stellar.fluxcorr import PolynomialFluxCorrection
 
 from .tempfittestbase import TempFitTestBase
 
 
-class ModelGridTempFitTraceTest(ModelGridRVFitTrace):
+class ModelGridTempFitTraceTest(ModelGridTempFitTrace):
     def __init__(self):
         super().__init__()
 
@@ -40,7 +40,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             fluxcorr.use_flux_corr = True
             fluxcorr.flux_corr_type = PolynomialFluxCorrection
 
-        tempfit = ModelGridRVFit(trace=trace, correction_model=fluxcorr)
+        tempfit = ModelGridTempFit(trace=trace, correction_model=fluxcorr)
         
         tempfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
         tempfit.mcmc_samples = 5
@@ -317,11 +317,11 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         tempfit.mcmc_burnin = 5
         tempfit.mcmc_samples = 5
         res = tempfit.run_mcmc(specs,
-                             rv_0=rv_real + 10,
-                             rv_bounds=(rv_real - 100, rv_real + 100),
-                             rv_step=2,
-                             params_0=params_0,
-                             params_steps=params_steps)
+                               rv_0=rv_real + 10,
+                               rv_bounds=(rv_real - 100, rv_real + 100),
+                               rv_step=2,
+                               params_0=params_0,
+                               params_steps=params_steps)
 
         ax.plot(res.rv_mcmc.ravel(), res.params_mcmc['T_eff'].ravel(), '.')
 

@@ -3,28 +3,25 @@ import numpy.testing as npt
 import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.rvfit import RVFit, TempFitTrace
-from pfs.ga.pfsspec.stellar.rvfit import FluxCorr
-from pfs.ga.pfsspec.stellar.fluxcorr import PolynomialFluxCorrection
+from pfs.ga.pfsspec.stellar.tempfit import TempFit, TempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import ContNorm
+from pfs.ga.pfsspec.stellar.continuum.models import Spline
 
 from .tempfittestbase import TempFitTestBase
 
-class TestTempFitFluxCorr(TempFitTestBase):
-    # RV fitting with flux correction
+class TestTempFitContNorm(TempFitTestBase):
+    # RV fitting with continuum normalization
     
     def get_tempfit(self,
-                    flux_correction=False,
                     use_priors=False,
                     **kwargs):
-
+        
         trace = TempFitTrace()
-        
-        fluxcorr = FluxCorr()
-        if flux_correction:
-            fluxcorr.use_flux_corr = True
-            fluxcorr.flux_corr_type = PolynomialFluxCorrection
-        
-        tempfit = RVFit(trace=trace, correction_model=fluxcorr)
+
+        contnorm = ContNorm()
+        contnorm.use_cont_norm = True
+
+        tempfit = TempFit(trace=trace, correction_model=contnorm)
         tempfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
         tempfit.mcmc_samples = 5
         tempfit.template_resampler = FluxConservingResampler()
@@ -36,42 +33,40 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         return tempfit
 
-    def tempfit_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors=False, calculate_log_L=False, fit_lorentz=False, guess_rv=False, fit_rv=False, calculate_error=False):
+    def tempfit_test_helper(self, ax, continuum_fit, continuum_per_arm, continuum_per_exp, normalize, convolve_template, multiple_arms, multiple_exp, use_priors=False, calculate_log_L=False, fit_lorentz=False, guess_rv=False, fit_rv=False, calculate_error=False):
         (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
-                flux_correction=flux_correction,
+                continuum_fit=continuum_fit,
                 normalize=normalize,
                 convolve_template=convolve_template,
                 multiple_arms=multiple_arms,
                 multiple_exp=multiple_exp,
                 use_priors=use_priors)
         
+        tempfit.correction_model.use_cont_norm = continuum_fit
+        tempfit.correction_model.cont_per_arm = continuum_per_arm
+        tempfit.correction_model.cont_per_exp = continuum_per_exp
+
         tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
 
         ax.axvline(rv_real, color='r', label='rv real')
 
         if calculate_log_L:
             def calculate_log_L_helper(rv):
-                if np.shape(rv) == ():
-                    # Tests specific to FluxCorr correction model
-                    pp_specs = tempfit.preprocess_spectra(specs)
-                    pp_temps = tempfit.preprocess_templates(specs, temps, rv)
-                    log_L, phi, chi, ndf = tempfit.correction_model.eval_log_L(pp_specs, pp_temps, return_phi_chi=True)
-                    a = tempfit.correction_model.eval_a(phi, chi)
-
-                    ax.plot(rv, log_L, 'o')
-
-                    log_L = tempfit.correction_model.eval_log_L(pp_specs, pp_temps, a=a)
-
-                tempfit.calculate_log_L(specs, temps, rv)
+                # Tests specific to ContNorm correction model
+                pp_specs = tempfit.preprocess_spectra(specs)
+                pp_temps = tempfit.preprocess_templates(specs, temps, rv)
+                log_L = tempfit.correction_model.eval_log_L(pp_specs, pp_temps)
+                
+                ax.plot(rv, log_L, 'o')
         
             # Test with scalar
-            rv = 100
-            calculate_log_L_helper(rv)
+            calculate_log_L_helper(100)
+            tempfit.calculate_log_L(specs, temps, 100)
             
             # Test with vector
             rv = np.linspace(-300, 300, 31)
-            calculate_log_L_helper(rv)
+            tempfit.calculate_log_L(specs, temps, rv)
 
         if fit_lorentz or guess_rv or fit_rv or calculate_error:
             rv = np.linspace(-300, 300, 31)
@@ -90,7 +85,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
     def test_init_model(self):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
-                flux_correction=True,
+                continuum_fit=True,
                 normalize=True,
                 convolve_template=True,
                 multiple_arms=True,
@@ -99,29 +94,29 @@ class TestTempFitFluxCorr(TempFitTestBase):
         
         # Test different types of freedom
         model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False,
-                                   create_model_func=tempfit.correction_model.create_flux_corr)
-        self.assertIsInstance(model, PolynomialFluxCorrection)
+                                   create_model_func=tempfit.correction_model.create_continuum_model)
+        self.assertIsInstance(model, Spline)
 
         model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True,
-                                   create_model_func=tempfit.correction_model.create_flux_corr)
+                                   create_model_func=tempfit.correction_model.create_continuum_model)
         self.assertIsInstance(model, list)
-        self.assertIsInstance(model[0], PolynomialFluxCorrection)
+        self.assertIsInstance(model[0], Spline)
 
         model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False,
-                                   create_model_func=tempfit.correction_model.create_flux_corr)
+                                   create_model_func=tempfit.correction_model.create_continuum_model)
         self.assertIsInstance(model, dict)
-        self.assertIsInstance(model['b'], PolynomialFluxCorrection)
+        self.assertIsInstance(model['b'], Spline)
 
         model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True,
-                                   create_model_func=tempfit.correction_model.create_flux_corr)
+                                   create_model_func=tempfit.correction_model.create_continuum_model)
         self.assertIsInstance(model, dict)
         self.assertIsInstance(model['b'], list)
-        self.assertIsInstance(model['b'][0], PolynomialFluxCorrection)
+        self.assertIsInstance(model['b'][0], Spline)
 
     def test_get_coeff_count(self):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
-                flux_correction=True,
+                continuum_fit=True,
                 normalize=True,
                 convolve_template=True,
                 multiple_arms=True,
@@ -130,25 +125,25 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         # arms: 2
         # exposures: 2
-        # degree = 5
+        # continuum coeffs : 0
 
         gt = [
-            [ False, False, False, False, 1, 5 ],
-            [ False, False, False, True, 1, 10 ],
-            [ False, False, True, False, 1, 10 ],
-            [ False, False, True, True, 1, 20 ],
-            [ False, True, False, False, 4, 5 ],
-            [ False, True, False, True, 4, 10 ],
-            [ False, True, True, False, 4, 10 ],
-            [ False, True, True, True, 4, 20 ],
-            [ True, False, False, False, 2, 5 ],
-            [ True, False, False, True, 2, 10 ],
-            [ True, False, True, False, 2, 10 ],
-            [ True, False, True, True, 2, 20 ],
-            [ True, True, False, False, 4, 5 ],
-            [ True, True, False, True, 4, 10 ],
-            [ True, True, True, False, 4, 10 ],
-            [ True, True, True, True, 4, 20 ],
+            [ False, False, False, False, 1, 0 ],
+            [ False, False, False, True, 1, 0 ],
+            [ False, False, True, False, 1, 0 ],
+            [ False, False, True, True, 1, 0 ],
+            [ False, True, False, False, 4, 0 ],
+            [ False, True, False, True, 4, 0 ],
+            [ False, True, True, False, 4, 0 ],
+            [ False, True, True, True, 4, 0 ],
+            [ True, False, False, False, 2, 0 ],
+            [ True, False, False, True, 2, 0 ],
+            [ True, False, True, False, 2, 0 ],
+            [ True, False, True, True, 2, 0 ],
+            [ True, True, False, False, 4, 0 ],
+            [ True, True, False, True, 4, 0 ],
+            [ True, True, True, False, 4, 0 ],
+            [ True, True, True, True, 4, 0 ],
         ]
 
         # Test different types of freedom
@@ -163,80 +158,10 @@ class TestTempFitFluxCorr(TempFitTestBase):
             self.assertEqual(gt_amp_count, amp_count)
             self.assertEqual(gt_coeff_count, coeff_count)
 
-    def test_get_eval_flux_corr_basis(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
-            self.get_initialized_tempfit(
-                flux_correction=True,
-                normalize=True,
-                convolve_template=True,
-                multiple_arms=True,
-                multiple_exp=True,
-                use_priors=False)
-
-        # arms: 2
-        # exposures: 2
-        # degree = 5
-
-        gt = [
-            [ False, False, False, False, 1, 5 ],
-            [ False, False, False, True, 1, 10 ],
-            [ False, False, True, False, 1, 10 ],
-            [ False, False, True, True, 1, 20 ],
-            [ False, True, False, False, 4, 5 ],
-            [ False, True, False, True, 4, 10 ],
-            [ False, True, True, False, 4, 10 ],
-            [ False, True, True, True, 4, 20 ],
-            [ True, False, False, False, 2, 5 ],
-            [ True, False, False, True, 2, 10 ],
-            [ True, False, True, False, 2, 10 ],
-            [ True, False, True, True, 2, 20 ],
-            [ True, True, False, False, 4, 5 ],
-            [ True, True, False, True, 4, 10 ],
-            [ True, True, True, False, 4, 10 ],
-            [ True, True, True, True, 4, 20 ],
-        ]
-
-        # Test different types of freedom
-        for [tempfit.amplitude_per_arm, tempfit.amplitude_per_exp,
-             tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
-             gt_amp_count, gt_coeff_count] in gt:
-            
-            tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
-
-            basis, basis_size = tempfit.correction_model.eval_flux_corr_basis(specs)
-
-            self.assertEqual(gt_amp_count + gt_coeff_count, basis_size)
-            for arm in basis:
-                for b in basis[arm]:
-                    self.assertEqual(b.ndim, 2)
-                    self.assertEqual(b.shape[-1], gt_amp_count + gt_coeff_count)
-
-    def test_eval_flux_corr_basis_with_plot(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
-            self.get_initialized_tempfit(
-                flux_correction=True,
-                normalize=True,
-                convolve_template=True,
-                multiple_arms=True,
-                multiple_exp=True,
-                use_priors=False
-            )
-        tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
-
-        f, ax = plt.subplots(1, 1)
-        
-        basis, basis_size = tempfit.correction_model.eval_flux_corr_basis(specs)
-        for k in specs:
-            for ei, ee in enumerate(specs[k] if isinstance(specs[k], list) else [specs[k]]):
-                ax.plot(ee.wave, basis[k][ei])
-
-        self.save_fig(f)
-
     def test_calculate_log_L(self):
         configs = [
-            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         ]
 
         f, ax = plt.subplots(1, 1)
@@ -248,7 +173,8 @@ class TestTempFitFluxCorr(TempFitTestBase):
         
     def test_fit_lorentz(self):
         configs = [
-            dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
         ]
 
         f, axs = plt.subplots(1, len(configs), squeeze=False)
@@ -260,7 +186,8 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
     def test_guess_rv(self):
         configs = [
-            dict(flux_correction=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         ]
 
         f, axs = plt.subplots(1, len(configs), squeeze=False)
@@ -270,16 +197,23 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         self.save_fig(f)
 
-    def fit_rv_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
+    def rvfit_fit_rv_test_helper(self, ax, continuum_fit, continuum_per_arm, continuum_per_exp, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
-                flux_correction=flux_correction,
+                continuum_fit=continuum_fit,
                 normalize=normalize,
                 convolve_template=convolve_template,
                 multiple_arms=multiple_arms,
                 multiple_exp=multiple_exp,
                 use_priors=use_priors
             )
+
+        tempfit.correction_model.use_cont_norm = continuum_fit
+        tempfit.correction_model.cont_per_arm = continuum_per_arm
+        tempfit.correction_model.cont_per_exp = continuum_per_exp
+
+        tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
+
         res = tempfit.fit_rv(specs, temps)
 
         ax.axvline(rv_real, color='r', label='rv real')
@@ -290,7 +224,8 @@ class TestTempFitFluxCorr(TempFitTestBase):
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
         rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
         log_L = tempfit.calculate_log_L(specs, temps, rvv)
-
+        if tempfit.rv_prior is not None:
+            log_L += tempfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
         ax.set_xlim(rvv[0], rvv[-1])
 
@@ -299,19 +234,18 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
     def test_fit_rv(self):
         configs = [
-            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         ]
 
         f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            self.fit_rv_test_helper(ax, **config)
+            self.rvfit_fit_rv_test_helper(ax, **config)
 
         self.save_fig(f)
 
-    def test_fit_rv_flux_corr(self):
+    def test_fit_rv_cont_norm(self):
         # Test various types of flux correction
 
         f, ax = plt.subplots(1, 1, figsize=(6, 4), squeeze=True)
@@ -328,8 +262,8 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         tempfit.correction_model.amplitude_per_arm = True
         tempfit.correction_model.amplitude_per_exp = True
-        tempfit.correction_model.flux_corr_per_arm = True
-        tempfit.correction_model.flux_corr_per_exp = True
+        tempfit.correction_model.cont_per_arm = True
+        tempfit.correction_model.cont_per_exp = True
 
         tempfit.init_models(specs, rv_bounds=(-500, 500))
 
@@ -343,6 +277,8 @@ class TestTempFitFluxCorr(TempFitTestBase):
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
         rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
         log_L = tempfit.calculate_log_L(specs, temps, rvv)
+        if tempfit.rv_prior is not None:
+            log_L += tempfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
         ax.set_xlim(rvv[0], rvv[-1])
 
@@ -363,10 +299,10 @@ class TestTempFitFluxCorr(TempFitTestBase):
                 multiple_exp=True,
                 use_priors=True)
 
-        tempfit.amplitude_per_arm = True
-        tempfit.amplitude_per_exp = True
-        tempfit.flux_corr_per_arm = True
-        tempfit.flux_corr_per_exp = True
+        tempfit.correction_model.amplitude_per_arm = True
+        tempfit.correction_model.amplitude_per_exp = True
+        tempfit.correction_model.cont_per_arm = True
+        tempfit.correction_model.cont_per_exp = True
 
         tempfit.init_models(specs, rv_bounds=(-500, 500))
 
@@ -381,6 +317,8 @@ class TestTempFitFluxCorr(TempFitTestBase):
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
         rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
         log_L = tempfit.calculate_log_L(specs, temps, rvv)
+        if tempfit.rv_prior is not None:
+            log_L += tempfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
         ax.set_xlim(rvv[0], rvv[-1])
 
@@ -389,16 +327,22 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         self.save_fig(f)
 
-    def run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
+    def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
-            self.get_initialized_tempfit(
-                flux_correction=flux_correction,
+            self.get_initialized_tempfit(               flux_correction=flux_correction,
                 normalize=normalize,
                 convolve_template=convolve_template,
                 multiple_arms=multiple_arms,
                 multiple_exp=multiple_exp,
                 use_priors=use_priors
             )
+
+        tempfit.correction_model.amplitude_per_arm = True
+        tempfit.correction_model.amplitude_per_exp = True
+        tempfit.correction_model.cont_per_arm = True
+        tempfit.correction_model.cont_per_exp = True
+
+        tempfit.init_models(specs, rv_bounds=(-500, 500))
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -421,7 +365,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            self.run_mcmc_test_helper(ax, **config)
+            self.rvfit_run_mcmc_test_helper(ax, **config)
 
         self.save_fig(f)
 
@@ -435,32 +379,26 @@ class TestTempFitFluxCorr(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            
             tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
                 self.get_initialized_tempfit(**config)
             
+            tempfit.correction_model.amplitude_per_arm = True
+            tempfit.correction_model.amplitude_per_exp = True
+            tempfit.correction_model.cont_per_arm = True
+            tempfit.correction_model.cont_per_exp = True
+
+            tempfit.init_models(specs, rv_bounds=(-500, 500))
+
             res = tempfit.fit_rv(specs, temps)
             F = {}
             C = {}
             err = {}
-
             for mode, method in zip([
-                'full',
-                'rv',
-                # 'full',
-                # 'rv',
-                'full',
-                'full'
-            ], [
-                'hessian',
-                'hessian',
-                # 'emcee',
-                # 'sampling',
-                'phi_chi',
-                'alex'
-            ]):
-
-                FF, CC = tempfit.correction_model.calculate_F(specs, temps, res.rv_fit, mode=mode, method=method)
+                    'rv',
+                ], [
+                    'hessian',
+                ]):
+                FF, CC = tempfit.calculate_F(specs, temps, res.rv_fit, mode=mode, method=method)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])
@@ -469,22 +407,12 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         self.save_fig(f)
 
-    def test_calculate_rv_bouchy(self):
-        configs = [
-            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-        ]
-
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
-            self.get_initialized_tempfit(**configs[0])
-        tempfit.init_models(specs, rv_bounds=(-500, 500))
-        tempfit.calculate_rv_bouchy(specs, temps, rv_real)
-
 # Run when profiling
 
 # $ python -m cProfile -o tmp/tmp.prof python/test/pfs/ga/pfsspec/stellar/rvfit/test_rvfit.py
 # $ python -m snakeviz --server tmp/tmp.prof
 
-# t = TestRVFit()
+# t = TestTempFit()
 # t.setUpClass()
 # t.setUp()
 # t.test_fit_rv()

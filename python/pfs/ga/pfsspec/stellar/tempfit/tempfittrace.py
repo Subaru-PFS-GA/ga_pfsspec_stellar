@@ -5,7 +5,7 @@ from pfs.ga.pfsspec.core.plotting import SpectrumPlot, DistributionPlot, styles
 from pfs.ga.pfsspec.core import Trace, SpectrumTrace
 from pfs.ga.pfsspec.core.util.args import *
 
-class RVFitTrace(Trace, SpectrumTrace):
+class TempFitTrace(Trace, SpectrumTrace):
     """
     Implements call-back function to profile and debug RV fitting. Allows for
     generating plots of intermediate steps.
@@ -14,17 +14,17 @@ class RVFitTrace(Trace, SpectrumTrace):
     #region Initializers
 
     def __init__(self,
-                id=None,
-                figdir='.', logdir='.',
-                plot_inline=False, 
-                plot_level=Trace.PLOT_LEVEL_NONE, 
-                log_level=Trace.LOG_LEVEL_NONE):
+                 id=None,
+                 figdir='.', logdir='.',
+                 plot_inline=False, 
+                 plot_level=Trace.PLOT_LEVEL_NONE, 
+                 log_level=Trace.LOG_LEVEL_NONE):
         
         Trace.__init__(self, id=id,
-                figdir=figdir, logdir=logdir,
-                plot_inline=plot_inline, 
-                plot_level=plot_level,
-                log_level=log_level)
+                       figdir=figdir, logdir=logdir,
+                       plot_inline=plot_inline, 
+                       plot_level=plot_level,
+                       log_level=log_level)
         
         SpectrumTrace.__init__(self)
         

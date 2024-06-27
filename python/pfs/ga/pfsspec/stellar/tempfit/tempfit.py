@@ -14,14 +14,14 @@ from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import RESAMPLERS
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
-from .rvfittrace import RVFitTrace
-from .rvfittracestate import RVFitTraceState
+from .tempfittrace import TempFitTrace
+from .tempfittracestate import TempFitTraceState
 from .tempfitresults import TempFitResults
 from .fluxcorr import FluxCorr
 
 from .setup_logger import logger
 
-class RVFit():
+class TempFit():
     """
     This is the base class for basic RV estimation based on template fitting using a non-linear
     maximum likelihood or maximum significance method. Templates are optionally convolved with
@@ -32,7 +32,7 @@ class RVFit():
     being the various spectrograph arms whereas the spectra within the lists are the single
     exposures.
 
-    When the objective is fitting the template parameters, use ModelGridRVFit instead.
+    When the objective is fitting the template parameters, use ModelGridTempFit instead.
 
     Derived classes, with the use of the appropriate mix-ins are capable of fitting templates
     with a multiplicative flux correction function or a continuum model. In either case, a
@@ -47,7 +47,7 @@ class RVFit():
         Initialize the template fitting problem.
         """
         
-        if not isinstance(orig, RVFit):
+        if not isinstance(orig, TempFit):
             self.trace = trace                              # Collect debug info
             self.correction_model = correction_model        # Flux correction or continuum fitting model
 
@@ -197,7 +197,7 @@ class RVFit():
             self.correction_model.init_from_args(script, config, args)
 
     def create_trace(self):
-        return RVFitTrace()
+        return TempFitTrace()
     
     def determine_wlim(self, spectra: dict, /, per_arm=True, per_exp=True,
                        rv_bounds=None, wlim_buffer=None, round_to=None):
@@ -1321,7 +1321,7 @@ class RVFit():
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
 
         if self.trace is not None:
-            trace_state = RVFitTraceState()
+            trace_state = TempFitTraceState()
 
         pp_spec = self.preprocess_spectra(spectra)
 
@@ -1591,7 +1591,7 @@ class RVFit():
             
         try:
             if method == 'grid':
-                out = RVFit.minimize_gridsearch(llh, bounds=rv_bounds)
+                out = TempFit.minimize_gridsearch(llh, bounds=rv_bounds)
             else:
                 out = minimize_scalar(llh, bracket=bracket, bounds=rv_bounds, method=method)
         except Exception as ex:
