@@ -727,7 +727,9 @@ class ModelGridTempFit(TempFit):
             params_fixed = []
             
         if self.template_wlim is None:
-            self.determine_wlim(spectra, rv_bounds=rv_bounds)
+            # Use different template for each arm but same for each exposure
+            self.template_wlim = self.determine_wlim(spectra, rv_bounds=rv_bounds,
+                                                     per_arm=True, per_exp=False)
 
         # Get objective function
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(

@@ -17,6 +17,8 @@ class StellarTestBase(TestBase):
         self.phoenix_grid = None
         self.phoenix_pca_grid = None
 
+        self.normalized_grids = None
+
     def get_kurucz_grid(self):
         # TODO: file location is broken
         raise NotImplementedError()
@@ -50,3 +52,15 @@ class StellarTestBase(TestBase):
             self.phoenix_pca_grid.load(file, s=None, format='h5')
 
         return self.phoenix_pca_grid
+    
+    def get_normalized_grids(self):
+        if self.normalized_grids is None:
+            self.normalized_grids = {}
+            file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/roman/gridie/spectra.h5')
+            self.normalized_grids['b'] = ModelGrid.from_file(file)
+
+            file = os.path.join(self.PFSSPEC_DATA_PATH, 'models/stellar/grid/roman/grid7/spectra.h5')
+            self.normalized_grids['mr'] = ModelGrid.from_file(file)
+            self.normalized_grids['r'] = ModelGrid.from_file(file)
+
+        return self.normalized_grids

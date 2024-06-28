@@ -1,35 +1,65 @@
+import os
 import numpy as np
 import numpy.testing as npt
 import matplotlib.pyplot as plt
 
+from pfs.ga.pfsspec.core.sampling import Parameter, NormalDistribution, UniformDistribution
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.tempfit import TempFit, TempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitTrace
 from pfs.ga.pfsspec.stellar.tempfit import ContNorm
 from pfs.ga.pfsspec.stellar.continuum.models import Spline
 
 from .tempfittestbase import TempFitTestBase
 
-class TestTempFitContNorm(TempFitTestBase):
-    # RV fitting with continuum normalization
+
+class ModelGridTempFitTraceTest(ModelGridTempFitTrace):
+    def __init__(self):
+        super().__init__()
+
+        self.mcmc_x = None
+        self.mcmc_log_L = None
+
+    def on_eval_F_mcmc(self, x, log_L):
+        super().on_eval_F_mcmc(x, log_L)
+
+        self.mcmc_x = x
+        self.mcmc_log_L = log_L
+
+
+class TestModelGridTempFitContNorm(TempFitTestBase):
     
     def get_tempfit(self,
+                    flux_correction=False,
+                    continuum_fit=True,
                     use_priors=False,
                     **kwargs):
         
-        trace = TempFitTrace()
+        trace = ModelGridTempFitTraceTest()
 
         contnorm = ContNorm()
-        contnorm.use_cont_norm = True
+        contnorm.continuum_fit = True
 
-        tempfit = TempFit(trace=trace, correction_model=contnorm)
+        tempfit = ModelGridTempFit(trace=trace, correction_model=contnorm)
+        
         tempfit.mcmc_burnin = 5       # Just a few MCMC steps to make it fast
         tempfit.mcmc_samples = 5
+        tempfit.params_0 = kwargs
         tempfit.template_resampler = FluxConservingResampler()
+        tempfit.template_grids = self.get_normalized_grids()
 
         if use_priors:
             tempfit.rv_prior = lambda rv: -(rv - self.rv_real)**2 / 100**2
+            tempfit.params_priors = {
+                'T_eff': lambda T_eff: -(T_eff - 4500)**2 / 300**2
+            }
         else:
             tempfit.rv_prior = None
+            tempfit.params_priors = None
+
+        tempfit.params_fixed = {
+            'C_M': kwargs['C_M'] if 'C_M' in kwargs else 0.0,
+            'a_M': kwargs['a_M'] if 'a_M' in kwargs else 0.0,
+        }
 
         return tempfit
 
@@ -48,16 +78,17 @@ class TestTempFitContNorm(TempFitTestBase):
                             guess_rv=False,
                             fit_rv=False,
                             calculate_error=False):
-        
-        (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
-            self.get_initialized_tempfit(
-                continuum_fit=continuum_fit,
-                normalize=normalize,
-                convolve_template=convolve_template,
-                multiple_arms=multiple_arms,
-                multiple_exp=multiple_exp,
-                use_priors=use_priors)
-        
+
+        (tempfit, rv_real, specs, temps, psfs,
+         phi_shape, chi_shape, params_0) = self.get_initialized_tempfit(
+            continuum_fit=continuum_fit,
+            normalize=normalize,
+            convolve_template=convolve_template,
+            multiple_arms=multiple_arms,
+            multiple_exp=multiple_exp,
+            use_priors=use_priors
+        )
+
         tempfit.correction_model.use_cont_norm = continuum_fit
         tempfit.correction_model.cont_per_arm = continuum_per_arm
         tempfit.correction_model.cont_per_exp = continuum_per_exp
@@ -82,7 +113,7 @@ class TestTempFitContNorm(TempFitTestBase):
             # Test with vector
             rv = np.linspace(-300, 300, 31)
             tempfit.calculate_log_L(specs, temps, rv)
-
+            
         if fit_lorentz or guess_rv or fit_rv or calculate_error:
             rv = np.linspace(-300, 300, 31)
             log_L = tempfit.calculate_log_L(specs, temps, rv)
@@ -140,7 +171,7 @@ class TestTempFitContNorm(TempFitTestBase):
 
         # arms: 2
         # exposures: 2
-        # continuum coeffs : 0
+        # degree = 5
 
         gt = [
             [ False, False, False, False, 1, 0 ],
@@ -171,7 +202,7 @@ class TestTempFitContNorm(TempFitTestBase):
             coeff_count = tempfit.correction_model.get_coeff_count(specs)
 
             self.assertEqual(gt_amp_count, amp_count)
-            self.assertEqual(gt_coeff_count, coeff_count)
+            self.assertEqual(gt_coeff_count, coeff_count)        
 
     def test_calculate_log_L(self):
         configs = [
@@ -185,7 +216,7 @@ class TestTempFitContNorm(TempFitTestBase):
             self.tempfit_test_helper(ax, **config, calculate_log_L=True)
 
         self.save_fig(f)
-        
+
     def test_fit_lorentz(self):
         configs = [
             dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
@@ -218,38 +249,47 @@ class TestTempFitContNorm(TempFitTestBase):
                                    normalize,
                                    convolve_template,
                                    multiple_arms, multiple_exp,
-                                   use_priors):
-
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+                                   use_priors,
+                                   rv_fixed=False):
+        
+        (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
                 continuum_fit=continuum_fit,
                 normalize=normalize,
                 convolve_template=convolve_template,
                 multiple_arms=multiple_arms,
                 multiple_exp=multiple_exp,
-                use_priors=use_priors
-            )
+                use_priors=use_priors,
 
+                # Override to allow working with Roman's current grid
+                # TODO: remove this
+                M_H=-1.5, T_eff=4000, log_g=2.5, a_M=-0.5
+            )
+        
         tempfit.correction_model.use_cont_norm = continuum_fit
         tempfit.correction_model.cont_per_arm = continuum_per_arm
         tempfit.correction_model.cont_per_exp = continuum_per_exp
 
         tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
 
-        res = tempfit.fit_rv(specs, temps)
-
         ax.axvline(rv_real, color='r', label='rv real')
+
+        res = tempfit.fit_rv(specs,
+                             rv_0=rv_real + 10,
+                             rv_bounds=(rv_real - 100, rv_real + 100),
+                             rv_fixed=rv_fixed,
+                             params_0=params_0)
+                
         ax.axvline(res.rv_fit, color='b', label='rv fit')
         ax.axvline(res.rv_fit - res.rv_err, color='b')
         ax.axvline(res.rv_fit + res.rv_err, color='b')
 
-        # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
-        rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
-        log_L = tempfit.calculate_log_L(specs, temps, rvv)
-        if tempfit.rv_prior is not None:
-            log_L += tempfit.rv_prior(rvv)
-        ax.plot(rvv, log_L, '.')
-        ax.set_xlim(rvv[0], rvv[-1])
+        # TODO: create a log_L map instead?
+        # # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
+        # rvv = np.linspace(rv - 0.001, rv + 0.001, 101)
+        # log_L, phi, chi, ndf = rvfit.calculate_log_L(specs, temps, rvv)
+        # ax.plot(rvv, log_L, '.')
+        # ax.set_xlim(rvv[0], rvv[-1])
 
         ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
         # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
@@ -267,160 +307,119 @@ class TestTempFitContNorm(TempFitTestBase):
 
         self.save_fig(f)
 
-    def test_fit_rv_cont_norm(self):
-        # Test various types of flux correction
-
-        f, ax = plt.subplots(1, 1, figsize=(6, 4), squeeze=True)
-
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
-            self.get_initialized_tempfit(
-                flux_correction=True,
-                normalize=True,
-                convolve_template=True,
-                multiple_arms=True,
-                multiple_exp=True,
-                use_priors=True
-            )
-
-        tempfit.correction_model.amplitude_per_arm = True
-        tempfit.correction_model.amplitude_per_exp = True
-        tempfit.correction_model.cont_per_arm = True
-        tempfit.correction_model.cont_per_exp = True
-
-        tempfit.init_models(specs, rv_bounds=(-500, 500))
-
-        res = tempfit.fit_rv(specs, temps)
-
-        ax.axvline(rv_real, color='r', label='rv real')
-        ax.axvline(res.rv_fit, color='b', label='rv fit')
-        ax.axvline(res.rv_fit - res.rv_err, color='b')
-        ax.axvline(res.rv_fit + res.rv_err, color='b')
-
-        # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
-        rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
-        log_L = tempfit.calculate_log_L(specs, temps, rvv)
-        if tempfit.rv_prior is not None:
-            log_L += tempfit.rv_prior(rvv)
-        ax.plot(rvv, log_L, '.')
-        ax.set_xlim(rvv[0], rvv[-1])
-
-        ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
-        # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
-
-        self.save_fig(f)
-
     def test_fit_rv_rv_fixed(self):
-        f, ax = plt.subplots(1, 1, figsize=(6, 4), squeeze=True)
-
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
-            self.get_initialized_tempfit(
-                flux_correction=True,
-                normalize=True,
-                convolve_template=True,
-                multiple_arms=True,
-                multiple_exp=True,
-                use_priors=True)
-
-        tempfit.correction_model.amplitude_per_arm = True
-        tempfit.correction_model.amplitude_per_exp = True
-        tempfit.correction_model.cont_per_arm = True
-        tempfit.correction_model.cont_per_exp = True
-
-        tempfit.init_models(specs, rv_bounds=(-500, 500))
-
-        # Only fit the continuum correction
-        res = tempfit.fit_rv(specs, temps, rv_fixed=True)
-
-        ax.axvline(rv_real, color='r', label='rv real')
-        ax.axvline(res.rv_fit, color='b', label='rv fit')
-        ax.axvline(res.rv_fit - res.rv_err, color='b')
-        ax.axvline(res.rv_fit + res.rv_err, color='b')
-
-        # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
-        rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
-        log_L = tempfit.calculate_log_L(specs, temps, rvv)
-        if tempfit.rv_prior is not None:
-            log_L += tempfit.rv_prior(rvv)
-        ax.plot(rvv, log_L, '.')
-        ax.set_xlim(rvv[0], rvv[-1])
-
-        ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
-        # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
-
-        self.save_fig(f)
-
-    def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
-            self.get_initialized_tempfit(               flux_correction=flux_correction,
-                normalize=normalize,
-                convolve_template=convolve_template,
-                multiple_arms=multiple_arms,
-                multiple_exp=multiple_exp,
-                use_priors=use_priors
-            )
-
-        tempfit.correction_model.amplitude_per_arm = True
-        tempfit.correction_model.amplitude_per_exp = True
-        tempfit.correction_model.cont_per_arm = True
-        tempfit.correction_model.cont_per_exp = True
-
-        tempfit.init_models(specs, rv_bounds=(-500, 500))
-
-        ax.axvline(rv_real, color='r', label='rv real')
-
-        tempfit.mcmc_burnin = 5
-        tempfit.mcmc_samples = 5
-        res = tempfit.run_mcmc(specs, temps,
-                               rv_0=rv_real + 10,
-                               rv_bounds=(rv_real - 100, rv_real + 100),
-                               rv_step=2)
-
-        ax.hist(res.rv_mcmc.flatten())
-
-    def test_run_mcmc(self):
         configs = [
-            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         ]
 
         f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            self.rvfit_run_mcmc_test_helper(ax, **config)
+            self.tempfit_fit_rv_test_helper(ax, rv_fixed=True, **config)
+
+        self.save_fig(f)
+
+    def tempfit_run_mcmc_test_helper(self,
+                                   ax,
+                                   continuum_fit, continuum_per_arm, continuum_per_exp,
+                                   normalize,
+                                   convolve_template,
+                                   multiple_arms,
+                                   multiple_exp, use_priors):
+        
+        (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+            self.get_initialized_tempfit(
+                continuum_fit=continuum_fit,
+                normalize=normalize,
+                convolve_template=convolve_template,
+                multiple_arms=multiple_arms,
+                multiple_exp=multiple_exp,
+                use_priors=use_priors,
+
+                # Override to allow working with Roman's current grid
+                # TODO: remove this
+                M_H=-1.5, T_eff=4000, log_g=2.5, a_M=-0.5
+            )
+        
+        tempfit.correction_model.use_cont_norm = continuum_fit
+        tempfit.correction_model.cont_per_arm = continuum_per_arm
+        tempfit.correction_model.cont_per_exp = continuum_per_exp
+
+        tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
+
+        params_steps = { p: v * 0.01 for p, v in params_0.items() }
+
+        ax.axvline(rv_real, color='r', label='rv real')
+
+        tempfit.mcmc_burnin = 5
+        tempfit.mcmc_samples = 5
+        res = tempfit.run_mcmc(specs,
+                               rv_0=rv_real + 10,
+                               rv_bounds=(rv_real - 100, rv_real + 100),
+                               rv_step=2,
+                               params_0=params_0,
+                               params_steps=params_steps)
+
+        ax.plot(res.rv_mcmc.ravel(), res.params_mcmc['T_eff'].ravel(), '.')
+
+    def test_run_mcmc(self):
+        configs = [
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        ]
+
+        f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
+
+        for ax, config in zip(axs[:, 0], configs):
+            self.tempfit_run_mcmc_test_helper(ax, **config)
 
         self.save_fig(f)
 
     def test_calculate_fisher(self):
+
         configs = [
-            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
-            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+            dict(continuum_fit=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(continuum_fit=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
         ]
 
         f, axs = plt.subplots(len(configs), 1, squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
             tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
-                self.get_initialized_tempfit(**config)
+                self.get_initialized_tempfit(
+                    # Override to allow working with Roman's current grid
+                    # TODO: remove this
+                    M_H=-1.5, T_eff=4000, log_g=2.5, a_M=-0.5,
+                    **config)
             
-            tempfit.correction_model.amplitude_per_arm = True
-            tempfit.correction_model.amplitude_per_exp = True
+            tempfit.correction_model.use_cont_norm = True
             tempfit.correction_model.cont_per_arm = True
             tempfit.correction_model.cont_per_exp = True
 
-            tempfit.init_models(specs, rv_bounds=(-500, 500))
-
-            res = tempfit.fit_rv(specs, temps)
+            tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
+            
+            res = tempfit.fit_rv(specs, rv_0=rv_real)
+            
             F = {}
             C = {}
             err = {}
             for mode, method in zip([
+                    # 'full',
+                    'params_rv',
                     'rv',
+                    # 'full',
+                    # 'params_rv',
+                    # 'rv',
                 ], [
+                    # 'hessian',
                     'hessian',
+                    'hessian',
+                    # 'emcee',
+                    # 'emcee',
+                    # 'sampling',
                 ]):
-                FF, CC = tempfit.calculate_F(specs, temps, res.rv_fit, mode=mode, method=method)
+                FF, CC = tempfit.calculate_F(specs, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])
@@ -429,12 +428,29 @@ class TestTempFitContNorm(TempFitTestBase):
 
         self.save_fig(f)
 
-# Run when profiling
+    def test_eval_F_emcee(self):
+        config = dict(flux_correction=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        (rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+            self.get_initialized_tempfit(**config)
+        
+        res = rvfit.fit_rv(specs, rv_0=rv_real)
 
-# $ python -m cProfile -o tmp/tmp.prof python/test/pfs/ga/pfsspec/stellar/rvfit/test_rvfit.py
-# $ python -m snakeviz --server tmp/tmp.prof
+        rvfit.mcmc_burnin = 5
+        rvfit.mcmc_samples = 5
+        rvfit.calculate_F(specs, res.rv_fit, res.params_fit, mode='params_rv', method='emcee')
 
-# t = TestTempFit()
-# t.setUpClass()
-# t.setUp()
-# t.test_fit_rv()
+        #
+
+        grid = rvfit.template_grids['mr']
+        params_free = [p for i, p, ax in grid.enumerate_axes() if p not in rvfit.params_fixed] + [ 'rv' ]
+
+        n = rvfit.trace.mcmc_x.shape[-1]
+        f, axs = plt.subplots(n, n, figsize=(2 * n, 2 * n), squeeze=False)
+
+        for i in range(n):
+            for j in range(i + 1):
+                axs[i, j].plot(rvfit.trace.mcmc_x[:, i], rvfit.trace.mcmc_x[:, j], '.')
+                axs[i, j].set_xlabel(params_free[i])
+                axs[i, j].set_ylabel(params_free[j])
+
+        self.save_fig(f)

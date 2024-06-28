@@ -107,8 +107,6 @@ class ContNorm(CorrectionModel):
         if a is not None:
             a = self.split_coeffs(spectra, a)
             self.eval_continuum_fit(spectra, templates, a)
-            # TODO: evaluate the models to get cont
-            raise NotImplementedError()
         else:
             # If the coefficients are not supplied, we have to fit the continuum
             # to the ratio of the observed flux and the templates
@@ -119,10 +117,8 @@ class ContNorm(CorrectionModel):
         for arm in spectra:
             for ei, (spec, temp, cont) in enumerate(zip(spectra[arm], templates[arm], continua[arm])):
                 if spec is not None:
-                    flux = spec.flux
-                    sigma2 = spec.sigma2
-                    mask = spec.mask
-                    log_L += 0.5 * np.sum((flux[mask] - cont[mask] * temp.flux[mask]) ** 2 / sigma2[mask])
+                    mask = spec.mask & temp.mask
+                    log_L += 0.5 * np.sum((spec.flux[mask] - cont[mask] * temp.flux[mask]) ** 2 / spec.sigma2[mask])
                 else:
                     # Missing exposure has no contribution to the likelihood
                     pass
@@ -151,7 +147,7 @@ class ContNorm(CorrectionModel):
                 flux = spec.flux
                 flux_err = spec.flux_err
 
-            return spec.wave, flux, flux_err, spec.mask
+            return spec.wave, flux, flux_err, spec.mask & temp.mask
         
         def get_pixels_all_exp(arm, spectra, templates):
             """

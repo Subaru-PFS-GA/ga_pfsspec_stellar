@@ -51,7 +51,8 @@ class ModelGridTempFitTrace(TempFitTrace):
         super().on_fit_rv_iter(rv)
 
         for p in params:
-            self.params_iter[p].append(params[p])
+            if p in self.params_iter:
+                self.params_iter[p].append(params[p])
 
     def on_fit_rv_finish(self, spectra, templates, processed_templates,
                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
@@ -60,7 +61,8 @@ class ModelGridTempFitTrace(TempFitTrace):
                          log_L_fun):
         
         for p in params_fit:
-            self.params_iter[p].append(params_fit[p])
+            if p in self.params_iter:
+                self.params_iter[p].append(params_fit[p])
 
         super().on_fit_rv_finish(spectra, templates, processed_templates,
                             rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
@@ -78,10 +80,13 @@ class ModelGridTempFitTrace(TempFitTrace):
         priors = []
         for p in params_free:
             # limits = params_bounds[p]
-            limits = (params_fit[p] - 10 * params_err[p], params_fit[p] + 10 * params_err[p])
+            if not (np.isnan(params_fit[p]) or np.isnan(params_err[p])):
+                limits = (params_fit[p] - 10 * params_err[p], params_fit[p] + 10 * params_err[p])
+            else:
+                limits = None
             axes.append(DiagramAxis(limits, label=p))
             priors.append((params_priors[p] if params_priors is not None and p in params_priors else None,
-                            limits, None, None))
+                           limits, None, None))
 
         # limits = rv_bounds
         if not rv_fixed:

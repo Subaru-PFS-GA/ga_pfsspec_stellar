@@ -124,7 +124,7 @@ class TempFitTestBase(StellarTestBase):
                                 **kwargs):
         
         if kwargs is None or len(kwargs) == 0:
-            params_0 = dict(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+            params_0 = dict(M_H=-1.5, T_eff=4000, log_g=2.5, a_M=0, C_M=0)
         else:
             params_0 = kwargs
         

@@ -655,6 +655,9 @@ class TempFit():
             if self.trace is not None:
                 self.trace.on_resample_template(arm, rv, spectrum, template, temp)
 
+        # Create a mask based on the wavelength coverate
+        temp.mask = self.get_full_mask(temp)
+
         return temp
 
     def preprocess_templates(self, spectra, templates, rv):
