@@ -19,17 +19,21 @@ class ContNorm(CorrectionModel):
             self.cont_finder_type = None
             self.cont_finder = None             # Continuum pixel finder, optionally for each arm
             self.cont_model_type = Spline
-            self.cont_model = None              # Continuum model, optionally for each arm
             self.cont_per_arm = False           # Do continuum fit independently for each arm
             self.cont_per_fiber = False         # Do continuum fit independently for each fiber
             self.cont_per_exp = False           # Do continuum fit independently for each exposurepass
+
+            self.cont_model = None              # Continuum model, optionally for each arm
+
         else:
             self.use_cont_norm = orig.use_cont_norm
             self.cont_finder = orig.cont_finder
-            self.cont_model = orig.cont_model
             self.cont_per_arm = orig.cont_per_arm
             self.cont_per_fiber = orig.cont_per_fiber
             self.cont_per_exp = orig.cont_per_exp
+
+            self.cont_model = orig.cont_model
+
 
         self.reset()
 
@@ -118,7 +122,7 @@ class ContNorm(CorrectionModel):
             for ei, (spec, temp, cont) in enumerate(zip(spectra[arm], templates[arm], continua[arm])):
                 if spec is not None:
                     mask = spec.mask & temp.mask
-                    log_L += 0.5 * np.sum((spec.flux[mask] - cont[mask] * temp.flux[mask]) ** 2 / spec.sigma2[mask])
+                    log_L -= 0.5 * np.sum((spec.flux[mask] - cont[mask] * temp.flux[mask]) ** 2 / spec.sigma2[mask])
                 else:
                     # Missing exposure has no contribution to the likelihood
                     pass
