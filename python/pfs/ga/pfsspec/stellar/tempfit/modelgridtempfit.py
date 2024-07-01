@@ -148,7 +148,7 @@ class ModelGridTempFit(TempFit):
             templates, missing = self.get_templates(spectra, params)
             
         if missing:
-            raise Exception("Template parameters are outside the grid.")
+            raise Exception(f"Template parameters {params} are outside the grid.")
         else:
             return super().get_normalization(spectra, templates)
         
@@ -159,7 +159,7 @@ class ModelGridTempFit(TempFit):
         
     def calculate_log_L(self, spectra, templates,
                         rv, rv_prior=None,
-                        params=None, params_priors=None,
+                        params=None, params_fixed=None, params_priors=None,
                         a=None):
         
         """
@@ -172,7 +172,11 @@ class ModelGridTempFit(TempFit):
 
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         params = params if params is not None else self.params_0
+        params_fixed = params_fixed if params_fixed is not None else self.params_fixed
         params_priors = params_priors if params_priors is not None else self.params_priors
+
+        if params is not None and params_fixed is not None:
+            params = { **params, **params_fixed }
 
         if templates is None:
             templates, missing = self.get_templates(spectra, params)
@@ -180,7 +184,7 @@ class ModelGridTempFit(TempFit):
             missing = False
 
         if missing:
-            raise Exception("Template parameters are outside the grid.")
+            raise Exception("Template parameters {params} are outside the grid.")
         else:
             log_L = super().calculate_log_L(spectra, templates,
                                             rv, rv_prior=rv_prior, a=a)
@@ -672,8 +676,12 @@ class ModelGridTempFit(TempFit):
 
         # TODO: Maybe extend this to do a grid search in model parameters
 
+        assert isinstance(spectra, dict)
+
         params_0 = params_0 if params_0 is not None else self.params_0
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
+
+        self.init_models(spectra, rv_bounds)
 
         if templates is None:
             # Look up the templates from the grid and pass those to the the parent class
@@ -832,7 +840,8 @@ class ModelGridTempFit(TempFit):
         # Verify that the starting point is valid
         log_L_0 = llh(x_0)
         if np.isinf(log_L_0) or np.isnan(log_L_0):
-            raise Exception("Invalid starting point for RV fitting.")
+            all_params = {**params_0, **params_fixed}
+            raise Exception(f"Invalid starting point for template fitting. Are the parameters {all_params} outside the grid?")
 
         if self.trace is not None:
             self.trace.on_fit_rv_start(spectra, None,

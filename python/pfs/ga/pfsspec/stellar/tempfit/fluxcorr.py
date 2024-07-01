@@ -22,19 +22,21 @@ class FluxCorr(CorrectionModel):
         if not isinstance(orig, FluxCorr):
             self.use_flux_corr = False          # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
             self.flux_corr_type = PolynomialFluxCorrection
-            self.flux_corr = None               # Flux correction model, optionally for each arm
             self.flux_corr_degree = 5           # Flux correction degree
             self.flux_corr_per_arm = False      # Do flux correction independently for each arm
             self.flux_corr_per_fiber = False    # Do flux correction independently for each fiber
             self.flux_corr_per_exp = False      # Do flux correction independently for each exposure
+
+            self.flux_corr = None               # Flux correction model, optionally for each arm
         else:
             self.use_flux_corr = orig.use_flux_corr
             self.flux_corr_type = orig.flux_corr_type
-            self.flux_corr = safe_deep_copy(orig.flux_corr)
             self.flux_corr_degree = orig.flux_corr_degree
             self.flux_corr_per_arm = orig.flux_corr_per_arm
             self.flux_corr_per_fiber = orig.flux_corr_per_fiber
             self.flux_corr_per_exp = orig.flux_corr_per_exp
+
+            self.flux_corr = safe_deep_copy(orig.flux_corr)
 
         self.reset()
 
