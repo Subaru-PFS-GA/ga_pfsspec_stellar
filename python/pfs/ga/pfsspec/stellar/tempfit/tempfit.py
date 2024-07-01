@@ -431,9 +431,8 @@ class TempFit():
         for arm in spectra:
             for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
                 if spec is not None:
-                    mask = spec.mask_as_bool()
                     spec = self.process_spectrum(arm, ei, spec)
-                    s.append(spec.flux[mask & ~np.isnan(spec.flux) & (spec.flux > 0)])
+                    s.append(spec.flux[spec.mask & (spec.flux > 0)])
             
             if self.template_psf is not None:
                 psf = self.template_psf[arm]
@@ -452,7 +451,7 @@ class TempFit():
 
             if spec is not None:
                 temp = self.process_template(arm, templates[arm], spec, rv, psf=psf, wlim=wlim)
-                t.append(temp.flux)
+                t.append(temp.flux[temp.mask])
 
         if len(s) == 0 or len(t) == 0:
             raise ValueError('No valid flux values found in spectra or templates')
