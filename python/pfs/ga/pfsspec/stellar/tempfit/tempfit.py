@@ -49,6 +49,70 @@ class TempFit():
 
     Terminology: amplitudes are scalar factors to be applied to observed spectra to scale to
     the templates. Coefficients are the flux correction or continuum fit model parameters.
+
+    Variables
+    ---------
+    trace : TempFitTrace
+        Trace object that implements tracing callbacks to collect debug info
+    correction_model : FluxCorr, ContNorm
+        Flux correction or continuum normalization model
+    template_psf : dict of Psf
+        Instrumental line spread function to convolve templates with, for each arm
+    template_resampler : Resampler
+        Resampler to resample templates to the instrument pixels. FluxConservingResampler is the default
+        but other resamplers can be used.
+    template_cache_resolution : float
+        Cache templates with this resolution in RV. Templates are quantized to this resolution and
+        stored in a cache to avoid recomputing the same template multiple times.
+    template_wlim : dict of tuple
+        Model wavelength limits for each spectrograph arm when performing the convolution.
+    template_wlim_buffer : float
+        Wavelength buffer in A for each spectrograph arm when performing the convolution.
+    cache_templates : bool
+        Set to True to enable caching PSF-convolved templates.
+    rv_0 : float
+        Initial guess for the radial velocity. Will be estimated automatically if not set.
+    rv_fixed : bool
+        When True, do not optimize for RV but fix its value to the initial value (or the value
+        determined by `guess_rv`).
+    rv_bounds : tuple
+        Find RV between these bounds.
+    rv_prior : Distribution or callable
+        Prior distribution for the RV.
+    rv_step : float
+        Initial step size for the MCMC sampling of the RV and estimating the uncertainty from
+        the Hessian numerically.
+    amplitude_per_arm : bool
+        Estimate flux multiplier for each arm independently.
+    amplitude_per_fiber : bool
+        Estimate flux multiplier for each fiber independently (reserved for future use).
+    amplitude_per_exp : bool
+        Estimate flux multiplier for each exposure independently.
+    spec_norm : float
+        Spectrum (observation) normalization factor. Use `get_normalization` to initialize it.
+    temp_norm : float
+        Template normalization factor. Use `get_normalization` to initialize it.
+    use_mask : bool
+        Use mask from spectrum, if available.
+    mask_bits : int
+        Mask bits to observe when converting spectrum flags to a boolean mask (None means any).
+    use_error : bool
+        Use flux error from spectrum to weight fitting, if available.
+    use_weight : bool
+        Use weight from template for fitting, if available. Templates can define weights to
+        modify the likelihood function.
+    max_iter : int
+        Maximum number of iterations of the optimization algorithm.
+    mcmc_walkers : int
+        Number of parallel walkers for the MCMC sampling.
+    mcmc_burnin : int
+        Number of burn-in iterations for the MCMC sampling.
+    mcmc_samples : int
+        Number of samples for the MCMC sampling.
+    mcmc_thin : int
+        MCMC chain thinning interval.
+    mcmc_gamma : float
+        Adaptive MCMC proposal memory.
     """
 
     def __init__(self, trace=None, correction_model=None, orig=None):
@@ -63,70 +127,6 @@ class TempFit():
             Flux correction or continuum normalization model
         orig : TempFit
             Original object to copy from
-
-        Variables
-        ---------
-        trace : TempFitTrace
-            Trace object that implements tracing callbacks to collect debug info
-        correction_model : FluxCorr, ContNorm
-            Flux correction or continuum normalization model
-        template_psf : dict of Psf
-            Instrumental line spread function to convolve templates with, for each arm
-        template_resampler : Resampler
-            Resampler to resample templates to the instrument pixels. FluxConservingResampler is the default
-            but other resamplers can be used.
-        template_cache_resolution : float
-            Cache templates with this resolution in RV. Templates are quantized to this resolution and
-            stored in a cache to avoid recomputing the same template multiple times.
-        template_wlim : dict of tuple
-            Model wavelength limits for each spectrograph arm when performing the convolution.
-        template_wlim_buffer : float
-            Wavelength buffer in A for each spectrograph arm when performing the convolution.
-        cache_templates : bool
-            Set to True to enable caching PSF-convolved templates.
-        rv_0 : float
-            Initial guess for the radial velocity. Will be estimated automatically if not set.
-        rv_fixed : bool
-            When True, do not optimize for RV but fix its value to the initial value (or the value
-            determined by `guess_rv`).
-        rv_bounds : tuple
-            Find RV between these bounds.
-        rv_prior : Distribution or callable
-            Prior distribution for the RV.
-        rv_step : float
-            Initial step size for the MCMC sampling of the RV and estimating the uncertainty from
-            the Hessian numerically.
-        amplitude_per_arm : bool
-            Estimate flux multiplier for each arm independently.
-        amplitude_per_fiber : bool
-            Estimate flux multiplier for each fiber independently (reserved for future use).
-        amplitude_per_exp : bool
-            Estimate flux multiplier for each exposure independently.
-        spec_norm : float
-            Spectrum (observation) normalization factor. Use `get_normalization` to initialize it.
-        temp_norm : float
-            Template normalization factor. Use `get_normalization` to initialize it.
-        use_mask : bool
-            Use mask from spectrum, if available.
-        mask_bits : int
-            Mask bits to observe when converting spectrum flags to a boolean mask (None means any).
-        use_error : bool
-            Use flux error from spectrum to weight fitting, if available.
-        use_weight : bool
-            Use weight from template for fitting, if available. Templates can define weights to
-            modify the likelihood function.
-        max_iter : int
-            Maximum number of iterations of the optimization algorithm.
-        mcmc_walkers : int
-            Number of parallel walkers for the MCMC sampling.
-        mcmc_burnin : int
-            Number of burn-in iterations for the MCMC sampling.
-        mcmc_samples : int
-            Number of samples for the MCMC sampling.
-        mcmc_thin : int
-            MCMC chain thinning interval.
-        mcmc_gamma : float
-            Adaptive MCMC proposal memory.
         """
         
         if not isinstance(orig, TempFit):
@@ -1521,7 +1521,7 @@ class TempFit():
 
         # Guess initial values from y0
         p0 = [
-            np.max(y0),
+            y0.max() - y0.min(),
             rv[np.argmax(y0)],
             0.5 * (rv[-1] - rv[0]),
             y0.min() + 0.5 * (y0.max() - y0.min())
@@ -1536,12 +1536,15 @@ class TempFit():
                 y0.min()
             ),
             (
-                5 * np.max(y0),
+                5 * (y0.max() - y0.min()),
                 rv[-1] + 1,
                 5.0 * (rv[-1] - rv[0]),
                 y0.min() + 4 * (y0.max() - y0.min())
             )
         ]
+
+        # TODO: verify that params within the bounds
+        #       for some reason the initial amplitude becomes negative
         
         pp, pcov = curve_fit(self.lorentz, rv, y0, p0=p0, bounds=bb)
 
