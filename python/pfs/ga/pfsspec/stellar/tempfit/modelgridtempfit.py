@@ -17,6 +17,21 @@ class ModelGridTempFit(TempFit):
     Performs radial velocity fitting by interpolating templates from
     a model spectrum grid. It can either maximize the likelihood function
     or the significance function of Kaiser (2004).
+
+    Variables
+    ---------
+    template_grids : dict
+        Dictionary of model grids for each spectrograph arm
+    params_0 : dict
+        Initial template parameters
+    params_fixed : dict
+        Template parameters that are fixed
+    params_bounds : dict
+        Bounds for the template parameters
+    params_priors : dict
+        Prior distributions for the template parameters
+    params_steps : dict
+        Step sizes for MCMC and numerical differentiation of the template parameters
     """
 
     def __init__(self, trace=None, correction_model=None, orig=None):
