@@ -8,17 +8,68 @@ from scipy.interpolate import interp1d, interpn
 
 from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core import PfsObject
+from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.util.array import *
 from pfs.ga.pfsspec.core.grid import ArrayGrid, RbfGrid, PcaGrid
 
 class ModelGrid(PfsObject):
-    """Wraps an array or RBF grid, optionally PCA-compressed, and implements logic
-    to interpolate spectra."""
+    """
+    Wraps an array or RBF grid, optionally PCA-compressed, and implements logic
+    to interpolate synthetic stellar spectra.
+
+    The model grid can be normalized using a parametric continuum model. The model
+    constants and parameters are stored in the grid file and the latter can be
+    interpolated over the grid to any combination of the stellar parameters.
+
+    Variables
+    ---------
+    config : ModelGridConfig
+        Model grid configuration. Used to initialize the grid axes, etc.
+    grid : Grid
+        Underlying grid implementation (Array, PCA, Rbf...)
+    wave : np.ndarray
+        Wavelength bin centers
+    wave_edges : np.ndarray
+        Wavelength bin edges
+    is_wave_regular : bool
+        True if the wavelength grid is regular
+    is_wave_lin : bool
+        True if the wavelength grid is linear
+    is_wave_log : bool
+        True if the wavelength grid is logarithmic
+    is_wave_vacuum : bool
+        True if the wavelength grid is in vacuum
+    resolution : float
+        Resolution of the spectra in R = lambda / dlambda
+    wave_lim : list
+        Wavelength limits then reading the grid
+    wave_slice : slice
+        Limits wavelength range when reading the grid
+    continuum_model : ContinuumModel
+        Continuum model used to normalize the spectra as stored in the grid.
+        Can be used to denormalize flux to physical units.
+    psf : PSF
+        Convolution kernel, apply before returning the model.
+    """
 
     PREFIX_MODELGRID = 'modelgrid'
 
     def __init__(self, config, grid_type, orig=None):
+        """
+        Initializes a new instance of ModelGrid. Use `from_file` instead to
+        load a grid from an HDF5 file.
+
+        Parameters
+        ----------
+        config : ModelGridConfig
+            Model grid configuration
+        grid_type : Grid
+            Grid implementation (Array, PCA, Rbf...)
+        orig : ModelGrid
+            Original instance to copy from
+        """
+
         super(ModelGrid, self).__init__(orig=orig)
 
         if not isinstance(orig, ModelGrid):
@@ -29,6 +80,7 @@ class ModelGrid(PfsObject):
             self.is_wave_regular = None
             self.is_wave_lin = None
             self.is_wave_log = None
+            self.is_wave_vacuum = None                  # When True, wavelength is in vacuum
             self.resolution = None
 
             self.wave_lim = None                        # Wavelength limits then reading the grid
@@ -44,6 +96,7 @@ class ModelGrid(PfsObject):
             self.is_wave_regular = orig.is_wave_regular
             self.is_wave_lin = orig.is_wave_lin
             self.is_wave_log = orig.is_wave_log
+            self.is_wave_vacuum = orig.is_wave_vacuum
             self.resolution = orig.resolution
 
             self.wave_lim = orig.wave_lim
@@ -57,6 +110,26 @@ class ModelGrid(PfsObject):
         """
         Initializes a model grid from an HDF5 file by figuring out what configuration
         and grid type to be used. This includes the config class, PCA and RBF.
+
+        Parameters
+        ----------
+        filename : str
+            HDF5 file name
+        preload_arrays : bool
+            Preload arrays into memory
+        mmap_arrays : bool
+            Memory map arrays, requires a contiguous storage model of arrays within HDF5.
+        cache_values : bool
+            Cache values for faster access
+        args : dict
+            Arguments to initialize the grid
+        slice_from_args : bool
+            Use arguments to slice the grid
+
+        Returns
+        -------
+        ModelGrid
+            Model grid instance
         """
 
         logger.debug(f'Inferring model grid config and type from HDF5 file {filename}.')
@@ -125,6 +198,10 @@ class ModelGrid(PfsObject):
         return self.grid.pca_grid
 
     def create_grid(self, grid_type):
+        """
+        Creates a grid instance based on the configuration.
+        """
+
         grid = grid_type(config=self.config)
 
         # Wrap into a PCA grid
@@ -137,14 +214,48 @@ class ModelGrid(PfsObject):
         return grid
 
     def add_args(self, parser):
+        """
+        Registers command line arguments for the grid.
+
+        Parameters
+        ----------
+        parser : argparse.ArgumentParser
+            Argument parser
+        """
+
         parser.add_argument('--wave-lim', type=float, nargs='*', default=None, help='Limit on lambda.')
         self.grid.add_args(parser)
 
     def init_from_args(self, args, slice_from_args=True):
+        """
+        Initializes the grid from command line arguments.
+
+        Parameters
+        ----------
+        args : dict
+            Command line arguments
+        slice_from_args : bool
+            Use arguments to slice the grid along the axes
+        """
+
         self.wave_lim = self.get_arg('wave_lim', self.wave_lim, args)
         self.grid.init_from_args(args, slice_from_args=slice_from_args)
 
     def get_wave_slice_impl(self, wlim):
+        """
+        Returns a slice for the wavelength vector based on the limits.
+
+        Parameters
+        ----------
+        wlim : list
+            Wavelength limits
+
+        Returns
+        -------
+        slice
+            Slice for the wavelength vector
+        """
+
         if self.wave is None:
             raise Exception("Cannot determine slice without an initialized wave vector.")
         
@@ -152,6 +263,15 @@ class ModelGrid(PfsObject):
         return slice(max(0, idx[0] - 1), idx[1], None)
 
     def get_wave_slice(self):
+        """
+        Returns a slice for the wavelength vector based on the limits.
+
+        Returns
+        -------
+        slice
+            Slice for the wavelength vector
+        """
+
         if self.wave is None:
             raise Exception("Cannot determine slice without an initialized wave vector.")
 
@@ -159,16 +279,27 @@ class ModelGrid(PfsObject):
             return slice(None)
         elif self.wave_slice is None:
             if len(self.wave_lim) == 2:
+                # Two values mean from and to wavelength
                 self.wave_slice = self.get_wave_slice_impl(self.wave_lim)
             elif len(self.wave_lim) == 1:
+                # A single value means a single wavelength bin
                 idx = np.digitize([self.wave_lim[0]], self.wave)
                 self.wave_slice = max(0, idx[0] - 1)
             else:
-                raise Exception('Only two or one values are allowed for parameter lambda.')
+                raise Exception('Only one or true values are allowed for the variable `wave_lim`.')
 
         return self.wave_slice
 
     def get_constants(self):
+        """
+        Returns the constants of the continuum model, if any. These are stored in the grid file.
+
+        Returns
+        -------
+        dict of ndarray
+            Continuum model constants
+        """
+
         constants = self.grid.get_constants()
         if self.continuum_model is not None:
             wave, _, _ = self.get_wave()
@@ -176,6 +307,14 @@ class ModelGrid(PfsObject):
         return constants
 
     def set_constants(self, constants):
+        """
+        Sets the constants of the continuum model. These are stored in the grid file.
+
+        Parameters
+        ----------
+        constants : dict of ndarray
+            Continuum model constants
+        """
         self.grid.set_constants(constants)
 
     def get_slice(self):
@@ -197,15 +336,38 @@ class ModelGrid(PfsObject):
         return self.grid.get_shape(s=s, squeeze=squeeze)
 
     def allocate_values(self):
+        """
+        Allocates the value arrays in the data file.
+
+        This is called after the grid is initialized and the axes are set.
+        """
         self.config.allocate_values(self.grid, self.wave, wave_edges=self.wave_edges)
         if self.continuum_model is not None:
             self.continuum_model.allocate_values(self.grid)
 
     def set_continuum_model(self, continuum_model):
+        """
+        Sets the continuum model to be used for normalization. When the continuum model
+        is set, the grid is updated and the arrays for the continuum model are created.
+        """
         self.continuum_model = continuum_model
         self.continuum_model.init_values(self.grid)
 
     def load(self, filename, s=None, format=None):
+        """
+        Loads the grid from an HDF5 file. This doesn't neccessarily mean loading the
+        value arrays into memory.
+
+        Parameters
+        ----------
+        filename : str
+            HDF5 file name
+        s : slice
+            Slice of the grid to load, when loading the value arrays into memory.
+        format : str
+            File format. Use 'h5' for HDF5 files.
+        """
+
         super().load(filename=filename, s=s, format=format)
 
         # We need to initialize the continuum model here because calling
@@ -220,6 +382,11 @@ class ModelGrid(PfsObject):
         self.grid.load(filename, s=s, format=format)
 
     def save_items(self):
+        """
+        Save the grid items to the HDF5 file. This includes the grid axes,
+        continuum model constants etc. but not the value arrays themselves.
+        """
+
         self.grid.filename = self.filename
         self.grid.fileformat = self.fileformat
         self.grid.save_items()
@@ -234,6 +401,11 @@ class ModelGrid(PfsObject):
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'wave_edges')), self.wave_edges)
 
     def save_params(self):
+        """
+        Save the grid parameters to the HDF5 file. This includes the grid type,
+        config type, PCA and RBF flags etc.
+        """
+
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'type')), type(self).__name__)
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'config')), type(self.config).__name__)
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'config_pca')), self.config.pca)
@@ -245,8 +417,19 @@ class ModelGrid(PfsObject):
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_regular')), self.is_wave_regular)
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_lin')), self.is_wave_lin)
         self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_log')), self.is_wave_log)
+        self.save_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_vacuum')), self.is_wave_vacuum)
 
     def load_items(self, s=None):
+        """
+        Load the grid items from the HDF5 file. This includes the grid axes, continuum
+        model constants etc. but not the value arrays themselves.
+
+        Parameters
+        ----------
+        s : slice
+            Slice of the grid to load, when loading the value arrays into memory.
+        """
+
         # We need to load the underlying grid here because continuum_model.init_values will
         # update the list of value arrays so we need the axis values
         self.grid.filename = self.filename
@@ -271,6 +454,11 @@ class ModelGrid(PfsObject):
             self.continuum_model.init_values(self.grid)
 
     def load_params(self):
+        """
+        Load the grid parameters from the HDF5 file. This includes the grid type, config
+        type, PCA and RBF flags etc.
+        """
+
         t = self.load_item('/'.join((self.PREFIX_MODELGRID, 'type')), str)
         if t != type(self).__name__:
             raise Exception("Grid type `{}` doesn't match type `{}` in data file.".format(type(self).__name__, t))
@@ -282,16 +470,65 @@ class ModelGrid(PfsObject):
         self.is_wave_regular = self.load_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_regular')), bool)
         self.is_wave_lin = self.load_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_lin')), bool)
         self.is_wave_log = self.load_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_log')), bool)
+        self.is_wave_vacuum = self.load_item('/'.join((self.PREFIX_MODELGRID, 'is_wave_vacuum')), bool)
 
     def get_nearest_index(self, **kwargs):
+        """
+        Find the nearest grid index to the parameters specified in `kwargs`.
+
+        The indexes returned are always within the grid bounds and are integer values that
+        can be used to index into the value arrays.
+
+        Parameters
+        ----------
+        kwargs : dict
+            Stellar parameters specific to the grid.
+
+        Returns
+        -------
+        tuple
+            Grid index
+        """
+
         return self.grid.get_nearest_index(**kwargs)
 
     def get_index(self, **kwargs):
+        """
+        Find the grid index corresponding to the parameters specified in `kwargs`.
+
+        The indexes returned are always within the grid bounds and can be float values
+        when the stellar parameters fall between grid points. These indexes cannot be
+        used to index into the value arrays directly.
+
+        Parameters
+        ----------
+        kwargs : dict
+            Stellar parameters specific to the grid.
+
+        Returns
+        -------
+        tuple
+            Grid index
+        """
+        
         return self.grid.get_index(**kwargs)
 
-    def get_wave(self, s=None):
+    def get_wave(self, wave_vacuum=True, s=None):
+        """
+        Gets the wavelength vector and optionally the edges and the wavelength mask.
+
+        Parameters
+        ----------
+        wave_vacuum : bool
+            Request wavelength in wave_vacuum
+        s : slice
+            Slice of the wavelength vector
+        """
+
+        # If no slice is provided, use the default slice
         if s is None:
             s = self.get_wave_slice() or slice(None)
+        
         wave = self.wave[s]
         
         if self.wave_edges is not None:
@@ -303,23 +540,45 @@ class ModelGrid(PfsObject):
         else:
             wave_edges = None
 
+        # Convert wavelength to vacuum. Wavelength is condired in vacuum by default and
+        # conversion happend only if the wavelength is specifically defined in air.
+        if wave_vacuum and self.is_wave_vacuum is not None and not self.is_wave_vacuum:
+            # Convert wavelength to vacuum
+            wave = Physics.air_to_vac(wave)
+
         return wave, wave_edges, None
 
     def set_wave(self, wave, wave_edges=None):
+        """
+        Sets the wavelength vector and optionally the edges.
+
+        Parameters
+        ----------
+        wave : np.ndarray
+            Wavelength bin centers
+        wave_edges : np.ndarray
+            Wavelength bin edges
+        """
+
         self.wave = wave
         self.wave_edges = wave_edges
-
-    def set_flux(self, flux, cont=None, **kwargs):
-        self.grid.set_flux(flux, cont=cont, **kwargs)
-
-    def set_flux_at(self, index, flux, cont=None):
-        self.grid.set_flux_at(index, flux, cont=cont)
 
     def is_value_valid(self, name, value):
         raise NotImplementedError()
         return self.grid.is_value_valid(name, value)
 
     def get_value_sliced(self, name):
+        """
+        Returns the value array sliced along the stellar parameter axes. The slice
+        is taken from the grid object and determined by the arguments passed to
+        the grid object during load.
+
+        Parameters
+        ----------
+        name : str
+            Name of the value array
+        """
+
         if isinstance(self.grid, ArrayGrid):
             if self.grid.slice is not None:
                 if name in ['flux', 'cont']:
@@ -337,32 +596,96 @@ class ModelGrid(PfsObject):
         """
         Returns the number of valid models, i.e. where the flux array
         has a valid value bases on the value index.
+
+        Returns
+        -------
+        int
+            Number of valid models
         """
+
         return self.grid.get_valid_value_count('flux', s=self.grid.get_slice())
 
     def get_flux_shape(self):
+        """
+        Returns the shape of the flux array.
+
+        The shape is determined by taking the slicing of the grid and the wavelength vector into account.
+
+        Returns
+        -------
+        tuple
+            Shape of the flux array
+        """
+
         return self.get_shape(s=self.get_slice(), squeeze=False) + self.wave[self.get_wave_slice() or slice(None)].shape
 
     def set_flux(self, flux, cont=None, **kwargs):
         """
-        Sets the flux at a given point of the grid
+        Sets the flux at a given point of the grid. The location must be specified
+        with the stellar parameters.
 
-        Parameters must exactly match grid coordinates.
+        Parameters
+        ----------
+        flux : np.ndarray
+            Flux array
+        cont : np.ndarray
+            Continuum model array (optional)
+        kwargs : dict
+            Stellar parameters
         """
+
         self.set_value('flux', flux, **kwargs)
         if cont is not None:
             self.set_value('cont', cont, **kwargs)
 
     def set_flux_at(self, index, flux, cont=None):
+        """
+        Sets the flux at a given point of the grid. The location must be specified
+        with the grid index.
+
+        Parameters
+        ----------
+        index : tuple
+            Grid index
+        flux : np.ndarray
+            Flux array
+        cont : np.ndarray
+            Continuum model array (optional)
+        """
+
         self.grid.set_value_at('flux', index, flux)
         if cont is not None:
             self.grid.set_value_at('cont', index, cont)
 
-    def get_parameterized_spectrum(self, idx=None, wlim=None, **kwargs):
+    def get_parameterized_spectrum(self, idx=None, wlim=None, wave_vacuum=True, **kwargs):
+        """
+        Returns a spectrum object with all parameters set based on the grid definition
+        and the parameters specified by `idx` or in `kwargs`.
+
+        The returned object is a parametrized spectrum object that has the wave vector set
+        but not the flux or continuum model.
+
+        Parameters
+        ----------
+        idx : tuple
+            Grid index
+        wlim : slice
+            Slice of the wavelength vector
+        wave_vacuum : bool
+            Request wavelength in wave_vacuum
+        kwargs : dict
+            Stellar parameters
+
+        Returns
+        -------
+        Spectrum
+            Parametrized spectrum object
+        """
+
         spec = self.config.create_spectrum()
         self.grid.set_object_params(spec, idx=idx, **kwargs)
         # TODO: deal with mask
-        spec.wave, spec.wave_edges, wave_mask = self.get_wave(s=wlim)
+        spec.wave, spec.wave_edges, wave_mask = self.get_wave(s=wlim, wave_vacuum=wave_vacuum)
         spec.resolution = self.resolution
 
         # Process history
@@ -388,11 +711,40 @@ class ModelGrid(PfsObject):
         return spec
 
     def get_continuum_parameters(self, **kwargs):
+        """
+        Returns the continuum model parameters at the specified stellar parameters.
+        These parameters are transparently interpolated to the stellar parameters.
+
+        Parameters
+        ----------
+        kwargs : dict
+            Stellar parameters
+
+        Returns
+        -------
+        dict
+            Continuum model parameters
+        """
+
         names = [p.name for p in self.continuum_model.get_interpolated_params()]
         params = self.grid.get_values(names=names, **kwargs)
         return params
 
     def get_continuum_parameters_at(self, idx):
+        """
+        Returns the continuum model parameters at the specified grid index.
+
+        Parameters
+        ----------
+        idx : tuple
+            Grid index
+
+        Returns
+        -------
+        dict
+            Continuum model parameters
+        """
+
         names = [p.name for p in self.continuum_model.get_interpolated_params()]
         params = self.grid.get_values_at(idx, names=names)
         return params
@@ -400,6 +752,28 @@ class ModelGrid(PfsObject):
     #region Model accessor functions
 
     def get_model_post_process(self, wlim, psf=None):
+        """
+        Returns a function to be executed before interpolation. The results of the
+        function are cached by the grid object and reused in further interpolations.
+
+        This particular function convolves the model with a PSF.
+
+        Parameters
+        ----------
+        wlim : slice
+            Wavelength limits for the convolution. Specify this for model grids with
+            a large range of wavelengths to avoid unnecessary convolution.
+        psf : PSF
+            Convolution kernel
+
+        Returns
+        -------
+        tuple
+            Cache key prefix
+        function
+            Post-process function
+        """
+
         # Perform the kernel convolution in a post-process step. This way the results will
         # be cached by the ArrayGrid and reused in further interpolations
 
@@ -418,6 +792,27 @@ class ModelGrid(PfsObject):
         return cache_key_prefix, post_process
 
     def get_model(self, denormalize=True, wlim=None, psf=None, **kwargs):
+        """
+        Returns the model nearest to the specified stellar parameters in case of an ArrayGrid
+        and the interpolated model in case of an RbfGrid.
+
+        Parameters
+        ----------
+        denormalize : bool
+            Denormalize the flux to physical units using the continuum model, if any
+        wlim : slice
+            Wavelength limits for the returned spectrum
+        psf : PSF
+            Convolution kernel
+        kwargs : dict
+            Stellar parameters
+
+        Returns
+        -------
+        Spectrum
+            Model spectrum
+        """
+
         if self.array_grid is not None:
             return self.get_nearest_model(denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         elif self.rbf_grid is not None:
@@ -428,43 +823,167 @@ class ModelGrid(PfsObject):
     def get_model_at(self, idx, denormalize=True, wlim=None, psf=None):
         """
         Return the model at exact grid coordinates.
+
+        Parameters
+        ----------
+        idx : tuple
+            Grid index
+        denormalize : bool
+            Denormalize the flux to physical units using the continuum model, if any
+        wlim : slice
+            Wavelength limits for the returned spectrum
+        psf : PSF
+            Convolution kernel
+
+        Returns
+        -------
+        Spectrum
+            Model spectrum
         """
+
         def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
             params = self.grid.get_params_at(idx, **kwargs)
             return self.grid.get_value_at(name, idx, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim), params
+        
         return self.interpolate_model_impl('grid', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, idx=idx)
     
     def interpolate_model(self, denormalize=True, interpolation=None, wlim=None, psf=None, **kwargs):
+        """
+        Interpolates the model to the specified stellar parameters.
+
+        Parameters
+        ----------
+        denormalize : bool
+            Denormalize the flux to physical units using the continuum model, if any
+        interpolation : str
+            Interpolation method: 'linear', 'spline', 'rbf', depending on what the grid supports
+        wlim : slice
+            Wavelength limits for the returned spectrum
+        psf : PSF
+            Convolution kernel
+        kwargs : dict
+            Stellar parameters
+
+        Returns
+        -------
+        Spectrum
+            Model spectrum
+        """
+
         if self.array_grid is not None:
-            return self.interpolate_model_linear(wlim=wlim, psf=psf, **kwargs)
+            return self.interpolate_model_linear(denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         elif self.rbf_grid is not None:
-            return self.interpolate_model_rbf(wlim=wlim, psf=psf, **kwargs)
+            return self.interpolate_model_rbf(denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         else:
             return NotImplementedError()
 
     def get_nearest_model(self, denormalize=True, wlim=None, psf=None, **kwargs):
         """
-        Finds grid point closest to the parameters specified
+        Returns the stellar model on a grid point closest to the parameters specified.
+
+        Parameters
+        ----------
+        denormalize : bool
+            Denormalize the flux to physical units using the continuum model, if any
+        wlim : slice
+            Wavelength limits for the returned spectrum
+        psf : PSF
+            Convolution kernel
+        kwargs : dict
+            Stellar parameters
+
+        Returns
+        -------
+        Spectrum
+            Model spectrum
         """
+
         def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
             idx = self.grid.get_nearest_index(**kwargs)
             params = self.grid.get_params_at(idx, **kwargs)
             return self.grid.get_value_at(name, idx, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim), params
+        
         return self.interpolate_model_impl('nearest', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         
     def interpolate_model_linear(self, denormalize=True, wlim=None, psf=None, **kwargs):
+        """
+        Interpolates the model using multivariate linear interpolation to the given
+        stellar parameters.
+
+        Parameters
+        ----------
+        denormalize : bool
+            Denormalize the flux to physical units using the continuum model, if any
+        wlim : slice
+            Wavelength limits for the returned spectrum
+        psf : PSF
+            Convolution kernel
+        kwargs : dict
+            Stellar parameters
+
+        Returns
+        -------
+        Spectrum
+            Model spectrum        
+        """
+
         def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
             return self.grid.interpolate_value_linear(name, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
+
         return self.interpolate_model_impl('linear', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
 
     def interpolate_model_spline(self, free_param, denormalize=True, wlim=None, psf=None, **kwargs):
+        """
+        Interpolates the model using 1D cubic spline interpolation to the given stellar parameters.
+
+        Parameters
+        ----------
+        free_param : str
+            Name of the free parameter in which direction the interpolation happens. The rest
+            of the parameters will be fixed at their nearest grid values.
+        denormalize : bool
+            Denormalize the flux to physical units using the continuum model, if any
+        wlim : slice
+            Wavelength limits for the returned spectrum
+        psf : PSF
+            Convolution kernel
+        kwargs : dict
+            Stellar parameters
+
+        Returns
+        -------
+        Spectrum
+            Model spectrum
+        """
+
         def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
             return self.grid.interpolate_value_spline(name, free_param, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
+        
         spec = self.interpolate_model_impl('spline', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         spec.interp_param = free_param
         return spec
     
     def interpolate_model_rbf(self, denormalize=True, wlim=None, psf=None, **kwargs):
+        """
+        Interpolates the model using RFB, when available.
+
+        Parameters
+        ----------
+        denormalize : bool
+            Denormalize the flux to physical units using the continuum model, if any
+        wlim : slice
+            Wavelength limits for the returned spectrum
+        psf : PSF
+            Convolution kernel
+        kwargs : dict
+            Stellar parameters
+
+        Returns
+        -------
+        Spectrum
+            Model spectrum  
+        """
+
         def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
             return self.grid.interpolate_value_rbf(name, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
 
@@ -476,9 +995,31 @@ class ModelGrid(PfsObject):
             raise Exception("Operation not supported.")
             
     def interpolate_model_impl(self, method, interp_fun, denormalize=True, wlim=None, psf=None, idx=None, **kwargs):
-        # Generic model interpolation using any interpolation function supported by the
-        # underlying grid implementation. Optionally convolve with a kernel.
-        # Optional convolution is passed on to the grid class so results can be cached.
+        """
+        Generic model interpolation using any interpolation function supported by the
+        underlying grid implementation. Optionally convolve with a kernel.
+        Optional convolution is passed on to the grid class so results can be cached.
+
+        Either the grid index `idx` or the stellar parameters `kwargs` must be specified but not both at the
+        same time.
+
+        Parameters
+        ----------
+        method : str
+            Interpolation method. Supported methods are 'grid', 'nearest', 'linear', 'spline', 'rbf'.
+        interp_fun : function
+            Interpolation function to be called on the grid object.
+        denormalize : bool
+            Denormalize the flux to physical units using the continuum model, if any
+        wlim : slice
+            Wavelength limits for the returned spectrum
+        psf : PSF
+            Convolution kernel
+        idx : tuple
+            Grid index
+        kwargs : dict
+            Stellar parameters
+        """
         
         if method in ['grid', 'nearest']:
             msg_method = 'assigned from grid'
