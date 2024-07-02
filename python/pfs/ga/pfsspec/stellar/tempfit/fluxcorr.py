@@ -573,27 +573,29 @@ class FluxCorr(CorrectionModel):
             # This is an amplitude only
             temp.multiply(a)
        
-    def apply_correction(self, spectra, templates, a=None):
+    def apply_correction(self, pp_specs, pp_temps, a=None):
         """
         Apply the flux correction to the templates. The templates are assumed to be
         already Doppler shifted and resampled to the same grid as the spectra.
+        The function modifies `pp_temps` in place.
 
         Parameters
         ----------
-        spectra : dict of list
+        pp_specs : dict of list
             Dictionary of spectra for each arm and exposure.
-        templates : dict of list
+        pp_temps : dict of list
             Dictionary of templates for each arm and exposure.
         a : array
             Flux correction coefficients.
         """
 
         if a is None:
-            a = self.calculate_coeffs(spectra, templates)
+            a = self.calculate_coeffs(pp_specs, pp_temps)
 
-        for arm in spectra:
-            for ei, (spec, temp) in enumerate(zip(spectra[arm], templates[arm])):
+        bases, basis_size = self.get_flux_corr_basis(pp_specs)
+
+        for arm in pp_specs:
+            for ei, (spec, temp) in enumerate(zip(pp_specs[arm], pp_temps[arm])):
                 if spec is not None:
-                    basis = self.flux_corr_basis_cache[arm][ei]
-                    self.apply_flux_corr(temp, basis, a)
+                    self.apply_flux_corr(temp, bases[arm][ei], a)
 

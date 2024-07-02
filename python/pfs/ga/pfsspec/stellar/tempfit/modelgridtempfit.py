@@ -507,7 +507,7 @@ class ModelGridTempFit(TempFit):
         if mode == 'full' or mode == 'a_params_rv':
             # Calculate a_0
             templates, missing = self.get_templates(spectra, params_0)
-            a_0 = self.calculate_coeffs(spectra, templates, rv_0)
+            a_0, _, _ = self.calculate_coeffs(spectra, templates, rv_0)
             x_0 = pack_params(a_0, params_0, rv_0)[0]
             bounds = pack_bounds(np.size(a_0) * [(-np.inf, np.inf)], params_bounds, rv_bounds)
         elif mode == 'params_rv':
@@ -864,7 +864,7 @@ class ModelGridTempFit(TempFit):
         
         # Calculate the flux correction or continuum fit coefficients at best fit values
         templates, missing = self.get_templates(spectra, params_fit)
-        a_fit = self.calculate_coeffs(spectra, templates, rv_fit)
+        a_fit, _, _ = self.calculate_coeffs(spectra, templates, rv_fit)
         
         if calculate_error:
             if rv_fixed:
@@ -932,17 +932,8 @@ class ModelGridTempFit(TempFit):
             # If tracing, evaluate the template at the best fit parameters for each exposure
 
             # Apply the correction model to the templates preprocessed to match each spectrum
-            tt = self.preprocess_templates(spectra, templates, rv_fit)
-            self.correction_model.apply_correction(spectra, tt, a_fit)
-                
-            # Normalize templates to match the flux scale of the fitted spectrum
-            if self.spec_norm is not None:
-                for arm in tt:
-                    for t in tt[arm]:
-                        t.multiply(self.spec_norm)
-            
-            # TODO: pass in continuum model for plotting
-            #       pass in covariance matrix
+            tt = self.eval_model(spectra, templates, rv_fit, a=a_fit)
+                            
             self.trace.on_fit_rv_finish(spectra, None, tt,
                                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                                         params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
@@ -999,8 +990,6 @@ class ModelGridTempFit(TempFit):
                         calculate_error=True, calculate_cov=True):
         
         raise NotImplementedError()
-        
-
     
     def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                               params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None,
