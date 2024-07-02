@@ -34,17 +34,99 @@ class TempFit():
 
     When the objective is fitting the template parameters, use ModelGridTempFit instead.
 
+    Functions of the class often have parameters that are the same as variables defined on the
+    class itself. This is to simplify function calls but also to allow overriding some parameters
+    defined on the class. When an optional argument is passed to the function, it will override
+    the class variable of the same name.
+
+    Depending on the continuum correction object passed to the constructor, the class can fit
+    fluxed templates with a multiplicative flux correction function, or normalize the observations
+    with a continuum model and fit the absorption lines with continuum-normalized templates.
+    
     Derived classes, with the use of the appropriate mix-ins are capable of fitting templates
     with a multiplicative flux correction function or a continuum model. In either case, a
     multiplicative scalar amplitude is fitted, either
 
-    Some terminology: amplitudes are scalar factors to be applied to observed spectra to scale to
+    Terminology: amplitudes are scalar factors to be applied to observed spectra to scale to
     the templates. Coefficients are the flux correction or continuum fit model parameters.
     """
 
     def __init__(self, trace=None, correction_model=None, orig=None):
         """
-        Initialize the template fitting problem.
+        Initializes the template fitting problem.
+
+        Parameters
+        ----------
+        trace : TempFitTrace
+            Trace object that implements tracing callbacks to collect debug info
+        correction_model : FluxCorr, ContNomr
+            Flux correction or continuum normalization model
+        orig : TempFit
+            Original object to copy from
+
+        Variables
+        ---------
+        trace : TempFitTrace
+            Trace object that implements tracing callbacks to collect debug info
+        correction_model : FluxCorr, ContNorm
+            Flux correction or continuum normalization model
+        template_psf : dict of Psf
+            Instrumental line spread function to convolve templates with, for each arm
+        template_resampler : Resampler
+            Resampler to resample templates to the instrument pixels. FluxConservingResampler is the default
+            but other resamplers can be used.
+        template_cache_resolution : float
+            Cache templates with this resolution in RV. Templates are quantized to this resolution and
+            stored in a cache to avoid recomputing the same template multiple times.
+        template_wlim : dict of tuple
+            Model wavelength limits for each spectrograph arm when performing the convolution.
+        template_wlim_buffer : float
+            Wavelength buffer in A for each spectrograph arm when performing the convolution.
+        cache_templates : bool
+            Set to True to enable caching PSF-convolved templates.
+        rv_0 : float
+            Initial guess for the radial velocity. Will be estimated automatically if not set.
+        rv_fixed : bool
+            When True, do not optimize for RV but fix its value to the initial value (or the value
+            determined by `guess_rv`).
+        rv_bounds : tuple
+            Find RV between these bounds.
+        rv_prior : Distribution or callable
+            Prior distribution for the RV.
+        rv_step : float
+            Initial step size for the MCMC sampling of the RV and estimating the uncertainty from
+            the Hessian numerically.
+        amplitude_per_arm : bool
+            Estimate flux multiplier for each arm independently.
+        amplitude_per_fiber : bool
+            Estimate flux multiplier for each fiber independently (reserved for future use).
+        amplitude_per_exp : bool
+            Estimate flux multiplier for each exposure independently.
+        spec_norm : float
+            Spectrum (observation) normalization factor. Use `get_normalization` to initialize it.
+        temp_norm : float
+            Template normalization factor. Use `get_normalization` to initialize it.
+        use_mask : bool
+            Use mask from spectrum, if available.
+        mask_bits : int
+            Mask bits to observe when converting spectrum flags to a boolean mask (None means any).
+        use_error : bool
+            Use flux error from spectrum to weight fitting, if available.
+        use_weight : bool
+            Use weight from template for fitting, if available. Templates can define weights to
+            modify the likelihood function.
+        max_iter : int
+            Maximum number of iterations of the optimization algorithm.
+        mcmc_walkers : int
+            Number of parallel walkers for the MCMC sampling.
+        mcmc_burnin : int
+            Number of burn-in iterations for the MCMC sampling.
+        mcmc_samples : int
+            Number of samples for the MCMC sampling.
+        mcmc_thin : int
+            MCMC chain thinning interval.
+        mcmc_gamma : float
+            Adaptive MCMC proposal memory.
         """
         
         if not isinstance(orig, TempFit):
@@ -83,7 +165,6 @@ class TempFit():
 
             self.max_iter = 1000            # Maximum number of iterations of the optimization algorithm
 
-            self.mcmc_step = 10.0           # MCMC initial step size
             self.mcmc_walkers = 10          # Number of parallel walkers
             self.mcmc_burnin = 100          # Number of burn-in iterations
             self.mcmc_samples = 100         # Number of samples
@@ -120,7 +201,6 @@ class TempFit():
 
             self.max_iter = orig.max_iter
 
-            self.mcmc_step = orig.mcmc_step
             self.mcmc_walkers = orig.mcmc_walkers
             self.mcmc_burnin = orig.mcmc_burnin
             self.mcmc_samples = orig.mcmc_samples
@@ -130,12 +210,27 @@ class TempFit():
         self.reset()
 
     def reset(self):
+        """
+        Reset the state of the object
+        """
+
         self.template_cache = ReadOnlyCache()
 
         if self.correction_model is not None:
             self.correction_model.reset()
 
     def add_args(self, config, parser):
+        """
+        Register arguments for the command line parser
+
+        Parameters
+        ----------
+        config : dict
+            Script configuration object
+        parser : argparse.ArgumentParser
+            Command line parser
+        """
+
         Parameter('rv').add_args(parser)
 
         parser.add_argument('--amplitude-per-arm', action='store_true', dest='amplitude_per_arm', help='Flux correction per arm.\n')
@@ -158,6 +253,19 @@ class TempFit():
             self.correction_model.add_args(config, parser)
 
     def init_from_args(self, script, config, args):
+        """
+        Initialize the object from command line arguments
+
+        Parameters
+        ----------
+        script : Script
+            Script object
+        config : dict
+            Script configuration object
+        args : dict
+            Command line arguments
+        """
+
         if self.trace is not None:
             self.trace.init_from_args(script, config, args)
 
@@ -197,6 +305,10 @@ class TempFit():
             self.correction_model.init_from_args(script, config, args)
 
     def create_trace(self):
+        """
+        Create a trace object that has the type with all necessary callbacks.
+        """
+
         return TempFitTrace()
     
     def determine_wlim(self, spectra: dict, /, per_arm=True, per_exp=True,
@@ -328,9 +440,18 @@ class TempFit():
             
         return wlim
 
-    def init_models(self, spectra, rv_bounds=None, force=False):
+    def init_correction_models(self, spectra, rv_bounds=None, force=False):
         """
         Initialize the models for flux correction or continuum fitting
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        rv_bounds : tuple
+            RV bounds to extend the wavelength limits with
+        force : bool
+            Force reinitialization of the models
         """
 
         if self.correction_model is not None:
@@ -339,7 +460,7 @@ class TempFit():
 
             self.correction_model.init_models(spectra, rv_bounds=rv_bounds, force=force)
 
-    def init_model(self, spectra, /, per_arm=True, per_exp=True,
+    def init_correction_model(self, spectra, /, per_arm=True, per_exp=True,
                    rv_bounds=None, wlim_buffer=None, round_to=None,
                    create_model_func=None):
         """
@@ -389,9 +510,27 @@ class TempFit():
 
         return model
 
-    def get_model(self, model, arm, ei, per_arm=True, per_exp=True):
+    def get_correction_model(self, model, arm, ei, per_arm=True, per_exp=True):
         """
         Get the model for the given arm and exposure index
+
+        Parameters
+        ----------
+        model : dict or list or tuple
+            Model objects
+        arm : str
+            Spectrograph arm
+        ei : int
+            Exposure index
+        per_arm : bool
+            Whether the model is defined per arm
+        per_exp : bool
+            Whether the model is defined per exposure
+
+        Returns
+        -------
+        object
+            Model object associated with the spectrum (arm, ei)
         """
 
         if isinstance(model, dict):
@@ -505,6 +644,20 @@ class TempFit():
         return spec
 
     def preprocess_spectra(self, spectra):
+        """
+        Preprocess the observed spectra for the purposes of evaluating the likelihood function.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+
+        Returns
+        -------
+        dict of list of Spectrum
+            Preprocessed spectra
+        """
+
         # Preprocess the observed spectra, mask, weight etc.
         # These are independent of RV
         pp_spec = { arm: [] for arm in spectra }
@@ -614,6 +767,9 @@ class TempFit():
         psf = psf if psf is not None else (self.template_psf[arm] if self.template_psf is not None else None)
         wlim = wlim if wlim is not None else (self.template_wlim[arm] if self.template_wlim is not None else None)
 
+        if diff:
+            raise NotImplementedError()
+
         temp = None
 
         # If `cache_templates` is True, we can look up a template that's already been
@@ -660,6 +816,25 @@ class TempFit():
         return temp
 
     def preprocess_templates(self, spectra, templates, rv):
+        """
+        Preprocess the templates to match the observations. This is basically simulating
+        and observation.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra for each arm and exposure
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv : float
+            Radial velocity
+
+        Returns
+        -------
+        dict of list of Spectrum
+            Preprocessed templates
+        """
+
         # Pre-process each exposure in each arm and pass them to the log L calculator
         # function of the flux correction or continuum fit model.
         pp_temp = { arm: [] for arm in spectra }
@@ -677,6 +852,13 @@ class TempFit():
         """
         Calculate the numerical derivative of the template and optionally resample
         to a new wavelength grid using linear interpolation
+
+        Parameters
+        ----------
+        template : Spectrum
+            Template spectrum
+        wave : ndarray
+            New wavelength grid
         """
 
         dfdl = np.empty_like(template.wave)
@@ -696,6 +878,13 @@ class TempFit():
         """
         Calculate the numerical log-derivative of the template and optionally resample
         to a new wavelength grid using linear interpolation
+
+        Parameters
+        ----------
+        template : Spectrum
+            Template spectrum
+        wave : ndarray
+            New wavelength grid
         """
 
         dfdlogl = np.empty_like(template.wave)
@@ -728,7 +917,7 @@ class TempFit():
         Depending on the mode of fitting, different amplitudes are fitted on a per arm
         and/or per exposure basis to correct for fluxing artefacts.
 
-        Amplitudes are independent of flux correction models (which are linear combinations
+        Note, that amplitudes are independent of flux correction models (which are linear combinations
         of function excluding the constant function) and continuum models (which don't account
         for a multiplier) but handled differently for flux correction models and continuum models.
         """
@@ -827,6 +1016,41 @@ class TempFit():
         else:
             raise NotImplementedError()
         
+    def sample_prior(self, prior, size=1, bounds=None):
+        """
+        Draw random number based on a prior distribution.
+
+        Parameters
+        ----------
+        prior : Distribution or callable
+            Prior distribution or function that returns a normalized probability.
+        size : int
+            Number of samples to draw
+        bounds : tuple
+            Bounds for the random numbers
+        """
+
+        if isinstance(prior, Distribution):
+            if bounds is not None:
+                prior = prior.copy()
+                if bounds is not None:
+                    if bounds[0] is not None:
+                        prior.min = bounds[0]
+                (prior.min, prior.max) = bounds[0]
+            
+            # x = prior.sample(size)
+            # if bounds is not None:
+            #     if bounds[0] is not None:
+            #         x = max(x, bounds[0])
+            #     if bounds[1] is not None:
+            #         x = min(x, bounds[1])
+            # return x
+        elif isinstance(prior, Callable):
+            # TODO: implement rejection sampling
+            raise NotImplementedError()
+        else:
+            raise NotImplementedError()
+        
     # TODO: this uses emcee but isn't very good and has been replaced by a simple
     #       adaptive MCMC that works better; consider deleting
     # def sample_log_L(self, log_L_fun, x_0,
@@ -903,16 +1127,9 @@ class TempFit():
 
     #     # shape: (chains, samples, params)
     #     return sampler.chain[s], sampler.lnprobability[s]
+
+    # region Parameter packing function and objective functions
         
-    #region Fisher matrix evaluation
-
-    # There are multiple ways of evaluating the Fisher matrix. Functions
-    # with _full_ return the full Fisher matrix including matrix elements for
-    # the flux correction coefficients and rv. Functions with _rv_ return
-    # the (single) matrix element corresponding to the RV only. Functions with
-    # _hessian depend on the numerical evaluation of the Hessian with respect
-    # to the parameters of the fitted model.
-
     def get_param_packing_functions(self, mode='full'):
         """
         Return parameter packing functions that combine the correction model parameters
@@ -1112,6 +1329,16 @@ class TempFit():
             return np.array(bb)
         else:
             return None
+        
+    # endregion
+    # region Fisher matrix evaluation
+
+    # There are multiple ways of evaluating the Fisher matrix. Functions
+    # with _full_ return the full Fisher matrix including matrix elements for
+    # the flux correction coefficients and rv. Functions with _rv_ return
+    # the (single) matrix element corresponding to the RV only. Functions with
+    # _hessian depend on the numerical evaluation of the Hessian with respect
+    # to the parameters of the fitted model.
 
     def calculate_F(self, spectra, templates,
                     rv_0=None, rv_fixed=None, rv_bounds=None, rv_prior=None,
@@ -1175,8 +1402,6 @@ class TempFit():
     def eval_F_dispatch(self, x_0, log_L_fun, step, method, bounds):
         if method == 'hessian':
             return self.eval_F_hessian(x_0, log_L_fun, step)
-        elif method == 'emcee':
-            return self.eval_F_emcee(x_0, log_L_fun, step, bounds)
         elif method == 'sampling':
             return self.eval_F_sampling(x_0, log_L_fun, step, bounds)
         else:
@@ -1185,6 +1410,24 @@ class TempFit():
     def eval_F_hessian(self, x_0, log_L_fun, step, inverse=True):
         """
         Evaluate the Fisher matrix by calculating the Hessian numerically
+
+        Parameters
+        ----------
+        x_0 : ndarray
+            Initial parameters
+        log_L_fun : callable
+            Log likelihood function
+        step : float or ndarray
+            Step size for numerical differentiation
+        inverse : bool
+            Whether to calculate the inverse of the Hessian (the covariance)
+
+        Returns
+        -------
+        ndarray
+            Fisher matrix
+        ndarray
+            Inverse of the Fisher matrix (covariance matrix)
         """
 
         # Default step size is 1% of optimum values
@@ -1200,25 +1443,29 @@ class TempFit():
             inv = None
 
         return dd_log_L_0, inv
-    
-    def eval_F_emcee(self, x_0, log_L_fun, step, bounds):
-        """
-        Evaluate the Fisher matrix by MC sampling around the optimum
-        """
-
-        x, log_L = self.sample_log_L(log_L_fun, x_0=x_0)
-
-        if self.trace is not None:
-            self.trace.on_eval_F_mcmc(x, log_L)
-
-        # This is already the covanriance, we need its inverse here
-        C = np.cov(x.T)
-        return -np.linalg.inv(C), C
-    
-    def eval_F_sampling(self, x_0, log_L_fun, step, bounds):
+        
+    def eval_F_sampling(self, x_0, log_L_fun, step, bounds, inverse=True):
         """
         Sample a bunch of RVs around the optimum and fit a parabola
         to obtain the error of RV.
+
+        Parameters
+        ----------
+        x_0 : ndarray
+            Initial parameters
+        log_L_fun : callable
+            Log likelihood function
+        step : float or ndarray
+            Step size for numerical differentiation
+        bounds : ndarray
+            Bounds for the parameters
+        inverse : bool
+            Whether to calculate the inverse of the Hessian (the covariance)
+
+        Returns
+        -------
+        ndarray
+            Fisher matrix
         """
 
         # Default step size is 1% of optimum values
@@ -1257,7 +1504,12 @@ class TempFit():
                     # Mixed item
                     F[idx[0], idx[1]] = F[idx[1], idx[0]] = pi
 
-            return F, np.linalg.inv(-F)
+            if inverse:
+                inv = np.linalg.inv(-F)
+            else:
+                inv = None
+
+            return F, inv
     
     #endregion
     
@@ -1297,22 +1549,28 @@ class TempFit():
         pp, pcov = curve_fit(self.lorentz, rv, y0, p0=p0, bounds=bb)
 
         return pp, pcov
-    
-    def sample_rv_prior(self, rv_prior, bounds=None):
-        rv_0 = rv_prior.sample()
-        if bounds is not None:
-            if bounds[0] is not None:
-                rv_0 = max(rv_0, bounds[0])
-            if bounds[1] is not None:
-                rv_0 = min(rv_0, bounds[1])
-        return rv_0
 
     def calculate_log_L(self, spectra, templates, rv, rv_prior=None, a=None):
         """
         Calculate the logarithm of the likelihood at the given values of RV.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv : float or ndarray
+            Radial velocity
+        rv_prior : Distribution or callable
+            Prior distribution for the RV
+        a : ndarray
+            Correction model parameters (optional)
         
         The function calls into the underlying correction model to calculate log L
-        and adds the constribution of the priors.
+        and adds the contribution of the priors. When the correction model parameters
+        are provided, they are used directly, otherwise they are calculated from the
+        spectra and templates.
         """
         
         if not isinstance(rv, np.ndarray):
@@ -1364,6 +1622,20 @@ class TempFit():
     def calculate_coeffs(self, spectra, templates, rv):
         """
         Evaluate the correction model parameters at the given RV
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv : float
+            Radial velocity
+
+        Returns
+        -------
+        ndarray or dict of ndarray
+            Correction model parameters, in a format depending on the correction model.
         """
 
         pp_specs = self.preprocess_spectra(spectra)
@@ -1433,6 +1705,33 @@ class TempFit():
     
     def prepare_fit(self, spectra, templates, /,
                     rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None):
+        """
+        This function is called before template fitting to normalize all parameters and
+        prepare them for the optimization.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv_0 : float
+            Initial guess for the RV
+        rv_bounds : tuple
+            RV bounds to limit the search for initial RV if not provided as well as
+            limits to the fit.
+        rv_prior : Distribution or callable
+            Prior distribution for the RV
+        rv_step : float
+            Step size for MCMC or numerical differentiation
+        rv_fixed : bool
+            If True, the RV is fixed and no optimization is performed.
+
+        Returns
+        -------
+        tuple
+            Tuple of parameters to be used in the optimization
+        """
         
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
         rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
@@ -1507,6 +1806,11 @@ class TempFit():
         calculate_error : bool
             If True, calculate the error of the RV from the Fisher matrix.
 
+        Returns
+        -------
+        TempFitResults
+            Results of the template fitting
+
         If no initial guess is provided, `rv_0` is determined automatically. If `rv_fixed` is
         `True`, the radial velocity is not fitted but the best flux correction or continuum
         model parameters are determined as if the provided `rv_0` was the best fit.
@@ -1518,7 +1822,7 @@ class TempFit():
         max_iter = max_iter if max_iter is not None else self.max_iter
 
         # Initialize flux correction or continuum models for each arm and exposure
-        self.init_models(spectra, rv_bounds)
+        self.init_correction_models(spectra, rv_bounds)
 
         (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             log_L_fun, pack_params, unpack_params, pack_bounds,
@@ -1548,10 +1852,27 @@ class TempFit():
 
     def fit_rv_fixed(self, spectra, templates,
                      rv_0, rv_prior):
+        """
+        Calculate the log likelihood at the provided RV. This requires evaluating the 
+        correction model (flux correction or continuum normalization).
+
+        Evan though the RV is fixed, the contribution of the prior is added to the log likelihood.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv_0 : float
+            Initial guess for the RV
+        rv_prior : Distribution or callable
+            Prior distribution for the RV
+        """
+
 
         # Calculate log_L in two steps, this requires passing around the flux correction or
         # continuum fit parameters
-
         # a_fit = self.calculate_coeffs(spectra, templates, rv_0)
         # a_err = np.full_like(a_fit, np.nan)
         # log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, a=a_fit)
@@ -1573,23 +1894,49 @@ class TempFit():
                         log_L_fun, pack_params, unpack_params, pack_bounds,
                         x_0, bounds, steps,
                         method, calculate_error):
+
+        """
+        Optimize for the RV. This function is called when the RV is not fixed.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv_0 : float
+            Initial guess for the RV
+        rv_bounds : tuple
+            RV bounds to limit the search for initial RV if not provided as well as
+            limits to the fit.
+        rv_prior : Distribution or callable
+            Prior distribution for the RV
+        rv_step : float
+            Step size for MCMC or numerical differentiation
+        log_L_fun : callable
+            Log likelihood function
+        pack_params : callable
+            Function to pack individual parameters into a 1d array
+        unpack_params : callable
+            Function to unpack individual parameters from a 1d array
+        pack_bounds : callable
+            Function to pack parameter bounds into a list of tuples
+        x_0 : ndarray
+            Initial parameters
+        bounds : ndarray
+            Bounds for the parameters
+        steps : ndarray
+            Step size for MCMC or numerical differentiation
+        """
         
         # Cost function
         def llh(rv):
             return -log_L_fun(pack_params(rv))
-
-        # Multivariate method
-        # out = minimize(llh, [rv0], method=method)
         
         # Univariate method
         # NOTE: scipy.optimize is sensitive to type of args
         rv_bounds = tuple(float(b) for b in rv_bounds)
         bracket = None
-
-        # if rv_bounds is not None and rv_bounds[0] < rv_0 and rv_0 < rv_bounds[1]:
-        #     bracket = (rv_bounds[0], float(rv_0), rv_bounds[1])
-        # else:
-        #     bracket = None
             
         try:
             if method == 'grid':
@@ -1638,9 +1985,41 @@ class TempFit():
                               a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                               cov=C, log_L_fit=lp)
 
-    def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
-                              rv_err=None,
+    def randomize_init_params(self, spectra,
+                              rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None, rv_err=None,
                               randomize=False, random_size=()):
+        """
+        Randomize the initial parameters for MCMC.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        rv_0 : float
+            Initial guess for the RV
+        rv_bounds : tuple
+            RV limits for the fitting algorithm.
+        rv_prior : Distribution or callable
+            Prior distribution for the RV
+        rv_step : float
+            Step size for MCMC or numerical differentiation
+        rv_fixed : bool
+            Whether the RV is fixed
+        rv_err : float
+            RV error
+        randomize : bool
+            Whether to randomize the initial parameters. When False, this function is just a pass-through
+            unless the initial value is None.
+        random_size : tuple
+            Size of the random array to generate
+
+        Returns
+        -------
+        rv
+            Randomized initial parameter
+        rv_err
+            Initial sigma for adaptive parameter sampling
+        """
         
         rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
@@ -1651,7 +2030,7 @@ class TempFit():
 
         if rv_0 is None or np.isnan(rv_0):
             if rv_prior is not None:
-                rv = self.sample_rv_prior(rv_prior, rv_bounds)
+                rv = self.sample_prior(rv_prior, bounds=rv_bounds)
             else:
                 if self.rv_0 is not None:
                     rv = self.rv_0
@@ -1688,6 +2067,36 @@ class TempFit():
         Given a set of spectra and templates, sample from the posterior distribution of RV.
 
         If no initial guess is provided, an initial state is generated automatically.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv_0 : float
+            Initial guess for the RV
+        rv_bounds : tuple
+            RV bounds to limit the search for initial RV if not provided as well as
+            limits to the fit.
+        rv_prior : Distribution or callable
+            Prior distribution for the RV
+        rv_step : float
+            Step size for MCMC or numerical differentiation
+        rv_fixed : bool
+            If True, the RV is fixed and no optimization is performed.
+        cov : ndarray
+            Covariance matrix for the parameters (placeholder for future use)
+        walkers : int
+            Number of walkers
+        burnin : int
+            Number of burn-in steps
+        samples : int
+            Number of MCMC samples to generate
+        thin : int
+            Thinning factor
+        gamma : float
+            Adaptive memory factor for the MCMC sampler
         """
 
         assert isinstance(spectra, dict)
@@ -1700,7 +2109,7 @@ class TempFit():
         gamma = gamma if gamma is not None else self.mcmc_gamma
 
         # Initialize flux correction or continuum models for each arm and exposure
-        self.init_models(spectra, rv_bounds)
+        self.init_correction_models(spectra, rv_bounds)
 
         (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             log_L_fun, pack_params, unpack_params, pack_bounds,

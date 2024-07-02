@@ -78,12 +78,12 @@ class FluxCorr(CorrectionModel):
         """
 
         if self.use_flux_corr and (self.flux_corr is None or force):
-            self.flux_corr = self.tempfit.init_model(spectra,
-                                                     per_arm=self.flux_corr_per_arm,
-                                                     per_exp=self.flux_corr_per_exp,
-                                                     rv_bounds=rv_bounds,
-                                                     round_to=100,
-                                                     create_model_func=self.create_flux_corr)
+            self.flux_corr = self.tempfit.init_correction_model(spectra,
+                                                                per_arm=self.flux_corr_per_arm,
+                                                                per_exp=self.flux_corr_per_exp,
+                                                                rv_bounds=rv_bounds,
+                                                                round_to=100,
+                                                                create_model_func=self.create_flux_corr)
         elif self.flux_corr is not None:
             logger.warning("Flux correction model is already initialized, skipping reinitialization.")
 

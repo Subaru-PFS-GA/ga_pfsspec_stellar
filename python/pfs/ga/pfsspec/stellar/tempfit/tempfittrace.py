@@ -191,9 +191,6 @@ class TempFitTrace(Trace, SpectrumTrace):
     def on_eval_log_L_a(self, phi, chi, a, log_L):
         self.eval_log_L_a_count += 1
 
-    def on_eval_F_mcmc(self, x, log_L):
-        pass
-
     #endregion
                 
     def _plot_prior(self, key, param_prior, param_bounds, param_0, param_step,

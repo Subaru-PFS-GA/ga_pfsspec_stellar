@@ -681,7 +681,7 @@ class ModelGridTempFit(TempFit):
         params_0 = params_0 if params_0 is not None else self.params_0
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
 
-        self.init_models(spectra, rv_bounds)
+        self.init_correction_models(spectra, rv_bounds)
 
         if templates is None:
             # Look up the templates from the grid and pass those to the the parent class
@@ -816,7 +816,7 @@ class ModelGridTempFit(TempFit):
         max_iter = max_iter if max_iter is not None else self.max_iter
 
         # Initialize flux correction or continuum models for each arm and exposure
-        self.init_models(spectra, rv_bounds)
+        self.init_correction_models(spectra, rv_bounds)
         
         (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
@@ -1003,9 +1003,55 @@ class ModelGridTempFit(TempFit):
 
     
     def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
-                              params_0=None, params_bounds=None, params_priors=None, params_steps=None,
-                              params_fixed=None, cov=None,
-                              randomize=False, random_size=()):
+                              params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None,
+                              cov=None, randomize=False, random_size=()):
+        
+        """
+        Randomize the initial parameters for MCMC.
+
+        If no initial guess is provided, an initial state is generated automatically.
+
+        Parameters
+        ----------
+        spectra : dict or dict of list
+            Dictionary of spectra for each arm and exposure
+        rv_0 : float
+            Initial guess for the RV
+        rv_bounds : tuple
+            RV limits for the fitting algorithm.
+        rv_prior : Distribution or callable
+            Prior distribution for the RV
+        rv_step : float
+            Step size for MCMC or numerical differentiation
+        rv_fixed : bool
+            Whether the RV is fixed
+        params_0 : dict
+            Initial guess for the template parameters
+        params_bounds : dict
+            Bounds for the template parameters
+        params_priors : dict
+            Prior distributions for the template parameters
+        params_steps : dict
+            Step sizes for MCMC or numerical differentiation
+        params_fixed : dict
+            Fixed template parameters with values
+        cov : array
+            Covariance matrix of the parameters
+        randomize : bool
+            Randomize the initial parameters, if False this function is just a pass through unless
+            some of the parameters are None because then an initial value is randomly generated.
+        random_size : tuple
+            Size of the random array to generate
+
+        Returns
+        -------
+        rv : float
+            Randomized RV
+        params : dict
+            Randomized template parameters
+        cov : array
+            Initial covariance for adaptive parameter sampling
+        """
         
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
         params_bounds = params_bounds if params_bounds is not None else self.params_bounds
@@ -1095,7 +1141,7 @@ class ModelGridTempFit(TempFit):
         gamma = gamma if gamma is not None else self.mcmc_gamma
 
         # Initialize flux correction or continuum models for each arm and exposure
-        self.init_models(spectra, rv_bounds)
+        self.init_correction_models(spectra, rv_bounds)
 
         (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,

@@ -62,7 +62,7 @@ class TestTempFitContNorm(TempFitTestBase):
         tempfit.correction_model.cont_per_arm = continuum_per_arm
         tempfit.correction_model.cont_per_exp = continuum_per_exp
 
-        tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
+        tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -97,7 +97,7 @@ class TestTempFitContNorm(TempFitTestBase):
             _, _, rv0 = tempfit.guess_rv(specs, temps)
             ax.axvline(rv0, color='k', label='rv guess')
 
-    def test_init_model(self):
+    def test_init_correction_model(self):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 continuum_fit=True,
@@ -108,22 +108,22 @@ class TestTempFitContNorm(TempFitTestBase):
                 use_priors=False)
         
         # Test different types of freedom
-        model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False,
-                                   create_model_func=tempfit.correction_model.create_continuum_model)
+        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False,
+                                              create_model_func=tempfit.correction_model.create_continuum_model)
         self.assertIsInstance(model, Spline)
 
-        model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True,
-                                   create_model_func=tempfit.correction_model.create_continuum_model)
+        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True,
+                                              create_model_func=tempfit.correction_model.create_continuum_model)
         self.assertIsInstance(model, list)
         self.assertIsInstance(model[0], Spline)
 
-        model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False,
-                                   create_model_func=tempfit.correction_model.create_continuum_model)
+        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False,
+                                              create_model_func=tempfit.correction_model.create_continuum_model)
         self.assertIsInstance(model, dict)
         self.assertIsInstance(model['b'], Spline)
 
-        model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True,
-                                   create_model_func=tempfit.correction_model.create_continuum_model)
+        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True,
+                                              create_model_func=tempfit.correction_model.create_continuum_model)
         self.assertIsInstance(model, dict)
         self.assertIsInstance(model['b'], list)
         self.assertIsInstance(model['b'][0], Spline)
@@ -166,7 +166,7 @@ class TestTempFitContNorm(TempFitTestBase):
              tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
              gt_amp_count, gt_coeff_count] in gt:
             
-            tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
+            tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
             amp_count = tempfit.get_amp_count(specs)
             coeff_count = tempfit.correction_model.get_coeff_count(specs)
 
@@ -234,7 +234,7 @@ class TestTempFitContNorm(TempFitTestBase):
         tempfit.correction_model.cont_per_arm = continuum_per_arm
         tempfit.correction_model.cont_per_exp = continuum_per_exp
 
-        tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
+        tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
 
         res = tempfit.fit_rv(specs, temps)
 
@@ -287,7 +287,7 @@ class TestTempFitContNorm(TempFitTestBase):
         tempfit.correction_model.cont_per_arm = True
         tempfit.correction_model.cont_per_exp = True
 
-        tempfit.init_models(specs, rv_bounds=(-500, 500))
+        tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
         res = tempfit.fit_rv(specs, temps)
 
@@ -326,7 +326,7 @@ class TestTempFitContNorm(TempFitTestBase):
         tempfit.correction_model.cont_per_arm = True
         tempfit.correction_model.cont_per_exp = True
 
-        tempfit.init_models(specs, rv_bounds=(-500, 500))
+        tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
         # Only fit the continuum correction
         res = tempfit.fit_rv(specs, temps, rv_fixed=True)
@@ -364,7 +364,7 @@ class TestTempFitContNorm(TempFitTestBase):
         tempfit.correction_model.cont_per_arm = True
         tempfit.correction_model.cont_per_exp = True
 
-        tempfit.init_models(specs, rv_bounds=(-500, 500))
+        tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -409,7 +409,7 @@ class TestTempFitContNorm(TempFitTestBase):
             tempfit.correction_model.cont_per_arm = True
             tempfit.correction_model.cont_per_exp = True
 
-            tempfit.init_models(specs, rv_bounds=(-500, 500))
+            tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
             res = tempfit.fit_rv(specs, temps)
             F = {}

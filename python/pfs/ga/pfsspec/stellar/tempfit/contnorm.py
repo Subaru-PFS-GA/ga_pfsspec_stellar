@@ -73,20 +73,20 @@ class ContNorm(CorrectionModel):
         if self.use_cont_norm:
             # Initialize the continuum model and continuum finder
             if self.use_cont_norm and (self.cont_model is None or force):
-                self.cont_model = self.tempfit.init_model(spectra,
-                                                          per_arm=self.cont_per_arm,
-                                                          per_exp=self.cont_per_exp,
-                                                          rv_bounds=rv_bounds,
-                                                          round_to=100,
-                                                          create_model_func=self.create_continuum_model)
+                self.cont_model = self.tempfit.init_correction_model(spectra,
+                                                                     per_arm=self.cont_per_arm,
+                                                                     per_exp=self.cont_per_exp,
+                                                                     rv_bounds=rv_bounds,
+                                                                     round_to=100,
+                                                                     create_model_func=self.create_continuum_model)
 
             if self.use_cont_norm and (self.cont_finder is None or force):
-                self.cont_finder = self.tempfit.init_model(spectra,
-                                                           per_arm=self.cont_per_arm,
-                                                           per_exp=self.cont_per_exp,
-                                                           rv_bounds=rv_bounds,
-                                                           round_to=100,
-                                                           create_model_func=self.create_continuum_finder)
+                self.cont_finder = self.tempfit.init_correction_model(spectra,
+                                                                      per_arm=self.cont_per_arm,
+                                                                      per_exp=self.cont_per_exp,
+                                                                      rv_bounds=rv_bounds,
+                                                                      round_to=100,
+                                                                      create_model_func=self.create_continuum_finder)
                 
     def get_coeff_count(self, spectra: dict):
         """

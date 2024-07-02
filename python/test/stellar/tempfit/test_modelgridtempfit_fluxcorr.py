@@ -16,15 +16,6 @@ class ModelGridTempFitTraceTest(ModelGridTempFitTrace):
     def __init__(self):
         super().__init__()
 
-        self.mcmc_x = None
-        self.mcmc_log_L = None
-
-    def on_eval_F_mcmc(self, x, log_L):
-        super().on_eval_F_mcmc(x, log_L)
-
-        self.mcmc_x = x
-        self.mcmc_log_L = log_L
-
 
 class TestModelGridTempFitFluxCorr(TempFitTestBase):
     
@@ -95,7 +86,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             use_priors=use_priors
         )
 
-        tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
+        tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
 
         ax.axvline(rv_real, color='r', label='rv real')
 
@@ -142,7 +133,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             _, _, rv0 = tempfit.guess_rv(specs, temps)
             ax.axvline(rv0, color='k', label='rv guess')
 
-    def test_init_model(self):
+    def test_init_correction_model(self):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 flux_correction=True,
@@ -153,22 +144,22 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                 use_priors=False)
         
         # Test different types of freedom
-        model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False,
-                                   create_model_func=tempfit.correction_model.create_flux_corr)
+        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False,
+                                              create_model_func=tempfit.correction_model.create_flux_corr)
         self.assertIsInstance(model, PolynomialFluxCorrection)
 
-        model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True,
-                                   create_model_func=tempfit.correction_model.create_flux_corr)
+        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True,
+                                              create_model_func=tempfit.correction_model.create_flux_corr)
         self.assertIsInstance(model, list)
         self.assertIsInstance(model[0], PolynomialFluxCorrection)
 
-        model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False,
-                                   create_model_func=tempfit.correction_model.create_flux_corr)
+        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False,
+                                              create_model_func=tempfit.correction_model.create_flux_corr)
         self.assertIsInstance(model, dict)
         self.assertIsInstance(model['b'], PolynomialFluxCorrection)
 
-        model = tempfit.init_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True,
-                                   create_model_func=tempfit.correction_model.create_flux_corr)
+        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True,
+                                              create_model_func=tempfit.correction_model.create_flux_corr)
         self.assertIsInstance(model, dict)
         self.assertIsInstance(model['b'], list)
         self.assertIsInstance(model['b'][0], PolynomialFluxCorrection)
@@ -211,7 +202,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
              tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
              gt_amp_count, gt_coeff_count] in gt:
             
-            tempfit.init_models(specs, rv_bounds=(-500, 500), force=True)
+            tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
             amp_count = tempfit.get_amp_count(specs)
             coeff_count = tempfit.correction_model.get_coeff_count(specs)
 
@@ -379,32 +370,5 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])
 
             pass
-
-        self.save_fig(f)
-
-    def test_eval_F_emcee(self):
-        config = dict(flux_correction=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
-        (rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
-            self.get_initialized_tempfit(**config)
-        
-        res = rvfit.fit_rv(specs, rv_0=rv_real)
-
-        rvfit.mcmc_burnin = 5
-        rvfit.mcmc_samples = 5
-        rvfit.calculate_F(specs, res.rv_fit, res.params_fit, mode='params_rv', method='emcee')
-
-        #
-
-        grid = rvfit.template_grids['mr']
-        params_free = [p for i, p, ax in grid.enumerate_axes() if p not in rvfit.params_fixed] + [ 'rv' ]
-
-        n = rvfit.trace.mcmc_x.shape[-1]
-        f, axs = plt.subplots(n, n, figsize=(2 * n, 2 * n), squeeze=False)
-
-        for i in range(n):
-            for j in range(i + 1):
-                axs[i, j].plot(rvfit.trace.mcmc_x[:, i], rvfit.trace.mcmc_x[:, j], '.')
-                axs[i, j].set_xlabel(params_free[i])
-                axs[i, j].set_ylabel(params_free[j])
 
         self.save_fig(f)
