@@ -85,7 +85,7 @@ class FluxCorr(CorrectionModel):
                                                                 round_to=100,
                                                                 create_model_func=self.create_flux_corr)
         elif self.flux_corr is not None:
-            logger.warning("Flux correction model is already initialized, skipping reinitialization.")
+            logger.info("Flux correction model is already initialized, skipping reinitialization.")
 
     def get_coeff_count(self, spectra: dict):
         """
@@ -229,14 +229,17 @@ class FluxCorr(CorrectionModel):
         # TODO: move this outside of function and pass in as arguments
         # Calculate the number of flux-correction parameters, including
         # the amplitudes which might be different for each arm and exposure
+
+        # Size of phi and chi is amp_count + coeff_count
         amp_count = self.tempfit.get_amp_count(spectra)
         param_count = self.get_coeff_count(spectra)
         coeff_count = amp_count + param_count
-                
+
         # Sum up log_L contributions from spectrum - template pairs
         phi = np.zeros((coeff_count,))
         chi = np.zeros((coeff_count, coeff_count))
         ndf = np.zeros((1,))
+
         for arm in spectra:
             for ei, (spec, temp, basis) in enumerate(zip(spectra[arm], templates[arm], bases[arm])):
                 if spec is not None:
@@ -277,14 +280,19 @@ class FluxCorr(CorrectionModel):
                         pp /= sigma2[mask]
                         cc /= sigma2[mask]
 
-                    # Size of phi and chi is amp_count + coeff_count
-                    pp = pp[:, None] * basis[mask, :]
-                    cc = cc[:, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
+                    # TODO: DELETE after testing einsum version
+                    # # The second one is the expensive operation
+                    # pp = pp[:, None] * basis[mask, :]
+                    # cc = cc[:, None, None] * np.matmul(basis[mask, :, None], basis[mask, None, :])
                 
-                    # i indexes the rv values we are calculating phi and chi for
-                    # sum goes over the spectral pixels
-                    phi += np.sum(pp, axis=0)
-                    chi += np.sum(cc, axis=0)
+                    # # i indexes the rv values we are calculating phi and chi for
+                    # # sum goes over the spectral pixels
+                    # phi += np.sum(pp, axis=0)
+                    # chi += np.sum(cc, axis=0)
+                    
+                    bb =  basis[mask]
+                    phi += np.einsum('i,ij->j', pp, bb)
+                    chi += np.einsum('i,ij,ik->jk', cc, bb, bb)
 
                     # Degrees of freedom
                     ndf += mask.sum()
@@ -294,12 +302,6 @@ class FluxCorr(CorrectionModel):
         else:
             ndf -= basis_size
 
-        # Only trace when all arms are fitted but for each rv
-        if self.trace is not None:
-            # First dimension must index rv items
-            log_L = self.eval_log_L_phi_chi(phi, chi)
-            self.trace.on_eval_phi_chi(spectra, templates, bases, log_L, phi, chi)
-
         if np.size(phi) == 1:
             phi = phi.item()
 
@@ -308,6 +310,9 @@ class FluxCorr(CorrectionModel):
 
         if np.size(ndf) == 1:
             ndf = ndf.item()
+
+        if self.trace is not None:
+            self.trace.on_eval_phi_chi(spectra, templates, bases, phi, chi)
 
         return phi, chi, ndf
     
@@ -326,6 +331,10 @@ class FluxCorr(CorrectionModel):
             nu2 = np.empty(phi.shape[:-1])
             for i in np.ndindex(nu2.shape):
                 nu2[i] = np.dot(phi[i], np.linalg.solve(chi[i], phi[i]))
+        
+        if self.trace is not None:
+            self.trace.on_eval_nu2(phi, chi, nu2)
+        
         return nu2
     
     def eval_log_L_phi_chi(self, phi, chi):
