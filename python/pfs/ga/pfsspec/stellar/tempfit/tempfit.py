@@ -780,14 +780,15 @@ class TempFit():
             # Look up template in cache and shift to from quantized RV to actual RV
             if self.template_cache.is_cached(key):
                 temp = self.template_cache.get(key)
+
                 if self.trace is not None:
                     self.trace.on_template_cache_hit(template, rv_q, rv)
             else:
                 temp = self.process_template_impl(arm, template, spectrum, rv_q, psf=psf, wlim=wlim)
+                self.template_cache.push(key, temp)
+
                 if self.trace is not None:
                     self.trace.on_template_cache_miss(template, rv_q, rv)
-
-                self.template_cache.push(key, temp)
 
             # Shift from quantized RV to requested RV
             temp = temp.copy()
@@ -1839,6 +1840,11 @@ class TempFit():
             self.trace.on_fit_rv_start(spectra, templates,
                                        rv_0, rv_bounds, rv_prior, rv_step,
                                        log_L_fun)
+
+        # Calculate the pre-normalization constants. This is only here to make sure that the
+        # matrix elements during calculations stay around unity
+        if self.spec_norm is None or self.temp_norm is None:
+            self.spec_norm, self.temp_norm = self.get_normalization(spectra, templates, rv_0)
 
         if rv_fixed:
             # Only calculate the flux correction or continuum model coefficients at rv_0

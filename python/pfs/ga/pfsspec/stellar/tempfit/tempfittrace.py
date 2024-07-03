@@ -37,17 +37,9 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.reset()
 
     def reset(self):
-        self.process_spectrum_count = 0
-        self.process_template_count = 0
-        self.resample_template_count = 0
-        self.template_cache_hit_count = 0
-        self.template_cache_miss_count = 0
-        self.eval_phi_chi_count = 0
-        self.eval_log_L_phi_chi_count = 0
-        self.eval_log_L_a_count = 0
+        super().reset()
 
         self.rv_iter = None                    # Keep track of convergence
-
         self.rv_guess = None
 
     def add_args(self, config, parser):
@@ -133,7 +125,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         if self.log_level >= Trace.LOG_LEVEL_NONE:
             self._save_spectrum_history(f'pfsGA-RVFit-spectrum-{arm}-{i}-{{id}}.log', spectrum)
 
-        self.process_spectrum_count += 1
+        self.inc_counter('process_spectrum')
 
     def on_process_template(self, arm, rv, template, processed_template):
         if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
@@ -150,10 +142,10 @@ class TempFitTrace(Trace, SpectrumTrace):
 
             self.flush_figures()
 
-        self.process_template_count += 1
+        self.inc_counter('process_template')
 
     def on_resample_template(self, arm, rv, spectrum, template, resampled_template):
-        if self.resample_template_count == 0:
+        if self.get_counter('resample_template') is None:
             if self.plot_level:
 
                 self._plot_spectrum(f'pfsGA-RVFit-template-resampled-{arm}-{{id}}', arm,
@@ -166,13 +158,13 @@ class TempFitTrace(Trace, SpectrumTrace):
             if self.log_level >= Trace.LOG_LEVEL_NONE:
                 self._save_spectrum_history(f'pfsGA-RVFit-resampled-template-{arm}-{{id}}.log', resampled_template)
 
-        self.resample_template_count += 1
+        self.inc_counter('resample_template')
 
     def on_template_cache_hit(self, template, rv_q, rv):
-        self.template_cache_hit_count += 1
+        self.inc_counter('template_cache_hit')
     
     def on_template_cache_miss(self, template, rv_q, rv):
-        self.template_cache_miss_count += 1
+        self.inc_counter('template_cache_miss')
 
     def on_calculate_log_L(self, spectra, templates, rv, log_L):
         pass
@@ -180,16 +172,19 @@ class TempFitTrace(Trace, SpectrumTrace):
     # Callbacks related to flux correction
 
     def on_eval_flux_corr_basis(self, spectra, basis):
-        pass
+        self.inc_counter('eval_flux_corr_basis')
 
-    def on_eval_phi_chi(self, spectra, templates, bases, log_L, phi, chi):
-        self.eval_phi_chi_count += 1
+    def on_eval_phi_chi(self, spectra, templates, bases, phi, chi):
+        self.inc_counter('eval_phi_chi')
 
     def on_eval_log_L_phi_chi(self, phi, chi, log_L):
-        self.eval_log_L_phi_chi_count += 1
+        self.inc_counter('eval_log_L_phi_chi')
 
     def on_eval_log_L_a(self, phi, chi, a, log_L):
-        self.eval_log_L_a_count += 1
+        self.inc_counter('eval_log_L_a')
+
+    def on_eval_nu2(self, phi, chi, nu2):
+        self.inc_counter('eval_nu2')
 
     #endregion
                 

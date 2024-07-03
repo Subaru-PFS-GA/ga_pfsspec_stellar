@@ -68,6 +68,16 @@ class ModelGridTempFitTrace(TempFitTrace):
                             rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                             log_L_fun)
         
+        if self.plot_rv_fit:
+            self._plot_rv_fit_results(rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
+                                      params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
+                                      cov)
+        
+    def _plot_fit_results(self,
+                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
+                          params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
+                          cov):
+
         # TODO: move it to a function and remove duplicate lines
         # Plot corner plot of parameters
         nparam = len(params_fit)
