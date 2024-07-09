@@ -153,15 +153,11 @@ class ContNorm(CorrectionModel):
 
         def get_pixels_per_exp(arm, spec, temp):
             """
-            Return the valid pixels for a single exposure
+            Return the continuum normalized flux in every pixel of the spectrum.
             """
 
-            if temp is not None:
-                flux = spec.flux / temp.flux
-                flux_err = spec.flux_err / temp.flux if spec.flux_err is not None else None
-            else:
-                flux = spec.flux
-                flux_err = spec.flux_err
+            flux = spec.flux / temp.flux
+            flux_err = spec.flux_err / temp.flux if spec.flux_err is not None else None
 
             return spec.wave, flux, flux_err, spec.mask & temp.mask
         
@@ -327,6 +323,17 @@ class ContNorm(CorrectionModel):
         
         return a
 
+    def eval_correction(self, pp_specs, pp_temps, a=None):
+        if self.use_cont_norm:
+            if a is None:
+                a, continua = self.fit_continuum(pp_specs, pp_temps)
+            else:
+                continua = self.eval_continuum_fit(pp_specs, pp_temps, a)
+        else:
+            continua = None
+
+        return continua
+
     def apply_correction(self, pp_specs, pp_temps, a=None):
         """
         Apply the continuum correction to pre-processed templates. Templates
@@ -344,10 +351,7 @@ class ContNorm(CorrectionModel):
         """
 
         if self.use_cont_norm:
-            if a is None:
-                a, continua = self.fit_continuum(pp_specs, pp_temps)
-            else:
-                continua = self.eval_continuum_fit(pp_specs, pp_temps, a)
+            continua = self.eval_correction(pp_specs, pp_temps, a=a)
 
             for arm in pp_specs:
                 for ei, (spec, temp, cont) in enumerate(zip(pp_specs[arm], pp_temps[arm], continua[arm])):
