@@ -87,7 +87,8 @@ class Spline(ContinuumModel):
         s = self.wave_sort
         
         mask = self.get_full_mask(mask)[s]
-        knots = np.round(np.linspace(0, wave[mask].size, int(wave[mask].size / self.npix)))[1:-1].astype(int)
+        size = mask.sum()
+        knots = np.round(np.linspace(0, size, int(size / self.npix)))[1:-1].astype(int)
         w = 1 / flux_err[s][mask] ** 2 if flux_err is not None else None
         t, c, k = splrep(wave[s][mask], flux[s][mask], w=w, t=wave[s][mask][knots], k=self.deg)
 
