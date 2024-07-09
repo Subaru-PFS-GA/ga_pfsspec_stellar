@@ -2050,6 +2050,34 @@ class TempFit():
                               a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                               cov=C, log_L_fit=lp)
 
+    def eval_correction(self, spectra, templates, rv, a=None):
+        """
+        Evaluate the correction model at the given RV on the wavelength grid
+        of the observed spectra.
+
+        This function serves mainly debugging purposes as the meaning of the correction
+        model is different for flux correction or continuum normalization.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv : float
+            Radial velocity
+        a : ndarray
+            Correction model parameters (optional)
+
+        """
+
+        pp_specs = self.preprocess_spectra(spectra)
+        pp_temps = self.preprocess_templates(spectra, templates, rv)
+        
+        corrections = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
+
+        return corrections
+
     def eval_model(self, spectra, templates, rv, a=None, renormalize=True):
         """
         Evaluate the best fit model (flux corrected or continuum normalized) at the given RV.
@@ -2074,11 +2102,8 @@ class TempFit():
             Synthetic stellar templates corrected for RV and flux correction
         """
 
-        if a is None:
-            a, pp_specs, pp_temps = self.calculate_coeffs(spectra, templates, rv)
-        else:
-            pp_specs = self.preprocess_spectra(spectra)
-            pp_temps = self.preprocess_templates(spectra, templates, rv)
+        pp_specs = self.preprocess_spectra(spectra)
+        pp_temps = self.preprocess_templates(spectra, templates, rv)
         
         self.correction_model.apply_correction(pp_specs, pp_temps, a)
 
