@@ -718,13 +718,13 @@ class ModelGridTempFit(TempFit):
         :param params_bounds: Dictionary of tuples, parameters bounds.
         :param params_fixed: Dictionary of fixed parameter values.
         """
-        
+
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
         rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_step = rv_step if rv_step is not None else self.rv_step
-
+        
         params_0 = params_0 if params_0 is not None else self.params_0
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
         params_free = self.determine_free_params(params_fixed)
@@ -735,6 +735,15 @@ class ModelGridTempFit(TempFit):
         # Make sure all randomly generated parameters are within the grid
         # TODO: this doesn't account for any possible holes
         grid_bounds = self.determine_grid_bounds(params_bounds, params_free)
+
+        # Determine the (buffered) wavelength limit in which the templates will be convolved
+        # with the PSF. This should be slightly larger than the observed wavelength range.
+        if self.template_wlim is None:
+            # Use different template wlim for each arm but same for each exposure
+            self.template_wlim = {}
+            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False,  rv_bounds=rv_bounds)
+            for mi, arm in enumerate(spectra):
+                self.template_wlim[arm] = wlim[mi]
 
         if params_0 is None:
             # TODO
@@ -748,12 +757,7 @@ class ModelGridTempFit(TempFit):
             
         if params_fixed is None:
             params_fixed = []
-            
-        if self.template_wlim is None:
-            # Use different template for each arm but same for each exposure
-            self.template_wlim = self.determine_wlim(spectra, rv_bounds=rv_bounds,
-                                                     per_arm=True, per_exp=False)
-
+        
         # Get objective function
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra,

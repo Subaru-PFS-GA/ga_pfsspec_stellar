@@ -98,25 +98,25 @@ class TestTempFitFluxCorr(TempFitTestBase):
                 use_priors=False)
         
         # Test different types of freedom
-        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False,
+        models = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False,
                                               create_model_func=tempfit.correction_model.create_flux_corr)
-        self.assertIsInstance(model, PolynomialFluxCorrection)
+        self.assertEqual(1, len(models))
+        self.assertIsInstance(models[0], PolynomialFluxCorrection)
 
-        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True,
+        models = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True,
                                               create_model_func=tempfit.correction_model.create_flux_corr)
-        self.assertIsInstance(model, list)
-        self.assertIsInstance(model[0], PolynomialFluxCorrection)
+        self.assertEqual(2, len(models))
+        self.assertIsInstance(models[0], PolynomialFluxCorrection)
 
-        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False,
+        models = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False,
                                               create_model_func=tempfit.correction_model.create_flux_corr)
-        self.assertIsInstance(model, dict)
-        self.assertIsInstance(model['b'], PolynomialFluxCorrection)
+        self.assertEqual(2, len(models))
+        self.assertIsInstance(models[0], PolynomialFluxCorrection)
 
-        model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True,
+        models = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True,
                                               create_model_func=tempfit.correction_model.create_flux_corr)
-        self.assertIsInstance(model, dict)
-        self.assertIsInstance(model['b'], list)
-        self.assertIsInstance(model['b'][0], PolynomialFluxCorrection)
+        self.assertEqual(4, len(models))
+        self.assertIsInstance(models[0], PolynomialFluxCorrection)
 
     def test_get_coeff_count(self):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
@@ -137,10 +137,10 @@ class TestTempFitFluxCorr(TempFitTestBase):
             [ False, False, False, True, 1, 10 ],
             [ False, False, True, False, 1, 10 ],
             [ False, False, True, True, 1, 20 ],
-            [ False, True, False, False, 4, 5 ],
-            [ False, True, False, True, 4, 10 ],
-            [ False, True, True, False, 4, 10 ],
-            [ False, True, True, True, 4, 20 ],
+            [ False, True, False, False, 2, 5 ],
+            [ False, True, False, True, 2, 10 ],
+            [ False, True, True, False, 2, 10 ],
+            [ False, True, True, True, 2, 20 ],
             [ True, False, False, False, 2, 5 ],
             [ True, False, False, True, 2, 10 ],
             [ True, False, True, False, 2, 10 ],
@@ -152,9 +152,9 @@ class TestTempFitFluxCorr(TempFitTestBase):
         ]
 
         # Test different types of freedom
-        for [tempfit.amplitude_per_arm, tempfit.amplitude_per_exp,
-             tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
-             gt_amp_count, gt_coeff_count] in gt:
+        for i, [tempfit.amplitude_per_arm, tempfit.amplitude_per_exp,
+                tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
+                gt_amp_count, gt_coeff_count] in enumerate(gt):
             
             tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
             amp_count = tempfit.get_amp_count(specs)
@@ -182,10 +182,10 @@ class TestTempFitFluxCorr(TempFitTestBase):
             [ False, False, False, True, 1, 10 ],
             [ False, False, True, False, 1, 10 ],
             [ False, False, True, True, 1, 20 ],
-            [ False, True, False, False, 4, 5 ],
-            [ False, True, False, True, 4, 10 ],
-            [ False, True, True, False, 4, 10 ],
-            [ False, True, True, True, 4, 20 ],
+            [ False, True, False, False, 2, 5 ],
+            [ False, True, False, True, 2, 10 ],
+            [ False, True, True, False, 2, 10 ],
+            [ False, True, True, True, 2, 20 ],
             [ True, False, False, False, 2, 5 ],
             [ True, False, False, True, 2, 10 ],
             [ True, False, True, False, 2, 10 ],
@@ -197,9 +197,9 @@ class TestTempFitFluxCorr(TempFitTestBase):
         ]
 
         # Test different types of freedom
-        for [tempfit.amplitude_per_arm, tempfit.amplitude_per_exp,
-             tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
-             gt_amp_count, gt_coeff_count] in gt:
+        for i, [tempfit.amplitude_per_arm, tempfit.amplitude_per_exp,
+                tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
+                gt_amp_count, gt_coeff_count] in enumerate(gt):
             
             tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
 

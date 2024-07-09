@@ -2,6 +2,7 @@ import numpy as np
 import numpy.testing as npt
 import matplotlib.pyplot as plt
 
+from pfs.ga.pfsspec.core import Spectrum
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
 from pfs.ga.pfsspec.stellar.tempfit import TempFit, TempFitTrace
 
@@ -27,6 +28,476 @@ class TestTempFit(TempFitTestBase):
             tempfit.rv_prior = None
 
         return tempfit
+    
+    def get_dummy_spectrum(self, arm, use_mask=True, all_masked=False):
+        # Generate fake spectra for functional testing
+        if arm == 'b':
+            wave = np.linspace(3000, 6000, 3000)
+        elif arm == 'r':
+            wave = np.linspace(6000, 9000, 3000)
+        flux = np.ones_like(wave)
+
+        if use_mask:
+            if all_masked:
+                mask = np.full_like(wave, False, dtype=bool)
+            else:
+                mask = np.full_like(wave, True, dtype=bool)
+
+        spec = Spectrum()
+        spec.wave = wave
+        spec.flux = flux
+
+        return spec
+
+    def get_dummy_spectra(self, single_exp, single_exp_list, missing_exp, missing_all_exp, missing_arm):
+        """
+        Generate fake spectra for functional testing
+
+        Parameters
+        ----------
+        single_exp : bool
+            If True, generate a single exposure with two arms
+        single_exp_list : bool
+            If True, generate a single exposure but returns as a list
+        missing_exp : bool
+            If True, generate a missing exposure
+        missing_all_exp : bool
+            If True, generate a missing exposure for all arms
+        missing_arm : str
+            If not None, generate a missing arm
+        """
+
+        if single_exp:
+            specs = {
+                'b': self.get_dummy_spectrum('b'),
+                'r': self.get_dummy_spectrum('r')
+            }
+        elif single_exp_list:
+            specs = {
+                'b': [ self.get_dummy_spectrum('b') ],
+                'r': [ self.get_dummy_spectrum('r') ]
+            }
+        elif missing_exp:
+            specs = {
+                'b': [ self.get_dummy_spectrum('b'), self.get_dummy_spectrum('b') ],
+                'r': [ None, self.get_dummy_spectrum('r') ]
+            }
+        elif missing_all_exp:
+            specs = {
+                'b': [ self.get_dummy_spectrum('b'), None, None ],
+                'r': [ None, self.get_dummy_spectrum('r'), None ]
+            }
+        elif missing_arm:
+            specs = {
+                'b': [ None, None ],
+                'r': [ self.get_dummy_spectrum('r'), self.get_dummy_spectrum('r') ]
+            }
+        else:
+            specs = {
+                'b': [ self.get_dummy_spectrum('b'), self.get_dummy_spectrum('b') ],
+                'r': [ self.get_dummy_spectrum('r'), self.get_dummy_spectrum('r') ]
+            }
+
+        return specs
+    
+    def enumerate_spectra_helper(self, tempfit, ground_truth, include_none=False):
+        for k1 in ground_truth:
+            for k2, gt in ground_truth[k1].items():
+                per_arm, per_exp = k1
+                single_exp, single_exp_list, missing_exp, missing_all_exp, missing_arm = k2
+                
+                specs = self.get_dummy_spectra(single_exp, single_exp_list, missing_exp, missing_all_exp, missing_arm)
+                spec_list = list(tempfit.enumerate_spectra(specs, per_arm=per_arm, per_exp=per_exp, include_none=include_none))
+
+                self.assertEqual(gt['count'], len(spec_list))
+                for i, (arm, ei, mi, spec) in enumerate(spec_list):
+                    self.assertEqual(gt['arm'][i], arm)
+                    self.assertEqual(gt['ei'][i], ei)
+                    self.assertEqual(gt['mi'][i], mi)
+    
+    def test_enumerate_spectra(self):
+        tempfit = self.get_tempfit()
+
+        ground_truth = {
+            # per_arm, per_exp
+            (True, True,): 
+            {
+                # All good
+                (False, False, False, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 1, 2, 3 ]
+                },
+                # Single exposure
+                (True, False, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Single exposure as list
+                (False, True, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Missing exposure
+                (False, False, True, False, False): {
+                    'count': 3,
+                    'arm': [ 'b', 'b', 'r' ],
+                    'ei': [ 0, 1, 1 ],
+                    'mi': [ 0, 1, 2 ]
+                },
+                # Missing all exposures
+                (False, False, False, True, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 1 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Missing arm
+                (False, False, False, False, True): {
+                    'count': 2,
+                    'arm': [ 'r', 'r' ],
+                    'ei': [ 0, 1 ],
+                    'mi': [ 0, 1 ]
+                },
+            },
+            # per_arm, per_exp
+            (True, False): 
+            {
+                # All good
+                (False, False, False, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 0, 1, 1 ]
+                },
+                # Single exposure
+                (True, False, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Single exposure as list
+                (False, True, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Missing exposure
+                (False, False, True, False, False): {
+                    'count': 3,
+                    'arm': [ 'b', 'b', 'r' ],
+                    'ei': [ 0, 1, 1 ],
+                    'mi': [ 0, 0, 1 ]
+                },
+                # Missing all exposures
+                (False, False, False, True, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 1 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Missing arm
+                (False, False, False, False, True): {
+                    'count': 2,
+                    'arm': [ 'r', 'r' ],
+                    'ei': [ 0, 1 ],
+                    'mi': [ 0, 0 ]
+                },
+            },
+            # per_arm, per_exp
+            (False, True): 
+            {
+                # All good
+                (False, False, False, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 1, 0, 1 ]
+                },
+                # Single exposure
+                (True, False, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Single exposure as list
+                (False, True, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Missing exposure
+                (False, False, True, False, False): {
+                    'count': 3,
+                    'arm': [ 'b', 'b', 'r' ],
+                    'ei': [ 0, 1, 1 ],
+                    'mi': [ 0, 1, 1 ]
+                },
+                # Missing all exposures
+                (False, False, False, True, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 1 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Missing arm
+                (False, False, False, False, True): {
+                    'count': 2,
+                    'arm': [ 'r', 'r' ],
+                    'ei': [ 0, 1 ],
+                    'mi': [ 0, 1 ]
+                },
+            },
+            # per_arm, per_exp
+            (False, False): 
+            {
+                # All good
+                (False, False, False, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 0, 0, 0 ]
+                },
+                # Single exposure
+                (True, False, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Single exposure as list
+                (False, True, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Missing exposure
+                (False, False, True, False, False): {
+                    'count': 3,
+                    'arm': [ 'b', 'b', 'r' ],
+                    'ei': [ 0, 1, 1 ],
+                    'mi': [ 0, 0, 0 ]
+                },
+                # Missing all exposures
+                (False, False, False, True, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 1 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Missing arm
+                (False, False, False, False, True): {
+                    'count': 2,
+                    'arm': [ 'r', 'r' ],
+                    'ei': [ 0, 1 ],
+                    'mi': [ 0, 0 ]
+                },
+            },
+        }
+
+        self.enumerate_spectra_helper(tempfit, ground_truth)
+
+    def test_enumerate_spectra_include_none(self):
+        tempfit = self.get_tempfit()
+
+        ground_truth = {
+            # per_arm, per_exp
+            (True, True,): 
+            {
+                # All good
+                (False, False, False, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 1, 2, 3 ]
+                },
+                # Single exposure
+                (True, False, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Single exposure as list
+                (False, True, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Missing exposure
+                (False, False, True, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 1, None, 2 ]
+                },
+                # Missing all exposures
+                (False, False, False, True, False): {
+                    'count': 6,
+                    'arm': [ 'b', 'b', 'b', 'r', 'r', 'r' ],
+                    'ei': [ 0, 1, 2, 0, 1, 2 ],
+                    'mi': [ 0, None, None, None, 1, None ]
+                },
+                # Missing arm
+                (False, False, False, False, True): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ None, None, 0, 1 ]
+                },
+            },
+            # per_arm, per_exp
+            (True, False): 
+            {
+                # All good
+                (False, False, False, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 0, 1, 1 ]
+                },
+                # Single exposure
+                (True, False, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Single exposure as list
+                (False, True, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 1 ]
+                },
+                # Missing exposure
+                (False, False, True, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 0, None, 1 ]
+                },
+                # Missing all exposures
+                (False, False, False, True, False): {
+                    'count': 6,
+                    'arm': [ 'b', 'b', 'b', 'r', 'r', 'r' ],
+                    'ei': [ 0, 1, 2, 0, 1, 2 ],
+                    'mi': [ 0, None, None, None, 1, None ]
+                },
+                # Missing arm
+                (False, False, False, False, True): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ None, None, 0, 0 ]
+                },
+            },
+            # per_arm, per_exp
+            (False, True): 
+            {
+                # All good
+                (False, False, False, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 1, 0, 1 ]
+                },
+                # Single exposure
+                (True, False, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Single exposure as list
+                (False, True, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Missing exposure
+                (False, False, True, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 1, None, 1 ]
+                },
+                # Missing all exposures
+                (False, False, False, True, False): {
+                    'count': 6,
+                    'arm': [ 'b', 'b', 'b', 'r', 'r', 'r' ],
+                    'ei': [ 0, 1, 2, 0, 1, 2 ],
+                    'mi': [ 0, None, None, None, 1, None ]
+                },
+                # Missing arm
+                (False, False, False, False, True): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ None, None, 0, 1 ]
+                },
+            },
+            # per_arm, per_exp
+            (False, False): 
+            {
+                # All good
+                (False, False, False, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 0, 0, 0 ]
+                },
+                # Single exposure
+                (True, False, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Single exposure as list
+                (False, True, False, False, False): {
+                    'count': 2,
+                    'arm': [ 'b', 'r' ],
+                    'ei': [ 0, 0 ],
+                    'mi': [ 0, 0 ]
+                },
+                # Missing exposure
+                (False, False, True, False, False): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ 0, 0, None, 0 ]
+                },
+                # Missing all exposures
+                (False, False, False, True, False): {
+                    'count': 6,
+                    'arm': [ 'b', 'b', 'b', 'r', 'r', 'r' ],
+                    'ei': [ 0, 1, 2, 0, 1, 2 ],
+                    'mi': [ 0, None, None, None, 0, None ]
+                },
+                # Missing arm
+                (False, False, False, False, True): {
+                    'count': 4,
+                    'arm': [ 'b', 'b', 'r', 'r' ],
+                    'ei': [ 0, 1, 0, 1 ],
+                    'mi': [ None, None, 0, 0 ]
+                },
+            },
+        }
+
+        self.enumerate_spectra_helper(tempfit, ground_truth, include_none=True)
     
     def test_get_param_packing_functions_rv(self):
         tempfit = self.get_tempfit()
@@ -175,7 +646,6 @@ class TestTempFit(TempFitTestBase):
         spec = self.get_observation(arm='mr')
         
         tempfit = self.get_tempfit()
-        tempfit.determine_wlim({ 'mr': spec }, (-300, 300))
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         tm = tempfit.process_template('mr', temp, spec, 100)
 
@@ -212,18 +682,19 @@ class TestTempFit(TempFitTestBase):
                 use_priors=False)
         
         # Test different types of freedom
+
+        # Single model fitted to all arms and exposures
         wlim = tempfit.determine_wlim(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False)
-        self.assertIsInstance(wlim, tuple)
+        self.assertEqual(len(wlim), 1)
 
+        # Single model fitted to all arms, but per exposure
         wlim = tempfit.determine_wlim(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True)
-        self.assertIsInstance(wlim, list)
-        self.assertIsInstance(wlim[0], tuple)
+        self.assertEqual(len(wlim), 2)
 
+        # Different model fitted to each arm but same for all exposures
         wlim = tempfit.determine_wlim(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False)
-        self.assertIsInstance(wlim, dict)
-        self.assertIsInstance(wlim['b'], tuple)
+        self.assertEqual(len(wlim), 2)
 
+        # Different model fitted to each arm and each exposure
         wlim = tempfit.determine_wlim(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True)
-        self.assertIsInstance(wlim, dict)
-        self.assertIsInstance(wlim['b'], list)
-        self.assertIsInstance(wlim['b'][0], tuple)
+        self.assertEqual(len(wlim), 4)

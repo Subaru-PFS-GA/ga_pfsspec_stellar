@@ -136,7 +136,7 @@ class TempFit():
             self.template_psf = None                # Dict of psf to downgrade templates with
             self.template_resampler = RESAMPLERS['fluxcons']()  # Resample template to instrument pixels
             self.template_cache_resolution = 50     # Cache templates with this resolution in RV
-            self.template_wlim = None               # Model wavelength limits for each spectrograph arm
+            self.template_wlim = None               # Model wavelength limits for each spectrograph arm to limit convolution
             self.template_wlim_buffer = 100         # Wavelength buffer in A, depends on line spread function
             
             self.cache_templates = False    # Cache PSF-convolved templates
@@ -177,7 +177,7 @@ class TempFit():
             self.template_psf = orig.template_psf
             self.template_resampler = orig.template_resampler
             self.template_cache_resolution = orig.template_cache_resolution
-            self.template_wlim = orig.template_wlims
+            self.template_wlim = orig.template_wlim
             self.template_wlim_buffer = orig.template_wlim_buffer
 
             self.cache_templates = orig.cache_templates
@@ -310,6 +310,138 @@ class TempFit():
         """
 
         return TempFitTrace()
+
+    def enumerate_spectra(self, spectra: dict, per_arm, per_exp, include_none=False, include_masked=False, mask_bits=None):
+        """
+        Enumerate all spectra in the dictionary of spectra. Return the arm,
+        the exposure index, as well as an index that uniquely identifies the
+        correction model given that the model is parameterized per arm and/or
+        per exposure. This generator function is used to iterate over all
+        amplitudes or coefficients in the correction models.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        per_arm : bool
+            Whether to enumerate correction models per arm
+        per_exp : bool
+            Whether to enumerate correction models per exposure
+        include_none : bool
+            Include None values in the enumeration
+        include_masked : bool
+            Include spectra that are completely masked in the enumeration
+        mask_bits : int
+            Mask bits to observe when converting spectrum flags to a boolean mask (None means any)
+
+        Returns
+        -------
+        arm : str
+            Arm key
+        ei : int
+            Exposure index
+        mi : int
+            Model index
+        spec : Spectrum
+            Spectrum object
+        """
+
+        def is_good(spec):
+            if spec is None:
+                raise ValueError("Spectrum is None")
+            elif include_masked:
+                # Include spectra that may be completely masked
+                return True
+            elif spec.mask is None:
+                # No mask, assume the spectrum is good
+                return True
+            else:
+                # Only include spectra with some valid data
+                mask = spec.mask_as_bool(bits=mask_bits)
+                return mask.sum() > 0
+            
+        # Find those exposures where all spectra are bad in all arms
+        # and exclude them from the model enumeration
+        exp_exl = set()
+        exp_count = np.max([ len(spectra[arm]) if isinstance(spectra[arm], list) else 1 for arm in spectra ])
+        for ei in range(exp_count):
+            found = False
+            for arm in spectra:
+                if isinstance(spectra[arm], list):
+                    if ei < len(spectra[arm]):
+                        spec = spectra[arm][ei]
+                    else:
+                        spec = None
+                else:
+                    spec = spectra[arm]
+
+                if spec is not None and is_good(spec):
+                    found = True
+                    break
+
+            if not found:
+                exp_exl.add(ei)
+
+        if per_arm:
+            if per_exp:
+                # Increase index for each arm and each exposure
+                mi = 0
+                for arm in spectra:
+                    for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
+                        if spec is None and include_none:
+                            yield arm, ei, None, None
+                        elif spec is not None and is_good(spec):
+                            yield arm, ei, mi, spec
+                            mi += 1
+            else:
+                # Increase index for each arm but not for exposures
+                # Count only arms where at least one spectrum is good
+                mi = 0
+                for arm in spectra:
+                    found = False
+                    for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
+                        if spec is None and include_none:
+                            yield arm, ei, None, None
+                        elif spec is not None and is_good(spec):
+                            found = True
+                            yield arm, ei, mi, spec
+
+                    if found:
+                        mi += 1
+        else:
+            if per_exp:
+                # Increase index for each exposure but not for arms
+                # The trick here is to skip the exposures which are None in every arm
+                # because it would cause a singular matrix in linear flux correction models
+
+                for arm in spectra:
+                    mi = 0
+                    for ei in range(exp_count):
+                        spec = None
+                        if isinstance(spectra[arm], list) :
+                            if ei < len(spectra[arm]):
+                                spec = spectra[arm][ei]
+                        else:
+                            spec = spectra[arm]
+
+                        if spec is None and include_none:
+                            yield arm, ei, None, None
+                        elif spec is not None and is_good(spec):
+                            yield arm, ei, mi, spec
+
+                        # This will increse the model index even if the spectrum is None
+                        # or not good but there is at least one good spectrum in some arm
+                        if ei not in exp_exl:
+                            mi += 1
+            else:
+                # Use a single model, regardless of the arm or exposure
+                mi = 0
+                for arm in spectra:
+                    for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
+                        if spec is None and include_none:
+                            yield arm, ei, None, None
+                        elif spec is not None and is_good(spec):
+                            yield arm, ei, mi, spec
     
     def determine_wlim(self, spectra: dict, /, per_arm=True, per_exp=True,
                        rv_bounds=None, wlim_buffer=None, round_to=None):
@@ -332,11 +464,10 @@ class TempFit():
 
         Returns
         -------
-        dict or list or tuple
-            Dictionary of wavelength limits for each arm, or list of wavelength limits for each exposure,
-            or a tuple of wavelength limits for all arms and exposures.
+        dict
+            Dictionary of wavelength limits for each correction model index.
         """
-        
+
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         wlim_buffer = wlim_buffer if wlim_buffer is not None else self.template_wlim_buffer
 
@@ -366,78 +497,19 @@ class TempFit():
         
             return (wmin, wmax)
         
-        if per_arm:
-            # Use a different flux correction (at least in terms of domain) for each arm
-            wlim = {}
-            for arm in spectra:
-                if per_exp:
-                    # Separately for each arm and each exposure
-                    wlim[arm] = []
-                    for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                        if spec is not None:
-                            [wmin, wmax] = spec.wave[~np.isnan(spec.wave)][[0, -1]]
-                            wlim[arm].append(buffer_limits(wmin, wmax))
-                        else:
-                            wlim[arm].append(None)
-                else:
-                    # Separately for each arm but for all exposures
-                    found = False
-                    wmin, wmax = None, None
-                    for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                        if spec is not None:
-                            w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
-                            wmin = min(wmin or w[0], w[0])
-                            wmax = max(wmax or w[1], w[1])
-                            found = True
-
-                    if found:
-                        wlim[arm] = buffer_limits(wmin, wmax)
-                    else:
-                        raise Exception("No valid spectra found to determine the wavelength limits.")
-        else:
-            # Use the same flux correction for each arm, the domain will cover all arms
-            if per_exp:
-                # A single model for each arm, separately for each exposure
-                # Assume that the exposures match up in the arms
-                wmin, wmax = None, None
-                found = False
-                exp_count = {}
-                for arm in spectra:
-                    for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                        if spec is not None:
-                            w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
-                            wmin = min(wmin or w[0], w[0])
-                            wmax = max(wmax or w[1], w[1])
-                            found = True
-
-                # Check if the exposures match up in all arms
-                exp_count = np.unique([ len(spectra[arm]) if isinstance(spectra[arm], list) else 1 for arm in spectra ])
-                if exp_count.size > 1:
-                    raise Exception("Exposures do not match up in the arms.")
-
-                if found:
-                    wlim = []
-                    for i in range(exp_count[0]):
-                        wlim.append(buffer_limits(wmin, wmax))
-                else:
-                    raise Exception("No valid spectra found to determine the wavelength limits.")
-            else:
-                # A single model for all arms and exposures
-                wmin, wmax = None, None
-                found = False
-                for arm in spectra:
-                    for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                        if spec is not None:
-                            w = spec.wave[~np.isnan(spec.wave)][[0, -1]]
-                            wmin = min(wmin or w[0], w[0])
-                            wmax = max(wmax or w[1], w[1])
-                            found = True
-
-                if found:
-                    wlim = buffer_limits(wmin, wmax)
-                else:
-                    raise Exception("No valid spectra found to initialize the flux correction model.")
+        # Enumerate every spectra in each arm and determine the wavelength limits for each correction model,
+        # determined by the model index `mi`.
+        wlim = {}
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=per_arm, per_exp=per_exp, include_none=False):
+            wmin, wmax = spec.wave[~np.isnan(spec.wave)][[0, -1]]
+            wmin, wmax = buffer_limits(wmin, wmax)
             
+            if mi in wlim:
+                wmin = min(wlim[mi][0] or wmin, wmin)
+                wmax = max(wlim[mi][1] or wmax, wmax)
+
+            wlim[mi] = (wmin, wmax)
+
         return wlim
 
     def init_correction_models(self, spectra, rv_bounds=None, force=False):
@@ -489,26 +561,20 @@ class TempFit():
 
         Returns
         -------
-        dict or list or tuple
-            Dictionary of models for each arm, or list of models for each exposure,
-            or a tuple of models for all arms and exposures.
+        dict
+            Dictionary of models for each arm and/or exposure, indexed by the model index.
         """
 
-        def init_model_helper(wlim):
-            if isinstance(wlim, dict):
-                model = { arm: init_model_helper(wlim[arm]) for arm in wlim }
-            elif isinstance(wlim, list):
-                model = [ init_model_helper(wlim) for wlim in wlim ]
-            elif isinstance(wlim, tuple):
-                model = create_model_func(wlim)
-
-            return model
-
+        # Determine the wavelength limits for each model
         wlim = self.determine_wlim(spectra, per_arm=per_arm, per_exp=per_exp,
                                    rv_bounds=rv_bounds, wlim_buffer=wlim_buffer, round_to=round_to)
-        model = init_model_helper(wlim)
+        
+        # Initialize the correction models
+        models = {}
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=per_arm, per_exp=per_exp, include_none=False):
+            models[mi] = create_model_func(wlim[mi])
 
-        return model
+        return models
 
     def get_correction_model(self, model, arm, ei, per_arm=True, per_exp=True):
         """
@@ -545,6 +611,13 @@ class TempFit():
         Calculate a normalization factor for the spectra, as well as
         the templates assuming an RV=0 from the median flux.
 
+        Before calculating the normalization, templates are convolved down to
+        the resultion of the instrument and resampled to the same wavelength
+        grid as the corresponding spectra.
+
+        Make sure to call this function while `spec_norm` and `temp_norm` are
+        set to None.
+
         Parameters
         ----------
         spectra : dict of Spectrum or dict of list of Spectrum
@@ -563,37 +636,26 @@ class TempFit():
         very large numbers in the Fisher matrix or elsewhere.
         """
 
-        rv_0 = rv_0 if rv_0 is not None else self.rv_0
+        # Do not allow recalculating the normalization when it has already been done
+        assert self.spec_norm is None 
+        assert self.temp_norm is None
+
+        rv_0 = rv_0 if rv_0 is not None else (self.rv_0 if self.rv_0 is not None else 0.0)
 
         s = []
         t = []
-        for arm in spectra:
-            for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                if spec is not None:
-                    spec = self.process_spectrum(arm, ei, spec)
-                    s.append(spec.flux[spec.mask & (spec.flux > 0)])
-            
-            if self.template_psf is not None:
-                psf = self.template_psf[arm]
-            else:
-                psf = None
 
-            if self.template_wlim is not None:
-                wlim = self.template_wlim[arm]
-            else:
-                wlim = None
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=False, per_exp=False, include_none=False):
+            spec = self.process_spectrum(arm, ei, spec)
+            s.append(spec.flux[spec.mask & (spec.flux > 0)])
             
-            if rv_0 is not None:
-                rv = rv_0
-            else:
-                rv = 0.0
-
-            if spec is not None:
-                temp = self.process_template(arm, templates[arm], spec, rv, psf=psf, wlim=wlim)
-                t.append(temp.flux[temp.mask])
+            psf = self.template_psf[arm] if self.template_psf is not None else None
+            wlim = self.template_wlim[arm] if self.template_wlim is not None else None    
+            temp = self.process_template(arm, templates[arm], spec, rv_0, psf=psf, wlim=wlim)
+            t.append(temp.flux[temp.mask])
 
         if len(s) == 0 or len(t) == 0:
-            raise ValueError('No valid flux values found in spectra or templates')
+            raise ValueError('No valid flux values found in spectra or templates to determine the optimal normalization.')
 
         spec_flux = np.concatenate(s)
         temp_flux = np.concatenate(t)
@@ -659,15 +721,14 @@ class TempFit():
         """
 
         # Preprocess the observed spectra, mask, weight etc.
-        # These are independent of RV
+        # These are independent of RV 
         pp_spec = { arm: [] for arm in spectra }
-        for arm in spectra:
-            for ei, s in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]):
-                if s is not None:
-                    spec = self.process_spectrum(arm, ei, s)
-                    pp_spec[arm].append(spec)
-                else:
-                    pp_spec[arm].append(None)
+
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=False, per_exp=False, include_none=True):
+            if spec is not None:
+                pp_spec[arm].append(self.process_spectrum(arm, ei, spec))
+            else:
+                pp_spec[arm].append(None)
 
         return pp_spec
     
@@ -836,13 +897,13 @@ class TempFit():
         # Pre-process each exposure in each arm and pass them to the log L calculator
         # function of the flux correction or continuum fit model.
         pp_temp = { arm: [] for arm in spectra }
-        for arm in spectra:
-            for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]):
-                if spec is not None:
-                    temp = self.process_template(arm, templates[arm], spec, rv)
-                    pp_temp[arm].append(temp)
-                else:
-                    pp_temp[arm].append(None)
+
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=False, per_exp=False, include_none=True):
+            if spec is not None:
+                temp = self.process_template(arm, templates[arm], spec, rv)
+                pp_temp[arm].append(temp)
+            else:
+                pp_temp[arm].append(None)
 
         return pp_temp
     
@@ -920,30 +981,19 @@ class TempFit():
         for a multiplier) but handled differently for flux correction models and continuum models.
         """
 
-        if self.amplitude_per_exp:
-            amp_count = 0
-            for arm in spectra:
-                for s in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
-                    if s is not None:
-                        amp_count += 1
-        elif self.amplitude_per_arm:
-            amp_count = 0
-            for arm in spectra:
-                found = False
-                for s in spectra[arm] if isinstance(spectra[arm], list) else [ spectra[arm] ]:
-                    if s is not None:
-                        found = True
-                        break
-                if found:
-                    amp_count += 1
-        else:
-            amp_count = 1
+        if self.amplitude_per_fiber:
+            raise NotImplementedError()
+
+        # Enumerate the spectra and count the unique model indices `mi`
+        # to determine the number of amplitudes to be fitted.
+        mmi = []
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=self.amplitude_per_arm, per_exp=self.amplitude_per_exp, include_none=False):
+            mmi.append(mi)
+
+        amp_count = np.unique(mmi).size
 
         if amp_count == 0:
             raise ValueError('No valid spectra found')
-        
-        if self.amplitude_per_fiber:
-            raise NotImplementedError()
 
         return amp_count
 
@@ -1035,6 +1085,8 @@ class TempFit():
                     if bounds[0] is not None:
                         prior.min = bounds[0]
                 (prior.min, prior.max) = bounds[0]
+
+            raise NotImplementedError()
             
             # x = prior.sample(size)
             # if bounds is not None:
@@ -1743,9 +1795,16 @@ class TempFit():
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_step = rv_step if rv_step is not None else self.rv_step
 
+        # Determine the (buffered) wavelength limit in which the templates will be convolved
+        # with the PSF. This should be slightly larger than the observed wavelength range.
         if self.template_wlim is None:
-            self.determine_wlim(spectra, rv_bounds=rv_bounds)
+            # Use different template wlim for each arm but same for each exposure
+            self.template_wlim = {}
+            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False,  rv_bounds=rv_bounds)
+            for mi, arm in enumerate(spectra):
+                self.template_wlim[arm] = wlim[mi]
 
+        # Guess the initial RV
         if rv_0 is None and spectra is not None:
             _, _, rv_0 = self.guess_rv(spectra, templates,
                                        rv_bounds=rv_bounds, rv_prior=rv_prior,

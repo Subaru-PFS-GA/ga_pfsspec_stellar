@@ -135,23 +135,23 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
         # Test different types of freedom
         model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=False,
                                    create_model_func=tempfit.correction_model.create_continuum_model)
-        self.assertIsInstance(model, Spline)
+        self.assertEqual(1, len(model))
+        self.assertIsInstance(model[0], Spline)
 
         model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=False, per_exp=True,
                                    create_model_func=tempfit.correction_model.create_continuum_model)
-        self.assertIsInstance(model, list)
+        self.assertEqual(2, len(model))
         self.assertIsInstance(model[0], Spline)
 
         model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=False,
                                    create_model_func=tempfit.correction_model.create_continuum_model)
-        self.assertIsInstance(model, dict)
-        self.assertIsInstance(model['b'], Spline)
+        self.assertEqual(2, len(model))
+        self.assertIsInstance(model[0], Spline)
 
         model = tempfit.init_correction_model(specs, rv_bounds=(-500, 500), per_arm=True, per_exp=True,
                                               create_model_func=tempfit.correction_model.create_continuum_model)
-        self.assertIsInstance(model, dict)
-        self.assertIsInstance(model['b'], list)
-        self.assertIsInstance(model['b'][0], Spline)
+        self.assertEqual(4, len(model))
+        self.assertIsInstance(model[0], Spline)
 
     def test_get_coeff_count(self):
         tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
@@ -172,10 +172,10 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
             [ False, False, False, True, 1, 0 ],
             [ False, False, True, False, 1, 0 ],
             [ False, False, True, True, 1, 0 ],
-            [ False, True, False, False, 4, 0 ],
-            [ False, True, False, True, 4, 0 ],
-            [ False, True, True, False, 4, 0 ],
-            [ False, True, True, True, 4, 0 ],
+            [ False, True, False, False, 2, 0 ],
+            [ False, True, False, True, 2, 0 ],
+            [ False, True, True, False, 2, 0 ],
+            [ False, True, True, True, 2, 0 ],
             [ True, False, False, False, 2, 0 ],
             [ True, False, False, True, 2, 0 ],
             [ True, False, True, False, 2, 0 ],
@@ -187,9 +187,9 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
         ]
 
         # Test different types of freedom
-        for [tempfit.amplitude_per_arm, tempfit.amplitude_per_exp,
-             tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
-             gt_amp_count, gt_coeff_count] in gt:
+        for i, [tempfit.amplitude_per_arm, tempfit.amplitude_per_exp,
+                tempfit.correction_model.flux_corr_per_arm, tempfit.correction_model.flux_corr_per_exp,
+                gt_amp_count, gt_coeff_count] in enumerate(gt):
             
             tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
             amp_count = tempfit.get_amp_count(specs)

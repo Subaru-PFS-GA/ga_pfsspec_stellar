@@ -110,7 +110,7 @@ class ContNorm(CorrectionModel):
 
         if a is not None:
             a = self.split_coeffs(spectra, a)
-            self.eval_continuum_fit(spectra, templates, a)
+            continua = self.eval_continuum_fit(spectra, templates, a)
         else:
             # If the coefficients are not supplied, we have to fit the continuum
             # to the ratio of the observed flux and the templates
@@ -118,25 +118,37 @@ class ContNorm(CorrectionModel):
 
         # Sum up the log likelihoods for each arm and exposure
         log_L = 0
-        for arm in spectra:
-            for ei, (spec, temp, cont) in enumerate(zip(spectra[arm], templates[arm], continua[arm])):
-                if spec is not None:
-                    mask = spec.mask & temp.mask
-                    log_L -= 0.5 * np.sum((spec.flux[mask] - cont[mask] * temp.flux[mask]) ** 2 / spec.sigma2[mask])
-                else:
-                    # Missing exposure has no contribution to the likelihood
-                    pass
-                
-        return log_L
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(spectra,
+                                                                per_arm=self.cont_per_arm,
+                                                                per_exp=self.cont_per_exp,
+                                                                include_none=False):
+            temp = templates[arm][ei]
+            cont = continua[arm][ei]
 
+            mask = spec.mask & temp.mask
+            log_L -= 0.5 * np.sum((spec.flux[mask] - cont[mask] * temp.flux[mask]) ** 2 / spec.sigma2[mask])
+
+        return log_L
+    
     def fit_continuum(self, spectra, templates):
         """
         Fit the continuum model to the ratio of the spectra and the templates or,
-        if the templates are not provides, to the continuum directly.
+        if the templates are not provided, to the continuum directly.
         
         Templates are assumed to be Doppler shifted to a certain RV and resampled to
         the same grid as the spectra. Templates are also assumed to be normalized so
         taking the ratio of the measured flux effectively removes the absorption lines.
+
+        Depending on the configuration, the models are fitted to single exposures or
+        to all exposures simultaneously but the continuum model is always defined on a
+        per arm basis and, unlike flux correction, cannot be done for all arms at once.
+
+        Parameters
+        ----------
+        spectra : dict of list
+            Dictionary of preprocessed spectra for each arm and exposure.
+        templates : dict of list
+            Dictionary of preprocessed templates for each arm and exposure.
         """
 
         def get_pixels_per_exp(arm, spec, temp):
@@ -152,40 +164,6 @@ class ContNorm(CorrectionModel):
                 flux_err = spec.flux_err
 
             return spec.wave, flux, flux_err, spec.mask & temp.mask
-        
-        def get_pixels_all_exp(arm, spectra, templates):
-            """
-            Return the valid pixels for all exposures in the arm
-            """
-
-            wave = []
-            flux = []
-            flux_err = []
-            mask = []
-            for ie, (spec, temp) in enumerate(zip(spectra, templates)):
-                if spec is not None:
-                    w, f, fe, m = get_pixels_per_exp(arm, spec, temp)
-                    wave.append(w)
-                    flux.append(f)
-                    flux_err.append(fe)
-                    mask.append(m)
-                else:
-                    wave.append(None)
-                    flux.append(None)
-                    flux_err.append(None)
-                    mask.append(None)
-
-            return wave, flux, flux_err, mask
-        
-        def fit_continuum_per_exp(continuum_model, continuum_finder, wave, flux, flux_err, mask):
-            """
-            Fit continuum to a single exposure
-            """
-
-            params = continuum_model.fit(wave, flux, flux_err, mask=mask, continuum_finder=continuum_finder)
-            _, cont = continuum_model.eval(params)
-            
-            return params, cont
         
         def fit_continuum_all_exp(continuum_model, continuum_finder, wave, flux, flux_err, mask):
             """
@@ -231,37 +209,55 @@ class ContNorm(CorrectionModel):
                     iter += 1
 
             return params, cont
-
-        if self.cont_per_arm:
-            coeffs = {}
-            continua = {}
-            for arm in spectra:
-                if self.cont_per_exp:
-                    # Fit each exposure separately
-                    coeffs[arm] = []
-                    continua[arm] = []
-                    for ei, (spec, temp, model, finder) in enumerate(zip(spectra[arm], templates[arm],
-                                                                         self.cont_model[arm], self.cont_finder[arm])):
-                        if spec is not None:
-                            wave, flux, flux_err, mask = get_pixels_per_exp(arm, spec, temp)
-                            p, c = fit_continuum_per_exp(model, finder,
-                                                         wave, flux, flux_err, mask)
-                            coeffs[arm].append(p)
-                            continua[arm].append(c)
-                        else:
-                            coeffs[arm].append(None)
-                            continua[arm].append(None)
-                else:
-                    # Fit all exposures simultaneously
-                    model = self.cont_model[arm]
-                    finder = self.cont_finder[arm]
-                    wave, flux, flux_err, mask = get_pixels_all_exp(arm, spectra[arm], templates[arm])
-                    p, c = fit_continuum_all_exp(model, finder,
-                                                 wave, flux, flux_err, mask)
-                    coeffs[arm] = p
-                    continua[arm] = c
-        else:
+        
+        if not self.cont_per_arm:
             raise Exception('Continuum fitting using a single model for all arms is not supported yet.')
+
+        # The list `cont_model` is already populated for each model index
+        # Loop through all spectra and add the flux of unmasked pixels to a list
+        # that corresponds to the continuum models.
+        
+        r = range(len(self.cont_model))
+        key = { i: [] for i in r }
+        wave = { i: [] for i in r }
+        flux = { i: [] for i in r }
+        flux_err = { i: [] for i in r }
+        mask = { i: [] for i in r }
+        
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(spectra,
+                                                                per_arm=self.cont_per_arm,
+                                                                per_exp=self.cont_per_exp,
+                                                                include_none=False):
+            
+            key[mi].append((arm, ei))
+
+            temp = templates[arm][ei]
+            w, f, fe, m = get_pixels_per_exp(arm, spec, temp)
+
+            wave[mi].append(w)
+            flux[mi].append(f)
+            flux_err[mi].append(fe)
+            mask[mi].append(m)
+
+        # Combine all pixels for each model index and fit the model and fit the model
+        # Model parameter are returned in a dictionary keyed by the model index,
+        # whereas the continua are returned in a dict of lists keyed by the arm.
+        coeffs = {}
+        continua = { arm: [] for arm in spectra }
+        for arm, ei, _, _ in self.tempfit.enumerate_spectra(spectra,
+                                                            per_arm=False, per_exp=False,
+                                                            include_none=True):
+            continua[arm].append(None)
+
+        for mi in r:
+            model = self.cont_model[mi]
+            finder = self.cont_finder[mi]
+            params, cont = fit_continuum_all_exp(model, finder, wave[mi], flux[mi], flux_err[mi], mask[mi])
+            coeffs[mi] = params
+
+            # Continua are returned in a list so they have to be sorted out by arms and exposures
+            for i, (arm, ei) in enumerate(key[mi]):
+                continua[arm][ei] = cont[i]
 
         return coeffs, continua
     
@@ -272,31 +268,23 @@ class ContNorm(CorrectionModel):
         the same grid as the spectra.
         """
 
-        if self.cont_per_arm:
-            continua = {}
-            for arm in spectra:
-                if self.cont_per_exp:
-                    # Fit each exposure separately
-                    continua[arm] = []
-                    for ei, (spec, a, model) in enumerate(zip(spectra[arm], coeffs[arm], self.cont_model[arm],)):
-                        if spec is not None:
-                            _, cont = model.eval(a, wave=spec.wave)
-                            continua[arm].append(cont)
-                        else:
-                            continua[arm].append(None)
-                else:
-                    # Fit all exposures simultaneously
-                    continua[arm] = []
-                    for ei, spec in enumerate(spectra[arm]):
-                        if spec is not None:
-                            model = self.cont_model[arm]
-                            a = coeffs[arm]
-                            _, cont = model.eval(a, wave=spec.wave)
-                            continua[arm].append(cont)
-                        else:
-                            continua[arm].append(None)
-        else:
+        if not self.cont_per_arm:
             raise Exception('Continuum fitting using a single model for all arms is not supported yet.')
+
+        continua = { arm: [] for arm in spectra }
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(spectra,
+                                                                per_arm=self.cont_per_arm,
+                                                                per_exp=self.cont_per_exp,
+                                                                include_none=True):
+
+            model = self.cont_model[mi]
+            a = coeffs[mi]
+            
+            if spec is not None:
+                _, cont = model.eval(a, wave=spec.wave)
+                continua[arm].append(cont)
+            else:
+                continua[arm].append(None)
         
         return continua
     
@@ -336,11 +324,7 @@ class ContNorm(CorrectionModel):
 
         if a is None:
             a, _ = self.fit_continuum(spectra, templates)
-            
-        # a = self.concat_coeffs(a)
-        # if a.ndim > 1:
-        #     a = a.squeeze(0)
-
+        
         return a
 
     def apply_correction(self, pp_specs, pp_temps, a=None):
