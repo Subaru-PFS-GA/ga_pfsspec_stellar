@@ -28,5 +28,9 @@ class CorrectionModel():
         
     def calculate_coeffs(self, spectra, templates, a=None):
         raise NotImplementedError()
-
     
+    def eval_correction(self, pp_specs, pp_temps, a=None):
+        raise NotImplementedError()
+
+    def apply_correction(self, pp_specs, pp_temps, a=None):
+        raise NotImplementedError()

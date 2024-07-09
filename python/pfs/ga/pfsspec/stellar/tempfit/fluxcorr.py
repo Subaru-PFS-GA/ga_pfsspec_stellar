@@ -548,17 +548,33 @@ class FluxCorr(CorrectionModel):
 
         return -1.0 / (nu_0 * dd_nu_0)
     
-    def apply_flux_corr(self, temp, basis, a):
-        # Apply flux correction to a template.
-        # This feature is provided for evaluating the results only, not used
-        # during the fitting process
+    def eval_correction(self, pp_specs, pp_temps, a=None):
 
-        if self.use_flux_corr:
-            # Full flux correction
-            temp.multiply(np.dot(basis, a))
-        else:
-            # This is an amplitude only
-            temp.multiply(a)
+        def eval_flux_corr(temp, basis, a):
+            # Evaluate the flux correction model
+
+            if self.use_flux_corr:
+                # Full flux correction
+                corr = np.dot(basis, a)
+            else:
+                # This is an amplitude only
+                corr = a
+
+            return corr
+
+        if a is None:
+            a = self.calculate_coeffs(pp_specs, pp_temps)
+
+        bases, basis_size = self.get_flux_corr_basis(pp_specs)
+
+        corrections = { arm: [] for arm in pp_specs }
+        for arm in pp_specs:
+            for ei, (spec, temp) in enumerate(zip(pp_specs[arm], pp_temps[arm])):
+                if spec is not None:
+                    corr = eval_flux_corr(temp, bases[arm][ei], a)
+                    corrections[arm].append(corr)
+                    
+        return corrections
        
     def apply_correction(self, pp_specs, pp_temps, a=None):
         """
@@ -576,13 +592,10 @@ class FluxCorr(CorrectionModel):
             Flux correction coefficients.
         """
 
-        if a is None:
-            a = self.calculate_coeffs(pp_specs, pp_temps)
-
-        bases, basis_size = self.get_flux_corr_basis(pp_specs)
+        corrections = self.eval_correction(pp_specs, pp_temps, a=a)
 
         for arm in pp_specs:
-            for ei, (spec, temp) in enumerate(zip(pp_specs[arm], pp_temps[arm])):
-                if spec is not None:
-                    self.apply_flux_corr(temp, bases[arm][ei], a)
+            for ei, (spec, temp, corr) in enumerate(zip(pp_specs[arm], pp_temps[arm], corrections[arm])):
+                if temp is not None:
+                    temp.multiply(corr)
 
