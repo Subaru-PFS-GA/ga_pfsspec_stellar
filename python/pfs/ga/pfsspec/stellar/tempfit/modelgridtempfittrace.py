@@ -69,7 +69,7 @@ class ModelGridTempFitTrace(TempFitTrace):
                             log_L_fun)
         
         if self.plot_rv_fit:
-            self._plot_rv_fit_results(rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
+            self._plot_fit_results(rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                                       params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
                                       cov)
         

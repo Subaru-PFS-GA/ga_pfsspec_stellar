@@ -6,3 +6,8 @@ from .modelgridtempfittrace import ModelGridTempFitTrace
 
 from .fluxcorr import FluxCorr
 from .contnorm import ContNorm
+
+CORRECTION_MODELS = {
+    'fluxcorr': FluxCorr,
+    'contnorm': ContNorm,
+}
