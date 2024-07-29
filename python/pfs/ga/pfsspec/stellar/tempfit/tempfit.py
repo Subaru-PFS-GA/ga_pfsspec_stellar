@@ -2110,7 +2110,10 @@ class TempFit():
         if renormalize and self.spec_norm is not None:
             for arm in pp_temps:
                 for temp in pp_temps[arm]:
-                    temp.multiply(self.spec_norm)
+                    # Some templates might be None if that particular spectrum
+                    # is missing or cannot be fitted.
+                    if temp is not None:
+                        temp.multiply(self.spec_norm)
 
         return pp_temps
 
