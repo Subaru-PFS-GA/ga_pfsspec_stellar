@@ -573,6 +573,8 @@ class FluxCorr(CorrectionModel):
                 if spec is not None:
                     corr = eval_flux_corr(temp, bases[arm][ei], a)
                     corrections[arm].append(corr)
+                else:
+                    corrections[arm].append(None)
                     
         return corrections
        
