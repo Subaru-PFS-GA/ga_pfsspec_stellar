@@ -15,7 +15,7 @@ class ContNorm(CorrectionModel):
         super().__init__(orig=orig)
 
         if not isinstance(orig, ContNorm):
-            self.use_cont_norm = False          # Fit the continuum, use with normalized templates, exclusive with use_flux_corr
+            self.use_cont_norm = True           # Fit the continuum, use with normalized templates
             self.cont_finder_type = None
             self.cont_finder = None             # Continuum pixel finder, optionally for each arm
             self.cont_model_type = Spline
@@ -45,8 +45,25 @@ class ContNorm(CorrectionModel):
     def add_args(self, config, parser):
         super().add_args(config, parser)
 
+        parser.add_argument('--cont-norm', action='store_true', dest='cont_norm', help='Do continuum normalization.\n')
+        parser.add_argument('--no-cont-norm', action='store_false', dest='cont_norm', help='No continuum normalization.\n')
+
+        # TODO: add option to set continuum finder and continuum type
+
+        parser.add_argument('--cont-per-arm', action='store_true', dest='cont_per_arm', help='Continuum normalization per arm.\n')
+        parser.add_argument('--cont-per-fiber', action='store_true', dest='cont_per_fiber', help='Continuum normalization per fiber.\n')
+        parser.add_argument('--cont-per-exp', action='store_true', dest='cont_per_exp', help='Continuum normalization per exposure.\n')
+
     def init_from_args(self, script, config, args):
         super().init_from_args(script, config, args) 
+
+        self.use_cont_norm = get_arg('cont_norm', self.use_cont_norm, args)
+        
+        # TODO
+
+        self.cont_per_arm = get_arg('cont_per_arm', self.cont_per_arm, args)
+        self.cont_per_fiber = get_arg('cont_per_fiber', self.cont_per_fiber, args)
+        self.cont_per_exp = get_arg('cont_per_exp', self.cont_per_exp, args)
 
     def create_continuum_finder(self, wlim):
         """
@@ -272,11 +289,10 @@ class ContNorm(CorrectionModel):
                                                                 per_arm=self.cont_per_arm,
                                                                 per_exp=self.cont_per_exp,
                                                                 include_none=True):
-
-            model = self.cont_model[mi]
-            a = coeffs[mi]
             
             if spec is not None:
+                model = self.cont_model[mi]
+                a = coeffs[mi]
                 _, cont = model.eval(a, wave=spec.wave)
                 continua[arm].append(cont)
             else:
