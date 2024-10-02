@@ -8,6 +8,7 @@ from pfs.ga.pfsspec.stellar.grid.grid7.io import Grid7GridReader
 from pfs.ga.pfsspec.stellar.grid.grid7 import Grid7
 from pfs.ga.pfsspec.stellar.grid import ModelGridFit, ModelPcaGridBuilder, ModelRbfGridBuilder
 from pfs.ga.pfsspec.stellar.grid import ModelGridConverter
+from pfs.ga.pfsspec.stellar.dataset import ModelDatasetMerger
 from pfs.ga.pfsspec.learn.stellar import *
 
 from pfs.ga.pfsspec.learn.configurations import KERAS_DNN_MODEL_TYPES, TORCH_DNN_MODEL_TYPES
@@ -22,6 +23,14 @@ DOWNLOAD_CONFIGURATIONS = {
         },
         'phoenix': {
             'type': PhoenixGridDownloader
+        }
+    }
+}
+
+MERGE_CONFIGURATIONS = {
+    'dataset': {    
+        'model': {
+            'type': ModelDatasetMerger
         }
     }
 }

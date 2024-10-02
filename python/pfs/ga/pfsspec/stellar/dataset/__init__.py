@@ -1,1 +1,2 @@
 from .modeldataset import ModelDataset
+from .modeldatasetmerger import ModelDatasetMerger
