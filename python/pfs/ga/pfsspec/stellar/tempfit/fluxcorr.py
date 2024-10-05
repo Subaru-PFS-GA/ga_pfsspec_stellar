@@ -87,7 +87,7 @@ class FluxCorr(CorrectionModel):
         elif self.flux_corr is not None:
             logger.info("Flux correction model is already initialized, skipping reinitialization.")
 
-    def get_coeff_count(self, spectra: dict):
+    def get_coeff_count(self):
         """
         Determine the number of linear coefficients of the flux correction. Even when flux correction
         is not used, the amplitude (absolute calibration) can very from arm to arm.
@@ -227,7 +227,7 @@ class FluxCorr(CorrectionModel):
 
         # Size of phi and chi is amp_count + coeff_count
         amp_count = self.tempfit.get_amp_count(spectra)
-        param_count = self.get_coeff_count(spectra)
+        param_count = self.get_coeff_count()
         coeff_count = amp_count + param_count
 
         # Sum up log_L contributions from spectrum - template pairs

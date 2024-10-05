@@ -204,7 +204,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             
             tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
             amp_count = tempfit.get_amp_count(specs)
-            coeff_count = tempfit.correction_model.get_coeff_count(specs)
+            coeff_count = tempfit.correction_model.get_coeff_count()
 
             self.assertEqual(gt_amp_count, amp_count)
             self.assertEqual(gt_coeff_count, coeff_count)        

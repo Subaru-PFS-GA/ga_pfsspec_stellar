@@ -105,7 +105,7 @@ class ContNorm(CorrectionModel):
                                                                       round_to=100,
                                                                       create_model_func=self.create_continuum_finder)
                 
-    def get_coeff_count(self, spectra: dict):
+    def get_coeff_count(self):
         """
         Return the number of continuum model parameters
         """
