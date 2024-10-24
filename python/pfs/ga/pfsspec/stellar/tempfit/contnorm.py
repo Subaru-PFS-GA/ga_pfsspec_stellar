@@ -19,9 +19,9 @@ class ContNorm(CorrectionModel):
             self.cont_finder_type = None
             self.cont_finder = None             # Continuum pixel finder, optionally for each arm
             self.cont_model_type = Spline
-            self.cont_per_arm = False           # Do continuum fit independently for each arm
+            self.cont_per_arm = True            # Do continuum fit independently for each arm
             self.cont_per_fiber = False         # Do continuum fit independently for each fiber
-            self.cont_per_exp = False           # Do continuum fit independently for each exposurepass
+            self.cont_per_exp = True           # Do continuum fit independently for each exposurepass
 
             self.cont_model = None              # Continuum model, optionally for each arm
 
