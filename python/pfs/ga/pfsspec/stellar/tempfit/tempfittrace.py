@@ -40,7 +40,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         super().reset()
 
         self.rv_iter = None                    # Keep track of convergence
-        self.rv_guess = None
+        self.guess_rv_results = None
 
     def add_args(self, config, parser):
         Trace.add_args(self, config, parser)
@@ -78,12 +78,14 @@ class TempFitTrace(Trace, SpectrumTrace):
     def on_guess_rv(self, rv, log_L, rv_guess, log_L_fit, function, pp, pcov):
         # Called when the RV guess is made
 
-        # Store the results for plotting when fitting is done
+        # Save results for later plotting
         self.guess_rv_results = (rv, log_L, rv_guess, log_L_fit, function, pp, pcov)
 
         if self.plot_rv_guess or self.plot_level >= Trace.PLOT_LEVEL_INFO:
-            self._plot_rv_guess('pfsGA-RVFit-RV-guess-{id}',
-                                title='RV guess - {id}')
+            self._plot_rv_fit('pfsGA-RVFit-RV-guess-{id}',
+                              rv=rv, log_L=log_L, log_L_fit=log_L_fit,
+                              rv_guess=rv_guess,
+                              title='RV guess - {id}')
     
     def on_fit_rv_iter(self, rv):
         self.rv_iter.append(rv)
@@ -99,12 +101,33 @@ class TempFitTrace(Trace, SpectrumTrace):
             self._plot_spectra(key, spectra, templates=templates, processed_templates=processed_templates,
                                **config)
 
+        # Plot rv_fit and rv_guess
         if self.plot_rv_fit:
-            self._plot_rv_guess('pfsGA-RVFit-RV-fit-{id}',
-                                rv_0, rv_bounds, rv_prior, rv_step,
-                                rv_fit, rv_err,
-                                title='RVFit results - {id}')
+            if self.guess_rv_results is not None:
+                rv, log_L, rv_guess, log_L_fit, function, pp, pcov = self.guess_rv_results
+            else:
+                rv, log_L, rv_guess, log_L_fit, function, pp, pcov = None, None, None, None, None, None
 
+            self._plot_rv_fit(
+                'pfsGA-RVFit-RV-fit-{id}',
+                rv=rv, log_L=log_L, log_L_fit=log_L_fit,
+                rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
+                rv_guess=rv_guess, rv_fit=rv_fit, rv_err=rv_err,
+                title='RVFit results - {id}')
+            
+        # Plot a zoom-in fit
+        if self.plot_rv_fit and log_L_fun is not None and rv_fit is not None and rv_err is not None:
+
+            rv = np.linspace(rv_fit - 3 * rv_err, rv_fit + 3 * rv_err, 100)
+            log_L = log_L_fun(rv)
+
+            self._plot_rv_fit(
+                'pfsGA-RVFit-RV-fit-zoom-{id}',
+                rv=rv, log_L=log_L, log_L_fit=log_L_fit,
+                rv_guess=rv_guess, rv_0=rv_0,
+                rv_fit=rv_fit, rv_err=rv_err,
+                title='RVFit results zoom-in - {id}')
+            
         self.flush_figures()
 
     def on_process_spectrum(self, arm, i, spectrum, processed_spectrum):
@@ -199,12 +222,39 @@ class TempFitTrace(Trace, SpectrumTrace):
 
         p.plot_prior(param_prior, param_bounds, param_0, param_step)
 
-    def _plot_rv_guess(self, key,
-                       rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
-                       rv_fit=None, rv_err=None,
-                       title=None):
+    def _plot_rv_fit(self, key, /,
+                     rv=None, log_L=None, log_L_fit=None,
+                     rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
+                     rv_fit=None, rv_err=None,  
+                     rv_guess=None,
+                     title=None):
         
-        # Plot the RV prior, initial value, guess and final fitted value
+        """
+        Plot the RV prior, initial value, guess and final fitted value
+
+        Parameters
+        ----------
+        key : str
+            Key for the plot
+        rv : array-like
+            RV values where log L is calculated
+        log_L : array-like
+            Log likelihood values at RV
+        rv_0 : float
+            Initial value of RV
+        rv_bounds : array-like
+            Bounds on RV
+        rv_prior : Distribution
+            Prior on RV
+        rv_step : float
+            Step size for RV
+        rv_fit : float
+            Fitted value of RV
+        rv_err : float
+            Error on RV
+        rv_guess : float
+            Guessed value of RV
+        """
 
         f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1,
                                   title=title,
@@ -213,38 +263,43 @@ class TempFitTrace(Trace, SpectrumTrace):
 
         text = ''
 
-        # Plot RV guess results
-        if self.guess_rv_results is not None and self.plot_rv_guess:
-            (rv, log_L, rv_guess, fit, function, pp, pcov) = self.guess_rv_results
-
+        # Plot likelihood function, if provided
+        if rv is not None and log_L is not None:
             m = ~np.isnan(log_L) & ~np.isinf(log_L)
-            a = np.nanmax(log_L[m])
-            b = np.nanmin(log_L[m])
+            a = np.max(log_L[m])
+            b = np.min(log_L[m])
             ax.plot(rv, (log_L - b) / (a - b), '.')
-            if fit is not None:
-                ax.plot(rv, (fit - b) / (a - b), **styles.solid_line())
-            ax.axvline(rv_guess, **styles.blue_line(**styles.solid_line()))
 
-            text += f'$v_\\mathrm{{los, guess}} = {rv_guess:0.2f}$ km s$^{-1}$\n'
+            if log_L_fit is not None:
+                ax.plot(rv, (log_L_fit - b) / (a - b), **styles.solid_line())
+
+        if rv_guess is not None:
+            ax.axvline(rv_guess, **styles.blue_line(**styles.solid_line()))
+            text += f'$v_\\mathrm{{los, guess}} = {rv_guess:0.2f}$ km s$^{{-1}}$\n'
+
+        if rv_0 is not None:
+            text += f'$v_\\mathrm{{los, 0}} = {rv_0:0.2f}$ km s$^{{-1}}$\n'
 
         # Plot the prior on RV
-        if self.plot_priors:
+        if rv_prior is not None and rv_bounds is not None:
             p = DistributionPlot(ax)
             ax = f.add_diagram((0, 0, 0), p)
             p.plot_prior(rv_prior, rv_bounds, rv_0, rv_step, normalize=True)
 
         # Plot fit results
-        if self.plot_rv_fit and rv_fit is not None:
+        if rv_fit is not None:
             ax.axvline(rv_fit, **styles.red_line(**styles.solid_line()))
 
             if rv_err is not None:
                 ax.axvline(rv_fit - 3 * rv_err, **styles.red_line(**styles.dashed_line()))
                 ax.axvline(rv_fit + 3 * rv_err, **styles.red_line(**styles.dashed_line()))
 
-                text += f'$v_\\mathrm{{los, fit}} = {rv_fit:0.2f} \\pm {rv_err:0.2f}$ km s$^{-1}$\n'
+                text += f'$v_\\mathrm{{los, fit}} = {rv_fit:0.2f} \\pm {rv_err:0.2f}$ km s$^{{-1}}$\n'
             else:
-                text += f'$v_\\mathrm{{los, fit}} = {rv_fit:0.2f}$ km s$^{-1}$\n'
+                text += f'$v_\\mathrm{{los, fit}} = {rv_fit:0.2f}$ km s$^{{-1}}$\n'
 
         ax.text(0.95, 0.95, text, transform=ax.transAxes, ha='right', va='top')
+        ax.set_xlabel(R'$v_\mathrm{los}$ [km s$^{-1}$]')
+        ax.set_ylabel('normalized log-posterior')
 
         self.flush_figures()

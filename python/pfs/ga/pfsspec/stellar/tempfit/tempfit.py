@@ -92,6 +92,10 @@ class TempFit():
         Spectrum (observation) normalization factor. Use `get_normalization` to initialize it.
     temp_norm : float
         Template normalization factor. Use `get_normalization` to initialize it.
+    wave_include: list of tuples
+        List of wavelength ranges to fit the template to. If None or empty, fit the entire spectrum.
+    wave_exclude: list of tuples
+        List of wavelength ranges to exclude from the fit.
     use_mask : bool
         Use mask from spectrum, if available.
     mask_bits : int
@@ -158,6 +162,8 @@ class TempFit():
             self.spec_norm = None           # Spectrum (observation) normalization factor
             self.temp_norm = None           # Template normalization factor
 
+            self.wave_include = None        # List of wavelength ranges to fit the template to
+            self.wave_exclude = None        # List of wavelength ranges to exclude from the fit
             self.use_mask = True            # Use mask from spectrum, if available
             self.mask_bits = None           # Mask bits (None means any)
             self.use_error = True           # Use flux error from spectrum, if available
@@ -194,6 +200,8 @@ class TempFit():
             self.spec_norm = orig.spec_norm
             self.temp_norm = orig.temp_norm
 
+            self.wave_include = orig.wave_ranges
+            self.wave_exclude = orig.wave_exclude
             self.use_mask = orig.use_mask
             self.mask_bits = orig.mask_bits
             self.use_error = orig.use_error
@@ -238,6 +246,8 @@ class TempFit():
         parser.add_argument('--amplitude-per-exp', action='store_true', dest='amplitude_per_exp', help='Flux correction per exposure.\n')
 
         parser.add_argument('--resampler', type=str, choices=list(RESAMPLERS.keys()), default='fluxcons', help='Template resampler.\n')
+
+        # TODO: add argument to specify the wavelength ranges
 
         parser.add_argument('--mask', action='store_true', dest='use_mask', help='Use mask from spectra.\n')
         parser.add_argument('--no-mask', action='store_false', dest='use_mask', help='Do not use mask from spectra.\n')
@@ -289,6 +299,11 @@ class TempFit():
             self.template_resampler = RESAMPLERS[resampler]()
         else:
             raise NotImplementedError()
+        
+        # TODO: parse wavelength ranges from argument
+        #       this needs a new type of parser, see gapipe search filters for example
+        # self.wave_include = None
+        # self.wave_exclude = None
 
         self.use_mask = get_arg('use_mask', self.use_mask, args)
         self.mask_bits = get_arg('mask_bits', self.mask_bits, args)
@@ -357,7 +372,12 @@ class TempFit():
                 return True
             else:
                 # Only include spectra with some valid data
+
+                # TODO: right now the mask is calculated every time the spectra are enumerated
+                #       this could be cached, given that the mask_bits are the same
+
                 mask = spec.mask_as_bool(bits=mask_bits)
+                mask &= self.get_wave_mask(spec.wave)
                 return mask.sum() > 0
             
         # Find those exposures where all spectra are bad in all arms
@@ -448,6 +468,10 @@ class TempFit():
         """
         Determine the wave limits for each arm separately or all arms together, for each
         exposure or all exposures together.
+
+        This function does not take the masks or included and excluded wavelength ranges into
+        account, only the valid values of the wavelength vectors. The wmlim is used to instantiate
+        the correction models (per arm or per exposure).
 
         Parameters
         ----------
@@ -859,6 +883,9 @@ class TempFit():
             # Compute convolved template from scratch
             temp = self.process_template_impl(arm, template, spectrum, rv, psf=psf, wlim=wlim)
 
+        # Flux calibration should match the input spectrum
+        temp.is_flux_calibrated = spectrum.is_flux_calibrated
+
         if self.trace is not None:
             self.trace.on_process_template(arm, rv, template, temp)
 
@@ -869,7 +896,7 @@ class TempFit():
             if self.trace is not None:
                 self.trace.on_resample_template(arm, rv, spectrum, template, temp)
 
-        # Create a mask based on the wavelength coverate
+        # Create a mask based on the wavelength coverage
         temp.mask = self.get_full_mask(temp)
 
         return temp
@@ -996,6 +1023,25 @@ class TempFit():
             raise ValueError('No valid spectra found')
 
         return amp_count
+    
+    def get_wave_mask(self, wave):
+        """
+        Based on wave_include and wave_exclude, generate a binary mask for the specific
+        wavelength vector.
+        """
+
+        if self.wave_include is None:
+            mask = np.full_like(wave, True, dtype=bool)
+        else:
+            mask = np.full_like(wave, False, dtype=bool)
+            for wmin, wmax in self.wave_include:
+                mask |= (wmin <= wave) & (wave <= wmax)     # Must be inside either of the included ranges
+
+        if self.wave_exclude is not None:
+            for wmin, wmax in self.wave_exclude:
+                mask &= (wave < wmin) | (wmax < wave)       # Must be outside all of the exluded ranges
+
+        return mask
 
     def get_full_mask(self, spec, mask_bits=None):
         """
@@ -1015,7 +1061,12 @@ class TempFit():
             Boolean mask in the shape of the wave array
         """
         
-        mask_bits = mask_bits if mask_bits is not None else self.mask_bits
+        if mask_bits is not None:
+            pass
+        elif self.mask_bits is not None:
+            mask_bits = self.mask_bits
+        elif spec.mask_bits is not None:
+            mask_bits = spec.mask_bits
         
         mask = None
 
@@ -1025,6 +1076,9 @@ class TempFit():
         
         if mask is None:
             mask = np.full_like(spec.wave, True, dtype=bool)
+
+        # Included and excluded wavelength ranges
+        mask &= self.get_wave_mask(spec.wave)
         
         # Mask out nan values which might occur if spectrum mask is not properly defined
         mask &= ~(np.isnan(spec.wave) | np.isinf(spec.wave))
@@ -1570,6 +1624,18 @@ class TempFit():
     def fit_lorentz(self, rv, y0):
         """
         Fit a Lorentz function to the log-likelihood to have a good initial guess for RV.
+
+        Parameters
+        ----------
+        rv : ndarray
+            Radial velocity
+        y0 : ndarray
+            Log-likelihood
+
+        Returns
+        -------
+        ndarray
+            Best fit parameters
         """
 
         # Guess initial values from y0
@@ -1596,10 +1662,15 @@ class TempFit():
             )
         ]
 
+        logger.info(f"Fitting Lorentz function to the log likelihood in {len(rv)} points "
+                    f"with initial values {p0} and bounds {bb}.")
+
         # TODO: verify that params within the bounds
         #       for some reason the initial amplitude becomes negative
         
         pp, pcov = curve_fit(self.lorentz, rv, y0, p0=p0, bounds=bb)
+
+        logger.info(f"Lorentz function fitted to the log likelihood with best fit parameters {pp}.")
 
         return pp, pcov
 
@@ -1729,33 +1800,51 @@ class TempFit():
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         method = method if method is not None else 'lorentz'
+
+        logger.info(f"Guessing RV with method {method} using a fixed template. RV bounds are {rv_bounds} km/s, "
+                    f"number of steps is {rv_steps}.")
     
         rv = np.linspace(*rv_bounds, rv_steps)
         log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
+        
+        # Mask out infs here in case the prior is very narrow
+        mask = (~np.isnan(log_L) & ~np.isinf(log_L))
+        if mask.sum() < 10:
+            raise Exception("Too few valid values to guess RV. Consider changing the bounds.")
 
         if method == 'lorentz':
-            # Mask out infs here in case the prior is very narrow
-            mask = (~np.isnan(log_L) & ~np.isinf(log_L))
-            if mask.sum() < 10:
-                raise Exception("Too few values to guess RV. Consider changing the bounds.")     
-            
             pp, pcov = self.fit_lorentz(rv[mask], log_L[mask])
             rv_guess = pp[1]
 
             # The maximum of the Lorentz curve might be outside the bounds
+            outside = False
             if rv_bounds is not None and rv_bounds[0] is not None:
                 rv_guess = max(rv_guess, rv_bounds[0])
+                outside = True
             if rv_bounds is not None and rv_bounds[1] is not None:
                 rv_guess = min(rv_guess, rv_bounds[1])
+                outside = True
+
+            if outside:
+                logger.warning(f"RV guess from method `{method}` is {rv_guess:0.3f} km/s, "
+                               f"which is outside the search bounds {rv_bounds}.")
                 
             if self.trace is not None:
                 self.trace.on_guess_rv(rv, log_L, rv_guess, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
         elif method == 'max':
-            rv_guess = rv[np.argmax(log_L)]
+            imax = np.argmax(log_L)
+            rv_guess = rv[imax]
+
+            if imax == 0 or imax == log_L.size - 1:
+                logger.warning(f"RV guess form method `{method}` is {rv_guess:0.3f} km/s, "
+                               f"which is at the edge of the search bounds {rv_bounds}.")
+          
             if self.trace is not None:
                 self.trace.on_guess_rv(rv, log_L, rv_guess, None, 'max', None, None)
         else:
             raise NotImplementedError()
+        
+        logger.info(f"Initial guess for RV using the method `{method}` is {rv_guess:0.3f} km/s.")
 
         return rv, log_L, rv_guess
     
@@ -1803,6 +1892,9 @@ class TempFit():
             wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False,  rv_bounds=rv_bounds)
             for mi, arm in enumerate(spectra):
                 self.template_wlim[arm] = wlim[mi]
+
+        for mi, arm in enumerate(spectra):
+            logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
 
         # Guess the initial RV
         if rv_0 is None and spectra is not None:
@@ -2017,6 +2109,9 @@ class TempFit():
         if out.success:
             rv_fit = unpack_params(out.x)
             lp = -out.fun
+
+            # TODO: log fit statistics
+            raise NotImplementedError()
         else:
             raise Exception(f"Could not fit RV using `{method}`")
         
@@ -2040,7 +2135,10 @@ class TempFit():
             # TODO: can we cache this for better performance?
 
             # Apply the correction model to the templates preprocessed to match each spectrum
-            tt = self.eval_model(spectra, templates, rv_fit, a=a_fit)
+            ss, tt, cc = self.apply_correction_model(spectra, templates, rv_fit, a=a_fit)
+
+            def log_L_fun(rv):
+                return self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
 
             self.trace.on_fit_rv_finish(spectra, templates, tt, 
                                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, False,
@@ -2078,7 +2176,7 @@ class TempFit():
 
         return corrections
 
-    def eval_model(self, spectra, templates, rv, a=None, renormalize=True):
+    def apply_correction_model(self, spectra, templates, rv, corrections=None, a=None, renormalize=True):
         """
         Evaluate the best fit model (flux corrected or continuum normalized) at the given RV.
 
@@ -2105,7 +2203,13 @@ class TempFit():
         pp_specs = self.preprocess_spectra(spectra)
         pp_temps = self.preprocess_templates(spectra, templates, rv)
         
-        self.correction_model.apply_correction(pp_specs, pp_temps, a)
+        if corrections is None:
+            corrections = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
+
+        self.correction_model.apply_correction(pp_specs, pp_temps, corrections=corrections, a=a)
+
+        # TODO: if we want to plot the spectra with original scale then the preprocessed
+        #       spectrum has to be scaled back as well
 
         if renormalize and self.spec_norm is not None:
             for arm in pp_temps:
@@ -2115,7 +2219,7 @@ class TempFit():
                     if temp is not None:
                         temp.multiply(self.spec_norm)
 
-        return pp_temps
+        return pp_specs, pp_temps, corrections
 
     def randomize_init_params(self, spectra,
                               rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None, rv_err=None,

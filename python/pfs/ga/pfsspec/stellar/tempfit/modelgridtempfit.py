@@ -8,6 +8,7 @@ from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
+from pfs.ga.pfsspec.core.util.timer import Timer
 from .tempfit import TempFit
 from .modelgridtempfitresults import ModelGridTempFitResults
 from .modelgridtempfittrace import ModelGridTempFitTrace
@@ -702,6 +703,8 @@ class ModelGridTempFit(TempFit):
             templates, missing = self.get_templates(spectra, params)
             if missing:
                 raise Exception('Cannot find an initial matching template to start RVFit.')
+            
+            logger.info(f"Using template with parameters {params} to guess RV.")
 
         return super().guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_steps=rv_steps, method=method)
     
@@ -848,7 +851,7 @@ class ModelGridTempFit(TempFit):
             raise NotImplementedError()
 
         # Cost function - here we don't have to distinguish between the two cases of `rv_fixed`
-        # because   `prepare_fit` already returns the right function.
+        # because `prepare_fit` already returns the right function.
         def llh(params_rv):
             return -log_L_fun(params_rv)
         
@@ -864,15 +867,13 @@ class ModelGridTempFit(TempFit):
                                        params_0, params_bounds, params_priors, params_steps,
                                        log_L_fun)
         
-        # Various optimizers require different initialization
+        # Optimizers require different initialization
         if method == 'Nelder-Mead':
             x_fit = self.optimize_nelder_mead(x_0, steps, bounds,
                                               llh, pack_params, unpack_params,
                                               method, max_iter)
         else:
-            raise NotImplementedError(x_0, steps, bounds,
-                                      llh, pack_params, unpack_params,
-                                      method, max_iter)
+            raise NotImplementedError()
         
         params_fit, rv_fit = unpack_params(x_fit)
         params_fit = { **params_fit, **params_fixed }
@@ -946,9 +947,20 @@ class ModelGridTempFit(TempFit):
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit parameters for each exposure
 
-            # Apply the correction model to the templates preprocessed to match each spectrum
-            tt = self.eval_model(spectra, templates, rv_fit, a=a_fit)
-                            
+            # Apply the correction model to the preprocessed templates to match each spectrum or to the
+            # spectra to match the templates, depending on the correction model
+            # Note, that apply_correction_model applies the correction to both the templates to match the
+            # original spectra's calibration and to the spectra to match the templates' calibration so the
+            # outputs will not match!
+            ss, tt, cc = self.apply_correction_model(spectra, templates, rv_fit, a=a_fit)
+
+            # Wrap log_L_fun to expect a single parameter only and use the best fit model parameters
+            # This is for plptting purposes only
+            def log_L_fun(rv):
+                return self.calculate_log_L(spectra, templates,
+                                            rv, rv_prior=rv_prior, params=params_fit,
+                                            params_priors=params_priors)
+
             self.trace.on_fit_rv_finish(spectra, None, tt,
                                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                                         params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
@@ -983,12 +995,28 @@ class ModelGridTempFit(TempFit):
                 self.trace.on_fit_rv_iter(rv_fit, params_fit)
         else:
             callback = None
-        
-        # TODO: This is Nelder-Mead only!
-        out = minimize(llh, x0=x_0, bounds=bounds, method=method, callback=callback,
-                       options=dict(maxiter=max_iter, initial_simplex=xx_0))
 
-        if out.success:
+        with Timer("Starting Nelder-Mead optimization", logger=logger):
+            out = minimize(llh,
+                           x0=x_0, bounds=bounds, method=method, callback=callback,
+                           options=dict(maxiter=max_iter, initial_simplex=xx_0))
+
+        if out.success:          
+            # Calculate the volume of the initial and final simplex
+            def vol(xx):
+                if xx is not None:
+                    return np.linalg.det(xx[:-1] - xx[-1]) / np.math.factorial(xx.shape[1])
+                else:
+                    return np.nan
+            
+            vol_0 = vol(xx_0)
+            vol_f = vol(out.final_simplex[0])
+
+            logger.debug(f"Nelder-Mead message: {out.message}")
+            logger.debug(f"Nelder-Mead number of iterations: {out.nit}, "
+                         f"number of function evaluations: {out.nfev}")
+            logger.debug(f"Nelder-Mead initial simplex volume: {vol_0:0.3f}, final simplex volume: {vol_f:0.3f}")
+
             return out.x
         else:
             raise Exception(f"Could not fit RV using `{method}`, reason: {out.message}")

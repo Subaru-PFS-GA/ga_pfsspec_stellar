@@ -350,7 +350,7 @@ class ContNorm(CorrectionModel):
 
         return continua
 
-    def apply_correction(self, pp_specs, pp_temps, a=None):
+    def apply_correction(self, pp_specs, pp_temps, corrections=None, a=None):
         """
         Apply the continuum correction to pre-processed templates. Templates
         are assumed to be Doppler shifted to a certain RV and resampled to the
@@ -367,9 +367,13 @@ class ContNorm(CorrectionModel):
         """
 
         if self.use_cont_norm:
-            continua = self.eval_correction(pp_specs, pp_temps, a=a)
+            if corrections is None:
+                corrections = self.eval_correction(pp_specs, pp_temps, a=a)
 
+            # Normalize the spectra with the continuum to match the templates
             for arm in pp_specs:
-                for ei, (spec, temp, cont) in enumerate(zip(pp_specs[arm], pp_temps[arm], continua[arm])):
+                for ei, (spec, temp, cont) in enumerate(zip(pp_specs[arm], pp_temps[arm], corrections[arm])):
                     if temp is not None and cont is not None:
                         temp.multiply(cont)
+                    if spec is not None and cont is not None:
+                        spec.multiply(1.0 / cont)

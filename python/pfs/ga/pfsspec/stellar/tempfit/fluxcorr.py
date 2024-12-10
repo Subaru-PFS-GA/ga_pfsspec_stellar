@@ -578,7 +578,7 @@ class FluxCorr(CorrectionModel):
                     
         return corrections
        
-    def apply_correction(self, pp_specs, pp_temps, a=None):
+    def apply_correction(self, pp_specs, pp_temps, corrections=None, a=None):
         """
         Apply the flux correction to the templates. The templates are assumed to be
         already Doppler shifted and resampled to the same grid as the spectra.
@@ -594,10 +594,17 @@ class FluxCorr(CorrectionModel):
             Flux correction coefficients.
         """
 
-        corrections = self.eval_correction(pp_specs, pp_temps, a=a)
+        # TODO: consider merging it with ContNorm.eval_correction
+        #       only difference is use_flux_corr vs use_cont_norm which are probably
+        #       used at many places
 
-        for arm in pp_specs:
-            for ei, (spec, temp, corr) in enumerate(zip(pp_specs[arm], pp_temps[arm], corrections[arm])):
-                if temp is not None:
-                    temp.multiply(corr)
+        if self.use_flux_corr:
+            if corrections is None:
+                corrections = self.eval_correction(pp_specs, pp_temps, a=a)
 
+            for arm in pp_specs:
+                for ei, (spec, temp, corr) in enumerate(zip(pp_specs[arm], pp_temps[arm], corrections[arm])):
+                    if temp is not None and corr is not None:
+                        temp.multiply(corr)
+                    if spec is not None and corr is not None:
+                        spec.multiply(1.0 / corr)
