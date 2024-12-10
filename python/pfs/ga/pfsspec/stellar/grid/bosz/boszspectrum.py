@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.integrate import simps
+from scipy.integrate import simpson
 
 from pfs.ga.pfsspec.stellar.grid.kurucz import KuruczSpectrum
 
@@ -36,9 +36,9 @@ class BoszSpectrum(KuruczSpectrum):
         
         # Doing classic integral to get flux in bandpass
         stzp = 3.631e-9
-        i1 = simps(s * T * lam, lam)
-        i2 = simps(T * lam, lam)
-        i3 = simps(T / lam, lam)
+        i1 = simpson(s * T * lam, lam)
+        i2 = simpson(T * lam, lam)
+        i3 = simpson(T / lam, lam)
         a = -2.5 * np.log10(i1 / (stzp * i2))
         b = -2.5 * np.log10(i2 / i3)
         

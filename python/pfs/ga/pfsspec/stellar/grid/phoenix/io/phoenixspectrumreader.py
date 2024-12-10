@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from numpy.core.memmap import memmap
 import pandas as pd
 import re
 from scipy.interpolate import interp1d
