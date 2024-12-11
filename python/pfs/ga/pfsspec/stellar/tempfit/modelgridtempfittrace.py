@@ -37,11 +37,13 @@ class ModelGridTempFitTrace(TempFitTrace):
     def on_fit_rv_start(self, spectra, templates, 
                         rv_0, rv_bounds, rv_prior, rv_step,
                         params_0, params_bounds, params_priors, params_steps,
-                        log_L_fun):
+                        log_L_fun,
+                        wave_include=None, wave_exclude=None):
         
         super().on_fit_rv_start(spectra, templates,
                                 rv_0, rv_bounds, rv_prior, rv_step,
-                                log_L_fun)
+                                log_L_fun,
+                                wave_include=wave_include, wave_exclude=wave_exclude)
         
         self.params_iter = { p: [ params_0[p] ] for p in params_0 }
 

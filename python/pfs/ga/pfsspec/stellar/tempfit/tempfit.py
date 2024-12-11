@@ -1058,7 +1058,8 @@ class TempFit():
         Returns
         -------
         ndarray
-            Boolean mask in the shape of the wave array
+            Boolean mask in the shape of the wave array. True values mean that the
+            pixel must be included in the fit.
         """
         
         if mask_bits is not None:
@@ -1990,7 +1991,9 @@ class TempFit():
         if self.trace is not None:
             self.trace.on_fit_rv_start(spectra, templates,
                                        rv_0, rv_bounds, rv_prior, rv_step,
-                                       log_L_fun)
+                                       log_L_fun,
+                                       wave_include=self.wave_include,
+                                       wave_exclude=self.wave_exclude)
 
         # Calculate the pre-normalization constants. This is only here to make sure that the
         # matrix elements during calculations stay around unity
@@ -2109,9 +2112,13 @@ class TempFit():
         if out.success:
             rv_fit = unpack_params(out.x)
             lp = -out.fun
-
-            # TODO: log fit statistics
-            raise NotImplementedError()
+        
+            if method == 'grid':
+                pass
+            else:
+                logger.debug(f"Optimizer {method} message: {out.message}")
+                logger.debug(f"Optimizer {method} number of iterations: {out.nit}, "
+                             f"number of function evaluations: {out.nfev}")
         else:
             raise Exception(f"Could not fit RV using `{method}`")
         

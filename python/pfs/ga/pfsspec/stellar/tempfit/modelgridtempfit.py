@@ -865,7 +865,8 @@ class ModelGridTempFit(TempFit):
             self.trace.on_fit_rv_start(spectra, None,
                                        rv_0, rv_bounds, rv_prior, rv_step,
                                        params_0, params_bounds, params_priors, params_steps,
-                                       log_L_fun)
+                                       log_L_fun,
+                                       wave_include=self.wave_include, wave_exclude=self.wave_exclude)
         
         # Optimizers require different initialization
         if method == 'Nelder-Mead':

@@ -61,13 +61,15 @@ class TempFitTrace(Trace, SpectrumTrace):
 
     def on_fit_rv_start(self, spectra, templates, 
                         rv_0, rv_bounds, rv_prior, rv_step,
-                        log_L_fun):
+                        log_L_fun,
+                        wave_include=None, wave_exclude=None):
         
         self.rv_iter = [ rv_0 ]
 
         if self.plot_input_spec:
             self._plot_spectra('pfsGA-RVfit-input-{id}', spectra,
-                               title='RVFit input spectra - {id}')
+                               title='RVFit input spectra - {id}',
+                               wave_include=wave_include, wave_exclude=wave_exclude)
             self.flush_figures()
         
         if self.plot_priors:
