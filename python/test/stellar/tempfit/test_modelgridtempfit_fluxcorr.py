@@ -30,6 +30,8 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         if flux_correction:
             fluxcorr.use_flux_corr = True
             fluxcorr.flux_corr_type = PolynomialFluxCorrection
+        else:
+            fluxcorr.use_flux_corr = False
 
         tempfit = ModelGridTempFit(trace=trace, correction_model=fluxcorr)
         
