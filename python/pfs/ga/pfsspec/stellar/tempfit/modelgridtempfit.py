@@ -689,8 +689,9 @@ class ModelGridTempFit(TempFit):
         return v
     
     def guess_rv(self, spectra, templates=None, /,
-                 rv_bounds=(-500, 500), rv_prior=None, rv_steps=31,
+                 rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
                  params_0=None, params_fixed=None,
+                 steps=None,
                  method='lorentz'):
         
         """
@@ -719,8 +720,9 @@ class ModelGridTempFit(TempFit):
             logger.info(f"Using template with parameters {params} to guess RV.")
 
         return super().guess_rv(spectra, templates,
-                                rv_bounds=rv_bounds, rv_prior=rv_prior, rv_steps=rv_steps,
-                                method=method)
+                                     rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
+                                     steps=steps,
+                                     method=method)
     
     def prepare_fit(self, spectra, /,
                     rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None,
@@ -761,22 +763,7 @@ class ModelGridTempFit(TempFit):
         if params_0 is None:
             # TODO
             raise NotImplementedError()
-        
-        if rv_0 is None and spectra is not None:
-            # Calculate the number of steps for the RV grid
-            if rv_bounds is not None and rv_step is not None \
-                and rv_bounds[0] is not None and rv_bounds[1] is not None \
-                and ~np.isinf(rv_bounds[0]) and ~np.isinf(rv_bounds[1]):
-
-                rv_steps = int((rv_bounds[1] - rv_bounds[0]) / rv_step)
-            else:
-                rv_steps = None
-
-            _, _, rv_0 = self.guess_rv(spectra, None, 
-                                       rv_bounds=rv_bounds, rv_prior=rv_prior, rv_steps=rv_steps,
-                                       params_0=params_0, params_fixed=params_fixed,
-                                       method='max')
-            
+                    
         if params_fixed is None:
             params_fixed = []
         
@@ -872,6 +859,20 @@ class ModelGridTempFit(TempFit):
         # TODO: If no free parameters, fall back to superclass implementation
         if len(params_free) == 0:
             raise NotImplementedError()
+        
+        # If rv_0 is not provided, guess it
+        if rv_0 is None and spectra is not None:
+            _, _, rv_0 = self.guess_rv(spectra, None, 
+                                       rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
+                                       params_0=params_0, params_fixed=params_fixed,
+                                       method='max')
+            
+            # Update initial values
+            if params_0 is not None and rv_0 is not None:
+                x_0 = pack_params(params_0, rv_0)[0]
+
+            if rv_fixed:
+                logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
 
         # Cost function - here we don't have to distinguish between the two cases of `rv_fixed`
         # because `prepare_fit` already returns the right function.

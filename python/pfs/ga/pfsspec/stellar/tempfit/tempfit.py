@@ -1774,7 +1774,8 @@ class TempFit():
         return a, pp_specs, pp_temps
 
     def guess_rv(self, spectra, templates, /,
-                 rv_bounds=(-500, 500), rv_prior=None, rv_steps=31,
+                 rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
+                 steps=None,
                  method='lorentz'):
         """
         Given a spectrum and a template, make a good initial guess for RV where a minimization
@@ -1806,9 +1807,18 @@ class TempFit():
         method = method if method is not None else 'lorentz'
 
         logger.info(f"Guessing RV with method `{method}` using a fixed template. RV bounds are {rv_bounds} km/s, "
-                    f"number of steps is {rv_steps}.")
+                    f"number of steps is {steps}.")
+        
+        # Calculate the number of steps for the RV grid
+        if steps is None and rv_bounds is not None and rv_step is not None \
+            and rv_bounds[0] is not None and rv_bounds[1] is not None \
+            and ~np.isinf(rv_bounds[0]) and ~np.isinf(rv_bounds[1]):
+
+            steps = int((rv_bounds[1] - rv_bounds[0]) / rv_step)
+        else:
+            steps = 31
     
-        rv = np.linspace(*rv_bounds, rv_steps)
+        rv = np.linspace(*rv_bounds, steps)
         log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
         
         # Mask out infs here in case the prior is very narrow
@@ -1900,15 +1910,6 @@ class TempFit():
         for mi, arm in enumerate(spectra):
             logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
 
-        # Guess the initial RV
-        if rv_0 is None and spectra is not None:
-            _, _, rv_0 = self.guess_rv(spectra, templates,
-                                       rv_bounds=rv_bounds, rv_prior=rv_prior,
-                                       method='max')
-            
-            if rv_fixed:
-                logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
-
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra, templates,
             rv_prior=rv_prior,
@@ -1997,6 +1998,19 @@ class TempFit():
                                        log_L_fun,
                                        wave_include=self.wave_include,
                                        wave_exclude=self.wave_exclude)
+            
+        # Guess the initial RV
+        if rv_0 is None and spectra is not None:
+            _, _, rv_0 = self.guess_rv(spectra, templates,
+                                       rv_bounds=rv_bounds, rv_prior=rv_prior,
+                                       method='max')
+            
+            # Update initial values
+            if rv_0 is not None:
+                x_0 = pack_params(rv_0)[0]
+            
+            if rv_fixed:
+                logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
 
         # Calculate the pre-normalization constants. This is only here to make sure that the
         # matrix elements during calculations stay around unity
