@@ -23,7 +23,7 @@ class TestSpline(StellarTestBase):
         trace.plot_fit_end = True
         trace.plot_fit_iter = False
 
-        model = Spline(npix=100, trace=trace)
+        model = Spline(control_points=100, trace=trace)
         model.included_ranges = included_ranges
         model.excluded_ranges = excluded_ranges
         model.init_wave(spec.wave)

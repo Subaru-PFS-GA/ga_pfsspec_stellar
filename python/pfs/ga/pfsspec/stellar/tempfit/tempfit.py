@@ -281,11 +281,11 @@ class TempFit():
 
         rv = Parameter('rv')
         rv.init_from_args(args)
-        step = rv.generate_step_size(step_size_factor=0.1)
+        
         self.rv_0 = rv.value                        # RV initial guess
         self.rv_bounds = [rv.min, rv.max]           # Find RV between these bounds
         self.rv_prior = rv.get_dist()
-        self.rv_step = step                         # RV step size for MCMC sampling
+        self.rv_step = rv.generate_step_size(step_size_factor=0.1)     # RV step size for RV guess, MCMC sampling, etc.
 
         self.amplitude_per_arm = get_arg('amplitude_per_arm', self.amplitude_per_arm, args)
         self.amplitude_per_fiber = get_arg('amplitude_per_fiber', self.amplitude_per_fiber, args)
@@ -377,7 +377,7 @@ class TempFit():
                 #       this could be cached, given that the mask_bits are the same
 
                 mask = spec.mask_as_bool(bits=mask_bits)
-                mask &= self.get_wave_mask(spec.wave)
+                mask &= self.get_wave_mask(spec.wave, self.wave_include, self.wave_exclude)
                 return mask.sum() > 0
             
         # Find those exposures where all spectra are bad in all arms
@@ -1024,21 +1024,22 @@ class TempFit():
 
         return amp_count
     
-    def get_wave_mask(self, wave):
+    @staticmethod
+    def get_wave_mask(wave, wave_include, wave_exclude):
         """
         Based on wave_include and wave_exclude, generate a binary mask for the specific
         wavelength vector.
         """
 
-        if self.wave_include is None:
+        if wave_include is None:
             mask = np.full_like(wave, True, dtype=bool)
         else:
             mask = np.full_like(wave, False, dtype=bool)
-            for wmin, wmax in self.wave_include:
+            for wmin, wmax in wave_include:
                 mask |= (wmin <= wave) & (wave <= wmax)     # Must be inside either of the included ranges
 
-        if self.wave_exclude is not None:
-            for wmin, wmax in self.wave_exclude:
+        if wave_exclude is not None:
+            for wmin, wmax in wave_exclude:
                 mask &= (wave < wmin) | (wmax < wave)       # Must be outside all of the exluded ranges
 
         return mask
@@ -1079,7 +1080,7 @@ class TempFit():
             mask = np.full_like(spec.wave, True, dtype=bool)
 
         # Included and excluded wavelength ranges
-        mask &= self.get_wave_mask(spec.wave)
+        mask &= self.get_wave_mask(spec.wave, self.wave_include, self.wave_exclude)
         
         # Mask out nan values which might occur if spectrum mask is not properly defined
         mask &= ~(np.isnan(spec.wave) | np.isinf(spec.wave))
@@ -1772,7 +1773,9 @@ class TempFit():
         
         return a, pp_specs, pp_temps
 
-    def guess_rv(self, spectra, templates, /, rv_bounds=(-500, 500), rv_prior=None, rv_steps=31, method='lorentz'):
+    def guess_rv(self, spectra, templates, /,
+                 rv_bounds=(-500, 500), rv_prior=None, rv_steps=31,
+                 method='lorentz'):
         """
         Given a spectrum and a template, make a good initial guess for RV where a minimization
         algorithm can be started from.
@@ -1802,7 +1805,7 @@ class TempFit():
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         method = method if method is not None else 'lorentz'
 
-        logger.info(f"Guessing RV with method {method} using a fixed template. RV bounds are {rv_bounds} km/s, "
+        logger.info(f"Guessing RV with method `{method}` using a fixed template. RV bounds are {rv_bounds} km/s, "
                     f"number of steps is {rv_steps}.")
     
         rv = np.linspace(*rv_bounds, rv_steps)
@@ -2142,7 +2145,7 @@ class TempFit():
             # TODO: can we cache this for better performance?
 
             # Apply the correction model to the templates preprocessed to match each spectrum
-            ss, tt, cc = self.apply_correction_model(spectra, templates, rv_fit, a=a_fit)
+            ss, tt, cc, mm = self.apply_correction_model(spectra, templates, rv_fit, a=a_fit)
 
             def log_L_fun(rv):
                 return self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
@@ -2179,11 +2182,11 @@ class TempFit():
         pp_specs = self.preprocess_spectra(spectra)
         pp_temps = self.preprocess_templates(spectra, templates, rv)
         
-        corrections = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
+        corrections, masks = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
 
-        return corrections
+        return corrections, masks
 
-    def apply_correction_model(self, spectra, templates, rv, corrections=None, a=None, renormalize=True):
+    def apply_correction_model(self, spectra, templates, rv, corrections=None, correction_masks=None, a=None, renormalize=True):
         """
         Evaluate the best fit model (flux corrected or continuum normalized) at the given RV.
 
@@ -2210,10 +2213,10 @@ class TempFit():
         pp_specs = self.preprocess_spectra(spectra)
         pp_temps = self.preprocess_templates(spectra, templates, rv)
         
-        if corrections is None:
-            corrections = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
+        if corrections is None or correction_masks is None:
+            corrections, correction_masks = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
 
-        self.correction_model.apply_correction(pp_specs, pp_temps, corrections=corrections, a=a)
+        self.correction_model.apply_correction(pp_specs, pp_temps, corrections=corrections, masks=correction_masks, a=a)
 
         # TODO: if we want to plot the spectra with original scale then the preprocessed
         #       spectrum has to be scaled back as well
@@ -2226,7 +2229,7 @@ class TempFit():
                     if temp is not None:
                         temp.multiply(self.spec_norm)
 
-        return pp_specs, pp_temps, corrections
+        return pp_specs, pp_temps, corrections, correction_masks
 
     def randomize_init_params(self, spectra,
                               rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None, rv_err=None,

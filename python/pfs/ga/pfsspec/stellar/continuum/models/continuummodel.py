@@ -205,22 +205,23 @@ class ContinuumModel(ContinuumObject):
 
         # Transform the flux if necessary
         flux, flux_err = self.transform_flux_forward(flux, flux_err)
+        mask = self.get_full_mask(mask)
 
         if self.trace is not None:
             spec = Spectrum()
             spec.wave, spec.flux, spec.flux_err = self.wave, flux, flux_err
             spec.mask = mask
-            self.trace.on_fit_start(spec)
+            self.trace.on_continuum_fit_start(spec)
 
         params = self.fit_impl(flux, flux_err, mask, continuum_finder)
 
         if self.trace is not None:
             # Evaluate the model on the same wavelength grid
             spec = Spectrum()
-            spec.wave, spec.cont = self.eval(params)
+            spec.wave, spec.cont, m = self.eval(params)
             spec.flux, spec.flux_err = flux, flux_err
-            spec.mask = mask
-            self.trace.on_fit_finish(spec)
+            spec.mask = mask & m
+            self.trace.on_continuum_fit_finish(spec)
 
         return params
     
@@ -231,14 +232,14 @@ class ContinuumModel(ContinuumObject):
 
         wave = wave if wave is not None else self.wave
 
-        flux = self.eval_impl(params, wave=wave)
+        flux, mask = self.eval_impl(params, wave=wave)
 
         # Reverse transform the flux if fitting in log
         flux, _ = self.transform_flux_reverse(flux)
 
         # TODO: add trace hook
 
-        return wave, flux
+        return wave, flux, mask
     
     def eval_impl(self, params, wave=None):
         raise NotImplementedError()
@@ -258,13 +259,19 @@ class ContinuumModel(ContinuumObject):
         return flux, flux_err
 
     def normalize(self, spec, params, s=None):
-        _, model = self.eval(params)
+        # TODO: use output mask from model
+
+        _, model, mask = self.eval(params)
         model = model[s or ()]
+        mask = mask[s or ()]
         spec.normalize(model)
 
     def denormalize(self, spec, params, s=None):
-        _, model = self.eval(params)
+        # TODO: use output mask from model
+
+        _, model, mask = self.eval(params)
         model = model[s or ()]
+        mask = mask[s or ()]
         spec.denormalize(model)
 
     def fit_function(self, id, func, x, y, w=None, p0=None, mask=None, continuum_finder=None, **kwargs):
@@ -298,7 +305,7 @@ class ContinuumModel(ContinuumObject):
                                   p0=params, **kwargs)    
             
             if self.trace:
-                self.trace.on_fit_function_iter(id, iter, x, y, w, func.eval(x, params), mask)
+                self.trace.on_continuum_fit_function_iter(id, iter, x, y, w, func.eval(x, params), mask)
             
             # We're always successful if it's a linear model and func.fit has been
             # executed at least once.

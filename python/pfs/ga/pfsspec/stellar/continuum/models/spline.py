@@ -4,18 +4,18 @@ from scipy.interpolate import splrep, splev
 from .continuummodel import ContinuumModel
 
 class Spline(ContinuumModel):
-    def __init__(self, deg=None, npix=None, continuum_finder=None, trace=None, orig=None):    
+    def __init__(self, degrees=None, control_points=None, continuum_finder=None, trace=None, orig=None):    
         super().__init__(continuum_finder=continuum_finder,
                          trace=trace, orig=orig)
         
         if not isinstance(orig, Spline):
-            self.deg = deg if deg is not None else 3                  # Degree of the spline.
-            self.npix = npix if npix is not None else 200             # Minimum separation of knots in spectra pixels.
+            self.degrees = degrees if degrees is not None else 3                            # Degree of the spline.
+            self.control_points = control_points if control_points is not None else 25      # Number of control points.
 
             self.wave_sort = None
         else:
-            self.deg = deg if deg is not None else orig.deg
-            self.npix = npix if npix is not None else orig.npix
+            self.degrees = degrees if degrees is not None else orig.degrees
+            self.control_points = control_points if control_points is not None else orig.control_points
 
             self.wave_sort = orig.wave_sort
 
@@ -42,7 +42,7 @@ class Spline(ContinuumModel):
 
         constants = super().get_constants(wave=wave)
         constants.update({
-            f'{self.name}_deg': np.array(self.deg),
+            f'{self.name}_degrees': np.array(self.degrees),
         })
 
         return constants
@@ -55,7 +55,7 @@ class Spline(ContinuumModel):
         super().set_constants(constants, wave=wave)
 
         if self.version == 1:
-            self.deg = constants[f'{self.name}_deg']
+            self.degrees = constants[f'{self.name}_degrees']
 
     def init_wave(self, wave, force=True, omit_overflow=False):
         super().init_wave(wave, force=force, omit_overflow=omit_overflow)
@@ -83,14 +83,16 @@ class Spline(ContinuumModel):
         if continuum_finder is not None:
             raise NotImplementedError()
         
+        # We sort by wavelength, in case there are multiple exposures contacenated
         wave = self.wave
         s = self.wave_sort
         
-        mask = self.get_full_mask(mask)[s]
+        # Create a list of control points
+        mask = mask[s]
         size = mask.sum()
-        knots = np.round(np.linspace(0, size, int(size / self.npix)))[1:-1].astype(int)
+        knots = np.round(np.linspace(0, size - 1, self.control_points)).astype(int)[1:-1]
         w = 1 / flux_err[s][mask] ** 2 if flux_err is not None else None
-        t, c, k = splrep(wave[s][mask], flux[s][mask], w=w, t=wave[s][mask][knots], k=self.deg)
+        t, c, k = splrep(wave[s][mask], flux[s][mask], w=w, t=wave[s][mask][knots], k=self.degrees)
 
         return {
             f'{self.name}_t': t,
@@ -107,6 +109,7 @@ class Spline(ContinuumModel):
         t = params[f'{self.name}_t']
         c = params[f'{self.name}_c']
 
-        spline = (t, c, self.deg)
+        spline = (t, c, self.degrees)
         model = splev(wave, spline)
-        return model
+        mask = (t[0] <= wave) & (wave <= t[-1])
+        return model, mask

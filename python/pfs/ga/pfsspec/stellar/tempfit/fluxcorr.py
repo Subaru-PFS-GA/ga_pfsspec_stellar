@@ -16,8 +16,8 @@ class FluxCorr(CorrectionModel):
     Model class for flux correction based stellar template fitting.
     """
 
-    def __init__(self, orig=None):
-        super().__init__(orig=orig)
+    def __init__(self, trace=None, orig=None):
+        super().__init__(trace=trace, orig=orig)
 
         if not isinstance(orig, FluxCorr):
             self.use_flux_corr = True           # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
@@ -51,7 +51,7 @@ class FluxCorr(CorrectionModel):
 
         parser.add_argument('--flux-corr', action='store_true', dest='flux_corr', help='Do flux correction.\n')
         parser.add_argument('--no-flux-corr', action='store_false', dest='flux_corr', help='No flux correction.\n')
-        parser.add_argument('--flux-corr-deg', type=int, help='Degree of flux correction polynomial.\n')
+        parser.add_argument('--flux-corr-degree', type=int, help='Degree of flux correction polynomial.\n')
         parser.add_argument('--flux-corr-per-arm', action='store_true', dest='flux_corr_per_arm', help='Flux correction per arm.\n')
         parser.add_argument('--flux-corr-per-fiber', action='store_true', dest='flux_corr_per_fiber', help='Flux correction per fiber.\n')
         parser.add_argument('--flux-corr-per-exp', action='store_true', dest='flux_corr_per_exp', help='Flux correction per exposure.\n')
@@ -60,7 +60,7 @@ class FluxCorr(CorrectionModel):
         super().init_from_args(script, config, args)
 
         self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
-        self.flux_corr_degree = get_arg('flux_corr_deg', self.flux_corr_degree, args)
+        self.flux_corr_degree = get_arg('flux_corr_degree', self.flux_corr_degree, args)
         self.flux_corr_per_arm = get_arg('flux_corr_per_arm', self.flux_corr_per_arm, args)
         self.flux_corr_per_fiber = get_arg('flux_corr_per_fiber', self.flux_corr_per_fiber, args)
         self.flux_corr_per_exp = get_arg('flux_corr_per_exp', self.flux_corr_per_exp, args)
@@ -277,8 +277,8 @@ class FluxCorr(CorrectionModel):
                 cc /= sigma2[mask]
             
             bb =  basis[mask]
-            phi += np.einsum('i,ij->j', pp, bb)
-            chi += np.einsum('i,ij,ik->jk', cc, bb, bb)
+            phi += np.einsum('i,ij->j', pp, bb, optimize=True)
+            chi += np.einsum('i,ij,ik->jk', cc, bb, bb, optimize=True)
 
             # Degrees of freedom
             ndf += mask.sum()
@@ -556,11 +556,13 @@ class FluxCorr(CorrectionModel):
             if self.use_flux_corr:
                 # Full flux correction
                 corr = np.dot(basis, a)
+                mask = np.full(corr.shape, True, dtype=bool)
             else:
                 # This is an amplitude only
                 corr = a
+                mask = True
 
-            return corr
+            return corr, mask
 
         if a is None:
             a = self.calculate_coeffs(pp_specs, pp_temps)
@@ -568,17 +570,21 @@ class FluxCorr(CorrectionModel):
         bases, basis_size = self.get_flux_corr_basis(pp_specs)
 
         corrections = { arm: [] for arm in pp_specs }
+        masks = { arm: [] for arm in pp_specs }
+
         for arm in pp_specs:
             for ei, (spec, temp) in enumerate(zip(pp_specs[arm], pp_temps[arm])):
                 if spec is not None:
-                    corr = eval_flux_corr(temp, bases[arm][ei], a)
+                    corr, mask = eval_flux_corr(temp, bases[arm][ei], a)
                     corrections[arm].append(corr)
+                    masks[arm].append(mask)
                 else:
                     corrections[arm].append(None)
+                    masks[arm].append(None)
                     
-        return corrections
+        return corrections, masks
        
-    def apply_correction(self, pp_specs, pp_temps, corrections=None, a=None):
+    def apply_correction(self, pp_specs, pp_temps, corrections=None, masks=None, a=None):
         """
         Apply the flux correction to the templates. The templates are assumed to be
         already Doppler shifted and resampled to the same grid as the spectra.

@@ -34,6 +34,10 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.plot_input_spec = False
         self.plot_fit_spec = {}
 
+        self.plot_continuum_fit_start = False
+        self.plot_continuum_fit_iter = False
+        self.plot_continuum_fit_end = False
+
         self.reset()
 
     def reset(self):
@@ -41,6 +45,8 @@ class TempFitTrace(Trace, SpectrumTrace):
 
         self.rv_iter = None                    # Keep track of convergence
         self.guess_rv_results = None
+
+        self.continuum_fit_iter = 0
 
     def add_args(self, config, parser):
         Trace.add_args(self, config, parser)
@@ -55,6 +61,10 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.plot_rv_fit = get_arg('plot_rv_fit', self.plot_rv_fit, args)
         self.plot_input_spec = get_arg('plot_input_spec', self.plot_input_spec, args)
         self.plot_fit_spec = get_arg('plot_fit_spec', self.plot_fit_spec, args)
+
+        self.plot_continuum_fit_start = get_arg('plot_continuum_fit_start', self.plot_continuum_fit_start, args)
+        self.plot_continuum_fit_iter = get_arg('plot_continuum_fit_iter', self.plot_continuum_fit_iter, args)
+        self.plot_continuum_fit_end = get_arg('plot_continuum_fit_end', self.plot_continuum_fit_end, args)
 
     #endregion
     #region Trace hooks
@@ -212,6 +222,30 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.inc_counter('eval_nu2')
 
     #endregion
+    # Callbacks related to continuum fitting
+
+    def on_continuum_fit_start(self, spec):
+        if self.plot_continuum_fit_start or self.plot_level >= Trace.PLOT_LEVEL_TRACE:
+            self._plot_spectrum('pfsGA-continuumfit-{id}', 
+                                spectrum=spec,
+                                plot_flux=True, plot_continuum=False,
+                                title='Continuum fit input spectrum - {id}')
+
+    def on_continuum_fit_finish(self, spec):
+        if self.plot_continuum_fit_end or self.plot_level >= Trace.PLOT_LEVEL_TRACE:
+            self._plot_spectrum('pfsGA-continuumfit-{id}', 
+                                spectrum=spec,
+                                plot_flux=True, plot_continuum=True,
+                                title='Continuum fit results - {id}')
+            self.flush_figures()
+
+    def on_continuum_fit_function_iter(self, piece_id, iter, x, y, w, model, mask):
+        self.continuum_fit_iter += 1
+
+        if self.plot_continuum_fit_iter or self.plot_level >= Trace.PLOT_LEVEL_TRACE:
+            raise NotImplementedError()
+
+    #endregion Plotting
                 
     def _plot_prior(self, key, param_prior, param_bounds, param_0, param_step,
                     title=None):

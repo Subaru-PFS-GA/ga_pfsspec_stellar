@@ -45,7 +45,7 @@ class TestUniform(StellarTestBase):
         mask = np.full(spec.wave.shape, True)
         while iter > 0 and needs_more_iter and mask.sum() > 0:
             params = model.fit_spectrum(spec, mask=mask)
-            _, cont = model.eval(params)
+            _, cont, _ = model.eval(params)
             cont, needs_more_iter = finder.find(iter, spec.wave, spec.flux, mask=mask, cont=cont)
             
             iter -= 1

@@ -32,22 +32,13 @@ class ContinuumModelTrace(Trace, SpectrumTrace):
     def init_from_args(self, script, config, args):
         Trace.init_from_args(self, script, config, args)
 
-    def on_fit_start(self, spec):
-        if self.plot_fit_start or self.plot_level >= Trace.PLOT_LEVEL_TRACE:
-            self._plot_spectrum('pfsGA-continuumfit-{id}', 
-                                spectrum=spec,
-                                plot_flux=True, plot_continuum=False,
-                                title='Continuum fit input spectrum - {id}')
+    def on_continuum_fit_start(self, spec):
+        pass
 
-    def on_fit_finish(self, spec):
-        if self.plot_fit_end or self.plot_level >= Trace.PLOT_LEVEL_TRACE:
-            self._plot_spectrum('pfsGA-continuumfit-{id}', 
-                                spectrum=spec,
-                                plot_flux=True, plot_continuum=True,
-                                title='Continuum fit results - {id}')
-            self.flush_figures()
+    def on_continuum_fit_finish(self, spec):
+        pass
 
-    def on_fit_function_iter(self, piece_id, iter, x, y, w, model, mask):
+    def on_continuum_fit_function_iter(self, piece_id, iter, x, y, w, model, mask):
         self.fit_iter += 1
 
         if self.plot_fit_iter or self.plot_level >= Trace.PLOT_LEVEL_TRACE:

@@ -6,12 +6,12 @@ class CorrectionModel():
     applied to observed spectra before template fitting.
     """
 
-    def __init__(self, orig=None):
+    def __init__(self, trace=None, orig=None):
         if not isinstance(orig, CorrectionModel):
-            self.trace = None
+            self.trace = trace
             self.tempfit = None
         else:
-            self.trace = orig.trace
+            self.trace = trace if trace is not None else orig.trace
             self.tempfit = orig.tempfit
 
     def reset(self):
@@ -32,5 +32,5 @@ class CorrectionModel():
     def eval_correction(self, pp_specs, pp_temps, a=None):
         raise NotImplementedError()
 
-    def apply_correction(self, pp_specs, pp_temps, a=None):
+    def apply_correction(self, pp_specs, pp_temps, corrections=None, masks=None, a=None):
         raise NotImplementedError()

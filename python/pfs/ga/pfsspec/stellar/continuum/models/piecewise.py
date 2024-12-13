@@ -208,6 +208,7 @@ class Piecewise(ContinuumModel):
 
         # Initial model is all nans, we'll fill out the meaningful parts later
         model = np.full(wave.shape, np.nan)
+        mask = np.full(wave.shape, False)
         
         for i in range(len(eval_masks)):
             func = self.create_function(i)
@@ -220,8 +221,9 @@ class Piecewise(ContinuumModel):
                 x = self.get_normalized_x(wave[piece_mask], wave_min, wave_max)
                 p = params[func.name][i * pcount: (i + 1) * pcount]
                 model[piece_mask] = func.eval(x, p)
+                mask[piece_mask] = True
 
-        return model
+        return model, mask
 
     def get_flux(self, spec):
         if self.use_spec_continuum:
@@ -241,5 +243,5 @@ class Piecewise(ContinuumModel):
         return params
 
     def eval_impl(self, params, wave=None):
-        model = self.eval_between_limits(params, wave=wave)
-        return model
+        model, mask = self.eval_between_limits(params, wave=wave)
+        return model, mask

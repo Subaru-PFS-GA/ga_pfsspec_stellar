@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from numpy.linalg import LinAlgError
 from scipy.optimize import curve_fit, minimize
@@ -511,6 +512,9 @@ class ModelGridTempFit(TempFit):
         
         params_bounds = params_bounds if params_bounds is not None else self.params_bounds
         params_bounds = self.determine_grid_bounds(self.params_bounds, params_free)
+
+        params_count = (0 if rv_fixed else 1) + len(params_free)
+        logger.info(f"Calculating the fisher matrix for {params_count} parameters with mode `{mode}` using method `{method}`.")
         
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
@@ -536,7 +540,11 @@ class ModelGridTempFit(TempFit):
 
         bounds = self.get_bounds_array(bounds)
 
-        return self.eval_F_dispatch(x_0, log_L, step, method, bounds)
+        # TODO: count function evaluations
+
+        F, C = self.eval_F_dispatch(x_0, log_L, step, method, bounds)
+
+        return F, C
     
     def calculate_F_full(self, spectra,
                     rv_0, params_0,
@@ -680,7 +688,11 @@ class ModelGridTempFit(TempFit):
                 v = min(v, bounds[p][1])
         return v
     
-    def guess_rv(self, spectra, templates=None, /, rv_bounds=(-500, 500), rv_prior=None, params_0=None, params_fixed=None, rv_steps=31, method='lorentz'):
+    def guess_rv(self, spectra, templates=None, /,
+                 rv_bounds=(-500, 500), rv_prior=None, rv_steps=31,
+                 params_0=None, params_fixed=None,
+                 method='lorentz'):
+        
         """
         Guess an initial state to close best RV, either using the supplied set of templates or
         initial model parameters.
@@ -706,7 +718,9 @@ class ModelGridTempFit(TempFit):
             
             logger.info(f"Using template with parameters {params} to guess RV.")
 
-        return super().guess_rv(spectra, templates, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_steps=rv_steps, method=method)
+        return super().guess_rv(spectra, templates,
+                                rv_bounds=rv_bounds, rv_prior=rv_prior, rv_steps=rv_steps,
+                                method=method)
     
     def prepare_fit(self, spectra, /,
                     rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None,
@@ -749,8 +763,17 @@ class ModelGridTempFit(TempFit):
             raise NotImplementedError()
         
         if rv_0 is None and spectra is not None:
+            # Calculate the number of steps for the RV grid
+            if rv_bounds is not None and rv_step is not None \
+                and rv_bounds[0] is not None and rv_bounds[1] is not None \
+                and ~np.isinf(rv_bounds[0]) and ~np.isinf(rv_bounds[1]):
+
+                rv_steps = int((rv_bounds[1] - rv_bounds[0]) / rv_step)
+            else:
+                rv_steps = None
+
             _, _, rv_0 = self.guess_rv(spectra, None, 
-                                       rv_bounds=rv_bounds, rv_prior=rv_prior, 
+                                       rv_bounds=rv_bounds, rv_prior=rv_prior, rv_steps=rv_steps,
                                        params_0=params_0, params_fixed=params_fixed,
                                        method='max')
             
@@ -953,7 +976,7 @@ class ModelGridTempFit(TempFit):
             # Note, that apply_correction_model applies the correction to both the templates to match the
             # original spectra's calibration and to the spectra to match the templates' calibration so the
             # outputs will not match!
-            ss, tt, cc = self.apply_correction_model(spectra, templates, rv_fit, a=a_fit)
+            ss, tt, cc, mm = self.apply_correction_model(spectra, templates, rv_fit, a=a_fit)
 
             # Wrap log_L_fun to expect a single parameter only and use the best fit model parameters
             # This is for plptting purposes only
@@ -997,12 +1020,12 @@ class ModelGridTempFit(TempFit):
         else:
             callback = None
 
-        with Timer("Starting Nelder-Mead optimization", logger=logger):
+        with Timer("Starting Nelder-Mead optimization", logger=logger, level=logging.INFO):
             out = minimize(llh,
                            x0=x_0, bounds=bounds, method=method, callback=callback,
                            options=dict(maxiter=max_iter, initial_simplex=xx_0))
 
-        if out.success:          
+        if out.success:
             # Calculate the volume of the initial and final simplex
             def vol(xx):
                 if xx is not None:
