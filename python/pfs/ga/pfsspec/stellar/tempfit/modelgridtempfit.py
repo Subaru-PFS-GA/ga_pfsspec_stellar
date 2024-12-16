@@ -856,6 +856,23 @@ class ModelGridTempFit(TempFit):
                                                    params_priors=params_priors, params_steps=None,
                                                    params_fixed=params_fixed)
         
+        if self.trace is not None:
+            # If tracing, create a full list of included and excluded wavelengths, independent
+            # of any masks defines by the spectra
+
+            wave_include = []
+            wave_exclude = []
+            wave_include.extend(self.wave_include or [])
+            wave_exclude.extend(self.wave_exclude or [])
+            wave_include.extend(self.correction_model.get_wave_include() or [])
+            wave_exclude.extend(self.correction_model.get_wave_exclude() or [])
+            
+            self.trace.on_fit_rv_start(spectra, None,
+                                       rv_0, rv_bounds, rv_prior, rv_step,
+                                       params_0, params_bounds, params_priors, params_steps,
+                                       log_L_fun,
+                                       wave_include=wave_include, wave_exclude=wave_exclude)
+        
         # TODO: If no free parameters, fall back to superclass implementation
         if len(params_free) == 0:
             raise NotImplementedError()
@@ -884,13 +901,6 @@ class ModelGridTempFit(TempFit):
         if np.isinf(log_L_0) or np.isnan(log_L_0):
             all_params = {**params_0, **params_fixed}
             raise Exception(f"Invalid starting point for template fitting. Are the parameters {all_params} outside the grid?")
-
-        if self.trace is not None:
-            self.trace.on_fit_rv_start(spectra, None,
-                                       rv_0, rv_bounds, rv_prior, rv_step,
-                                       params_0, params_bounds, params_priors, params_steps,
-                                       log_L_fun,
-                                       wave_include=self.wave_include, wave_exclude=self.wave_exclude)
         
         # Optimizers require different initialization
         if method == 'Nelder-Mead':

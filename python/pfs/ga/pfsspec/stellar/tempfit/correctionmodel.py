@@ -34,3 +34,9 @@ class CorrectionModel():
 
     def apply_correction(self, pp_specs, pp_temps, corrections=None, masks=None, a=None):
         raise NotImplementedError()
+
+    def get_wave_include(self):
+        return None
+    
+    def get_wave_exclude(self):
+        return None

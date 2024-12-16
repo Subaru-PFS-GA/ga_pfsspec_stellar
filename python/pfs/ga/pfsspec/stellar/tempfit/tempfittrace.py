@@ -27,7 +27,7 @@ class TempFitTrace(Trace, SpectrumTrace):
                        log_level=log_level)
         
         SpectrumTrace.__init__(self)
-        
+
         self.plot_priors = False
         self.plot_rv_guess = False
         self.plot_rv_fit = False

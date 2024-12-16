@@ -404,3 +404,9 @@ class ContNorm(CorrectionModel):
                     if spec is not None and cont is not None:
                         spec.multiply(1.0 / cont)
                         spec.mask &= mask
+
+    def get_wave_include(self):
+        return self.cont_wave_include
+    
+    def get_wave_exclude(self):
+        return self.cont_wave_exclude
