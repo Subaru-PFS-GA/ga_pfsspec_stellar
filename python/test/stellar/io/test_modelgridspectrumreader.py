@@ -10,7 +10,7 @@ from pfs.ga.pfsspec.stellar.grid.io import ModelGridReader
 
 class TestGrid(ModelGrid):
     def __init__(self):
-        super(TestGrid, self).__init__(use_cont=True)
+        super(TestGrid, self).__init__()
 
         self.axes['Fe_H'] = GridAxis('Fe_H', np.array([0, 1, 2]))
         self.axes['T_eff'] = GridAxis('T_eff', np.array([1, 2]))
