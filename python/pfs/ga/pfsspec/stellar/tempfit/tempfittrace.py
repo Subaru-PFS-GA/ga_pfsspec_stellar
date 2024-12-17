@@ -77,7 +77,9 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.rv_iter = [ rv_0 ]
 
         if self.plot_input_spec:
-            self._plot_spectra('pfsGA-RVfit-input-{id}', spectra,
+            self._plot_spectra('pfsGA-RVfit-input-{id}',
+                               spectra=spectra,
+                               plot_flux=True, plot_flux_err=True,
                                title='RVFit input spectra - {id}',
                                wave_include=wave_include, wave_exclude=wave_exclude)
             self.flush_figures()
@@ -110,8 +112,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         
         # Plot the final results based on the configuration settings
         for key, config in self.plot_fit_spec.items():
-            self._plot_spectra(key, spectra, templates=templates, processed_templates=processed_templates,
-                               **config)
+            self._plot_spectra(key, spectra, templates=processed_templates, **config)
 
         # Plot rv_fit and rv_guess
         if self.plot_rv_fit:
@@ -184,8 +185,7 @@ class TempFitTrace(Trace, SpectrumTrace):
             if self.plot_level:
 
                 self._plot_spectrum(f'pfsGA-RVFit-template-resampled-{arm}-{{id}}', arm,
-                                    template=template, processed_template=resampled_template,
-                                    plot_template=False, plot_processed_template=True,
+                                    template=resampled_template,
                                     title='Resampled template - {id}')
 
                 self.flush_figures()

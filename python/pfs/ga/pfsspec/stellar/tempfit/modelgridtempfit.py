@@ -982,12 +982,18 @@ class ModelGridTempFit(TempFit):
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit parameters for each exposure
 
-            # Apply the correction model to the preprocessed templates to match each spectrum or to the
-            # spectra to match the templates, depending on the correction model
-            # Note, that apply_correction_model applies the correction to both the templates to match the
-            # original spectra's calibration and to the spectra to match the templates' calibration so the
-            # outputs will not match!
-            ss, tt, cc, mm = self.apply_correction_model(spectra, templates, rv_fit, a=a_fit)
+            # Evaluate the correction model to the preprocessed templates to match each spectrum or to the
+            # spectra to match the templates, depending on the correction model.
+            ss, tt, corrections, correction_masks = self.eval_correction(spectra, templates, rv_fit, a=a_fit)
+
+            # Rescale the model according to the normalization of the spectra and templates
+            norm = self.spec_norm if self.spec_norm is not None else 1.0
+            norm /= self.temp_norm if self.temp_norm is not None else 1.0
+
+            # Append the correction model to the spectra but do not apply it to the flux
+            # Depending on the correction model, either the 'cont' field or the 'flux_corr' field is set.
+            self.correction_model.apply_correction(spectra, corrections, correction_masks,
+                                                   normalization=norm)
 
             # Wrap log_L_fun to expect a single parameter only and use the best fit model parameters
             # This is for plptting purposes only

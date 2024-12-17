@@ -583,34 +583,28 @@ class FluxCorr(CorrectionModel):
                     masks[arm].append(None)
                     
         return corrections, masks
-       
-    def apply_correction(self, pp_specs, pp_temps, corrections=None, masks=None, a=None):
+    
+    def append_correction(self, spectra, corrections, apply=False):
         """
-        Apply the flux correction to the templates. The templates are assumed to be
-        already Doppler shifted and resampled to the same grid as the spectra.
-        The function modifies `pp_temps` in place.
-
+        Append the flux correction to the spectra. This function does not modify the
+        spectrum, just attaches the correction model as an attribute.
+        
         Parameters
         ----------
-        pp_specs : dict of list
+        spectra : dict of list
             Dictionary of spectra for each arm and exposure.
-        pp_temps : dict of list
-            Dictionary of templates for each arm and exposure.
+        corrections : dict of list
+            Flux correction evaluated on the wavelength grid.
         a : array
             Flux correction coefficients.
         """
 
-        # TODO: consider merging it with ContNorm.eval_correction
-        #       only difference is use_flux_corr vs use_cont_norm which are probably
-        #       used at many places
-
         if self.use_flux_corr:
-            if corrections is None:
-                corrections = self.eval_correction(pp_specs, pp_temps, a=a)
-
-            for arm in pp_specs:
-                for ei, (spec, temp, corr) in enumerate(zip(pp_specs[arm], pp_temps[arm], corrections[arm])):
-                    if temp is not None and corr is not None:
-                        temp.multiply(corr)
+            for arm in spectra:
+                for ei, (spec, corr) in enumerate(zip(spectra[arm], corrections[arm])):
                     if spec is not None and corr is not None:
-                        spec.multiply(1.0 / corr)
+                        spec.flux_corr = corr
+                        if apply:
+                            spec.multiply(corr)
+
+       

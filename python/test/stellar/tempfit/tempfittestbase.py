@@ -166,6 +166,8 @@ class TempFitTestBase(StellarTestBase):
         if normalize:
             tempfit.spec_norm, tempfit.temp_norm = tempfit.get_normalization(specs, temps)
 
+        pass
+
         return tempfit, self.rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0
 
 

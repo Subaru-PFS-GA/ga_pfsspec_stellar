@@ -2156,11 +2156,17 @@ class TempFit():
 
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit RV.
-            # TODO: can we cache this for better performance?
 
-            # Apply the correction model to the templates preprocessed to match each spectrum
-            ss, tt, cc, mm = self.apply_correction_model(spectra, templates, rv_fit, a=a_fit)
+            # Evaluate the correction model at the best fit parameters
+            pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(spectra, templates, rv_fit, a=a_fit)
 
+            # Append (but do not apply) the correction model to the original spectrum and the preprocessed template
+            ss = safe_deep_copy(spectra)
+            tt = pp_temp
+            self.correction_model.apply_correction(ss, corrections, correction_masks, apply_flux=False, apply_mask=True)
+            self.correction_model.apply_correction(tt, corrections, correction_masks, apply_flux=False, apply_mask=True)
+
+            # Pass the log likelihood function to the trace
             def log_L_fun(rv):
                 return self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
 
@@ -2198,56 +2204,18 @@ class TempFit():
         
         corrections, masks = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
 
-        return corrections, masks
-
-    def apply_correction_model(self, spectra, templates, rv, corrections=None, correction_masks=None, a=None, renormalize=True):
-        """
-        Evaluate the best fit model (flux corrected or continuum normalized) at the given RV.
-
-        Parameters
-        ----------
-        spectra : dict of Spectrum or dict of list of Spectrum
-            Observed spectra
-        templates : dict of Spectrum
-            Synthetic stellar templates for each arm
-        rv : float
-            Radial velocity
-        a : ndarray
-            Correction model parameters
-        renormalize : bool
-            Renormalize the templates after applying the flux correction so that the
-            flux is the same magnitude as the spectra.
-
-        Returns
-        -------
-        dict of Spectrum
-            Synthetic stellar templates corrected for RV and flux correction
-        """
-
-        pp_specs = self.preprocess_spectra(spectra)
-        pp_temps = self.preprocess_templates(spectra, templates, rv)
-        
-        if corrections is None or correction_masks is None:
-            corrections, correction_masks = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
-
-        self.correction_model.apply_correction(pp_specs, pp_temps, corrections=corrections, masks=correction_masks, a=a)
-
-        # TODO: if we want to plot the spectra with original scale then the preprocessed
-        #       spectrum has to be scaled back as well
-
-        if renormalize and self.spec_norm is not None:
-            for arm in pp_temps:
-                for temp in pp_temps[arm]:
-                    # Some templates might be None if that particular spectrum
-                    # is missing or cannot be fitted.
-                    if temp is not None:
-                        temp.multiply(self.spec_norm)
-
-        return pp_specs, pp_temps, corrections, correction_masks
+        return pp_specs, pp_temps, corrections, masks
+    
+    def multiply_spectra(self, spectra, factor):
+        for arm in spectra:
+            for spec in spectra[arm]:
+                if spec is not None:
+                    spec.multiply(factor)
 
     def randomize_init_params(self, spectra,
                               rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None, rv_err=None,
                               randomize=False, random_size=()):
+        
         """
         Randomize the initial parameters for MCMC.
 

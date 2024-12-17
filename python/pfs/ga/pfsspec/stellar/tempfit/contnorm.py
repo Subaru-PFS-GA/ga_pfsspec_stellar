@@ -374,37 +374,56 @@ class ContNorm(CorrectionModel):
             masks = None
 
         return continua, masks
-
-    def apply_correction(self, pp_specs, pp_temps, corrections=None, masks=None, a=None):
+    
+    def apply_correction(self, spectra, corrections, correction_masks,
+                         apply_flux=False, apply_mask=False, inverse=False,
+                         normalization=None):
+        
         """
-        Apply the continuum correction to pre-processed templates. Templates
-        are assumed to be Doppler shifted to a certain RV and resampled to the
-        same grid as the spectra.
-
+        Apply the flux correction to the spectra. This function appends the correction
+        model to the spectrum and optionally applies it to the flux and sets the
+        mask bits. The function modifies the objects in-place.
+        
         Parameters
         ----------
-        pp_specs : dict of list
+        spectra : dict of list
             Dictionary of spectra for each arm and exposure.
-        pp_temps : dict of list
-            Dictionary of templates for each arm and exposure.
-        a : array
-            Continuum model parameters.
+        corrections : dict of list
+            Flux correction evaluated on the wavelength grid.
+        correction_masks: dict of list
+            Masks where the correction model is valid.
+        apply_flux: bool
+            Apply the correction model to the flux. When inverse is False, it multiplies
+            the flux vectors by the correction model. When inverse is True, it divides
+            the flux vectors by the correction model.
+        apply_mask: bool
+            Set the mask bits where the correction model is valid. True where the
+            model is valid.
+        inverse: bool
+            If True, divide the flux by the correction model instead of multiplying it.
         """
 
         if self.use_cont_norm:
-            if corrections is None or masks is None:
-                corrections, masks = self.eval_correction(pp_specs, pp_temps, a=a)
-
-            # Normalize the spectra with the continuum to match the templates
-            for arm in pp_specs:
-                for ei, (spec, temp, cont, mask) in enumerate(zip(pp_specs[arm], pp_temps[arm], corrections[arm], masks[arm])):
-                    if temp is not None and cont is not None:
-                        temp.multiply(cont)
-                        temp.mask &= mask
+            for arm in spectra:
+                for ei, (spec, cont, mask) in enumerate(zip(spectra[arm], corrections[arm], correction_masks[arm])):
                     if spec is not None and cont is not None:
-                        spec.multiply(1.0 / cont)
-                        spec.mask &= mask
+                        if mask is not None and apply_mask:
+                            if spec.mask is not None:
+                                spec.mask |= mask
+                            else:
+                                spec.mask = mask
 
+                        if normalization is not None:
+                            cont *= normalization
+                        
+                        if apply_flux:
+                            if inverse:
+                                spec.multiply(1.0 / cont)
+                            else:
+                                spec.multiply(cont)
+
+                        spec.cont = cont
+                            
     def get_wave_include(self):
         return self.cont_wave_include
     
