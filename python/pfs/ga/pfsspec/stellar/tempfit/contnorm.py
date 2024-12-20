@@ -376,7 +376,9 @@ class ContNorm(CorrectionModel):
         return continua, masks
     
     def apply_correction(self, spectra, corrections, correction_masks,
-                         apply_flux=False, apply_mask=False, inverse=False,
+                         apply_flux=False, apply_mask=False,
+                         mask_bit=1,
+                         inverse=False,
                          normalization=None):
         
         """
@@ -407,11 +409,17 @@ class ContNorm(CorrectionModel):
             for arm in spectra:
                 for ei, (spec, cont, mask) in enumerate(zip(spectra[arm], corrections[arm], correction_masks[arm])):
                     if spec is not None and cont is not None:
+                        
                         if mask is not None and apply_mask:
-                            if spec.mask is not None:
-                                spec.mask |= mask
-                            else:
+                            if spec.mask is None:
                                 spec.mask = mask
+                            elif spec.mask.dtype == bool:
+                                spec.mask &= mask
+                            else:                           
+                                # spec.mask is a bit mask
+                                # mask is True where the continuum is valid so set the bit
+                                # where where the mask is false
+                                spec.mask = np.where(mask, spec.mask, spec.mask | mask_bit)
 
                         if normalization is not None:
                             cont *= normalization
