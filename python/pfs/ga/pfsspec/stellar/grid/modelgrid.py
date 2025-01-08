@@ -960,8 +960,13 @@ class ModelGrid(PfsObject):
             return self.grid.interpolate_value_spline(name, free_param, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
         
         spec = self.interpolate_model_impl('spline', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
-        spec.interp_param = free_param
-        return spec
+
+        if spec is not None:
+            spec.interp_param = free_param
+            return spec
+        else:
+            # Something went wrong, probably wrong set of parameters
+            return None
     
     def interpolate_model_rbf(self, denormalize=True, wlim=None, psf=None, **kwargs):
         """
@@ -1020,6 +1025,11 @@ class ModelGrid(PfsObject):
         kwargs : dict
             Stellar parameters
         """
+
+        # Check if all parameters are defined and within the grid bounds
+        for i, k, ax in self.grid.enumerate_axes():
+            if k not in kwargs:
+                raise Exception(f"Parameter `{k}` is required to interpolate model but not defined.")
         
         if method in ['grid', 'nearest']:
             msg_method = 'assigned from grid'
