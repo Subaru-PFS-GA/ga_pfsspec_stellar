@@ -584,27 +584,22 @@ class FluxCorr(CorrectionModel):
                     
         return corrections, masks
     
-    def append_correction(self, spectra, corrections, apply=False):
-        """
-        Append the flux correction to the spectra. This function does not modify the
-        spectrum, just attaches the correction model as an attribute.
+    def apply_correction(self, spectra, corrections, correction_masks,
+                         apply_flux=False, apply_mask=False,
+                         mask_bit=1,
+                         inverse=False,
+                         normalization=None):
         
-        Parameters
-        ----------
-        spectra : dict of list
-            Dictionary of spectra for each arm and exposure.
-        corrections : dict of list
-            Flux correction evaluated on the wavelength grid.
-        a : array
-            Flux correction coefficients.
-        """
-
         if self.use_flux_corr:
             for arm in spectra:
                 for ei, (spec, corr) in enumerate(zip(spectra[arm], corrections[arm])):
                     if spec is not None and corr is not None:
-                        spec.flux_corr = corr
-                        if apply:
-                            spec.multiply(corr)
 
+                        # NOTE: unlike continuum normalization, flux correction doesn't
+                        #       have a `correction_mask` because it's valid on the whole
+                        #       wavelength range
+
+                        spec.flux_corr = corr
+                        if apply_flux:
+                            spec.multiply(corr)
        

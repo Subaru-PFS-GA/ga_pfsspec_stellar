@@ -32,16 +32,6 @@ class CorrectionModel():
     def eval_correction(self, pp_specs, pp_temps, a=None):
         raise NotImplementedError()
 
-    def append_correction(self, spectra, corrections, apply=False):
-        raise NotImplementedError()
-    
-    def append_correction_mask(self, spectra, correction_masks):
-        if self.use_flux_corr:
-            for arm in spectra:
-                for ei, (spec, mask) in enumerate(zip(spectra[arm], correction_masks[arm])):
-                    if spec is not None and spec.mask is not None and mask is not None:
-                        spec.mask &= mask
-
     def get_wave_include(self):
         return None
     

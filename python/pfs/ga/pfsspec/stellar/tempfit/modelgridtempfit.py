@@ -993,6 +993,7 @@ class ModelGridTempFit(TempFit):
             # Append the correction model to the spectra but do not apply it to the flux
             # Depending on the correction model, either the 'cont' field or the 'flux_corr' field is set.
             self.correction_model.apply_correction(spectra, corrections, correction_masks,
+                                                   apply_flux=False, apply_mask=False,
                                                    normalization=norm)
 
             # Wrap log_L_fun to expect a single parameter only and use the best fit model parameters
