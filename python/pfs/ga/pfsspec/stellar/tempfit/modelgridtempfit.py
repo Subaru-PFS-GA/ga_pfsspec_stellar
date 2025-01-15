@@ -689,7 +689,7 @@ class ModelGridTempFit(TempFit):
         return v
     
     def guess_rv(self, spectra, templates=None, /,
-                 rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
+                 rv_bounds=None, rv_prior=None, rv_step=None,
                  params_0=None, params_fixed=None,
                  steps=None,
                  method='lorentz'):
@@ -725,7 +725,7 @@ class ModelGridTempFit(TempFit):
                                      method=method)
     
     def prepare_fit(self, spectra, /,
-                    rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None,
+                    rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                     params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None):
         
         """
@@ -797,7 +797,7 @@ class ModelGridTempFit(TempFit):
                 x_0, bounds, steps)
 
     def fit_rv(self, spectra, /,
-               rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_fixed=None,
+               rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
                method="Nelder-Mead", max_iter=None,
                calculate_error=True, calculate_cov=True):
@@ -1067,7 +1067,7 @@ class ModelGridTempFit(TempFit):
         raise NotImplementedError
     
     def fit_rv_optimize(self, spectra, *,
-                        rv_0=None, rv_fixed=None, rv_bounds=(-500, 500), rv_prior=None,
+                        rv_0=None, rv_fixed=None, rv_bounds=None, rv_prior=None,
                         params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
                         log_L_fun, pack_params, unpack_params, pack_bounds,
                         x_0, bounds, steps,

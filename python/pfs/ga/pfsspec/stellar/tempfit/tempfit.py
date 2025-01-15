@@ -1774,7 +1774,7 @@ class TempFit():
         return a, pp_specs, pp_temps
 
     def guess_rv(self, spectra, templates, /,
-                 rv_bounds=(-500, 500), rv_prior=None, rv_step=None,
+                 rv_bounds=None, rv_prior=None, rv_step=None,
                  steps=None,
                  method='lorentz'):
         """
@@ -1863,7 +1863,7 @@ class TempFit():
         return rv, log_L, rv_guess
     
     def prepare_fit(self, spectra, templates, /,
-                    rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None):
+                    rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None):
         """
         This function is called before template fitting to normalize all parameters and
         prepare them for the optimization.
@@ -1894,7 +1894,7 @@ class TempFit():
         
         rv_0 = rv_0 if rv_0 is not None else self.rv_0
         rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        rv_bounds = rv_bounds if rv_bounds is not None else (self.rv_bounds if self.rv_bounds is not None else (-500, 500))
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_step = rv_step if rv_step is not None else self.rv_step
 
@@ -1936,7 +1936,7 @@ class TempFit():
                 x_0, bounds, steps)
 
     def fit_rv(self, spectra, templates,
-               rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_fixed=None,
+               rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
                method='bounded', max_iter=None,
                calculate_error=True):
         """
@@ -2288,7 +2288,7 @@ class TempFit():
         return rv, rv_err
 
     def run_mcmc(self, spectra, templates, *,
-                 rv_0=None, rv_bounds=(-500, 500), rv_prior=None, rv_step=None, rv_fixed=None,
+                 rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                  cov=None,
                  walkers=None, burnin=None, samples=None, thin=None, gamma=None):
         """
