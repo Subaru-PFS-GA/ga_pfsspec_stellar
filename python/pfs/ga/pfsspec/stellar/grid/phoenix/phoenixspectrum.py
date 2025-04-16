@@ -7,6 +7,8 @@ class PhoenixSpectrum(ModelSpectrum):
     def __init__(self, orig=None):
         super().__init__(orig=orig)
 
+        self.is_flux_calibrated = True
+
         if not isinstance(orig, PhoenixSpectrum):
             pass
         else:
