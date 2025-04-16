@@ -883,9 +883,6 @@ class TempFit():
             # Compute convolved template from scratch
             temp = self.process_template_impl(arm, template, spectrum, rv, psf=psf, wlim=wlim)
 
-        # Flux calibration should match the input spectrum
-        temp.is_flux_calibrated = spectrum.is_flux_calibrated
-
         if self.trace is not None:
             self.trace.on_process_template(arm, rv, template, temp)
 
@@ -2156,15 +2153,7 @@ class TempFit():
 
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit RV.
-
-            # Evaluate the correction model at the best fit parameters
-            pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(spectra, templates, rv_fit, a=a_fit)
-
-            # Append (but do not apply) the correction model to the original spectrum and the preprocessed template
-            ss = safe_deep_copy(spectra)
-            tt = pp_temp
-            self.correction_model.apply_correction(ss, corrections, correction_masks, apply_flux=False, apply_mask=True)
-            self.correction_model.apply_correction(tt, corrections, correction_masks, apply_flux=False, apply_mask=True)
+            ss, tt = self.get_spectra_templates_for_trace(spectra, templates, rv_fit, a_fit)
 
             # Pass the log likelihood function to the trace
             def log_L_fun(rv):
@@ -2177,6 +2166,26 @@ class TempFit():
         return TempFitResults(rv_fit=rv_fit, rv_err=rv_err,
                               a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                               cov=C, log_L_fit=lp)
+
+    def get_spectra_templates_for_trace(self, spectra, templates, rv_fit, a_fit):
+        # If tracing, evaluate the template at the best fit RV.
+
+        # Evaluate the correction model at the best fit parameters
+        # Also return preprocessed spectra and templates that match the observed spectra
+        pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(spectra, templates, rv_fit, a=a_fit)
+
+        # Append (but do not apply) the correction model to the original spectrum and the preprocessed template
+        ss = safe_deep_copy(spectra)        # Original observed spectra
+        tt = pp_temp                        # Template resampled to the instrument
+
+        # Append the correction model to the original spectra but do not change the original flux
+        self.correction_model.apply_correction(ss, None, corrections, correction_masks, apply_flux=False, apply_mask=True)
+
+        # Multiply the templates with the correction model and scale them to the observed flux
+        self.correction_model.apply_correction(None, tt, corrections, correction_masks, apply_flux=True, apply_mask=True)
+        self.correction_model.apply_normalization(tt, self.spec_norm)
+
+        return ss, tt
 
     def eval_correction(self, spectra, templates, rv, a=None):
         """

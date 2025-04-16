@@ -584,22 +584,36 @@ class FluxCorr(CorrectionModel):
                     
         return corrections, masks
     
-    def apply_correction(self, spectra, corrections, correction_masks,
+    def apply_correction(self, spectra, templates,
+                         corrections, correction_masks,
                          apply_flux=False, apply_mask=False,
                          mask_bit=1,
                          inverse=False,
                          normalization=None):
+
+        # NOTE: unlike continuum normalization, flux correction doesn't
+        #       have a `correction_mask` because it's valid on the entire
+        #       wavelength range
         
-        if self.use_flux_corr:
+        if spectra is not None:
             for arm in spectra:
                 for ei, (spec, corr) in enumerate(zip(spectra[arm], corrections[arm])):
                     if spec is not None and corr is not None:
+                        spec.flux_corr = corr
+                        if apply_flux:
+                            spec.multiply(1.0 / corr)
 
-                        # NOTE: unlike continuum normalization, flux correction doesn't
-                        #       have a `correction_mask` because it's valid on the whole
-                        #       wavelength range
-
+        if templates is not None:
+            for arm in templates:
+                for ei, (spec, corr) in enumerate(zip(templates[arm], corrections[arm])):
+                    if spec is not None and corr is not None:
                         spec.flux_corr = corr
                         if apply_flux:
                             spec.multiply(corr)
        
+    def apply_normalization(self, spectra, normalization=None):
+        if normalization is not None:
+            for arm in spectra:
+                for ei, spec in enumerate(spectra[arm]):
+                    if spec is not None:
+                        spec.multiply(normalization)
