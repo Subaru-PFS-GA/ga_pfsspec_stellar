@@ -77,15 +77,15 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.rv_iter = [ rv_0 ]
 
         if self.plot_input_spec:
-            self._plot_spectra('pfsGA-RVfit-input-{id}',
+            self._plot_spectra('pfsGA-tempfit-input-{id}',
                                spectra=spectra,
                                plot_flux=True, plot_flux_err=True,
-                               title='RVFit input spectra - {id}',
+                               title='TempFit input spectra - {id}',
                                wave_include=wave_include, wave_exclude=wave_exclude)
             self.flush_figures()
         
         if self.plot_priors:
-            self._plot_prior('pfsGA-RVFit-RV-prior-{id}', rv_prior, rv_bounds, rv_0, rv_step,
+            self._plot_prior('pfsGA-tempfit-rv-prior-{id}', rv_prior, rv_bounds, rv_0, rv_step,
                              title='Prior on RV - {id}')
             self.flush_figures()
 
@@ -96,7 +96,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.guess_rv_results = (rv, log_L, rv_guess, log_L_fit, function, pp, pcov)
 
         if self.plot_rv_guess or self.plot_level >= Trace.PLOT_LEVEL_INFO:
-            self._plot_rv_fit('pfsGA-RVFit-RV-guess-{id}',
+            self._plot_rv_fit('pfsGA-tempfit-rv-guess-{id}',
                               rv=rv, log_L=log_L, log_L_fit=log_L_fit,
                               rv_guess=rv_guess,
                               title='RV guess - {id}')
@@ -114,7 +114,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         for key, config in self.plot_fit_spec.items():
             self._plot_spectra(key, spectra, templates=processed_templates, **config)
 
-        # Plot rv_fit and rv_guess
+        # Plot rv_fit and rv_guess and the likelihood function
         if self.plot_rv_fit:
             if self.guess_rv_results is not None:
                 rv, log_L, rv_guess, log_L_fit, function, pp, pcov = self.guess_rv_results
@@ -122,36 +122,36 @@ class TempFitTrace(Trace, SpectrumTrace):
                 rv, log_L, rv_guess, log_L_fit, function, pp, pcov = None, None, None, None, None, None
 
             self._plot_rv_fit(
-                'pfsGA-RVFit-RV-fit-{id}',
+                'pfsGA-tempfit-rv-fit-{id}',
                 rv=rv, log_L=log_L, log_L_fit=log_L_fit,
                 rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
                 rv_guess=rv_guess, rv_fit=rv_fit, rv_err=rv_err,
-                title='RVFit results - {id}')
+                title='TempFit results - {id}')
             
-        # Plot a zoom-in fit
+        # Plot a zoom-in of the likelihood function
         if self.plot_rv_fit and log_L_fun is not None and rv_fit is not None and rv_err is not None:
 
             rv = np.linspace(rv_fit - 3 * rv_err, rv_fit + 3 * rv_err, 100)
             log_L = log_L_fun(rv)
 
             self._plot_rv_fit(
-                'pfsGA-RVFit-RV-fit-zoom-{id}',
+                'pfsGA-tempfit-rv-fit-zoom-{id}',
                 rv=rv, log_L=log_L, log_L_fit=log_L_fit,
                 rv_guess=rv_guess, rv_0=rv_0,
                 rv_fit=rv_fit, rv_err=rv_err,
-                title='RVFit results zoom-in - {id}')
+                title='TempFit results zoom-in - {id}')
             
         self.flush_figures()
 
     def on_process_spectrum(self, arm, i, spectrum, processed_spectrum):
         if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
 
-            self._plot_spectrum(f'pfsGA-RVFit-spectrum-{arm}-{i}-{{id}}', arm,
+            self._plot_spectrum(f'pfsGA-tempfit-spectrum-{arm}-{i}-{{id}}', arm,
                                 spectrum=spectrum,
                                 plot_spectrum=True,
                                 title='Observed spectrum - {id}')
             
-            self._plot_spectrum(f'pfsGA-RVFit-spectrum-processed-{arm}-{i}-{{id}}', arm,
+            self._plot_spectrum(f'pfsGA-tempfit-spectrum-processed-{arm}-{i}-{{id}}', arm,
                                 spectrum=spectrum, processed_spectrum=processed_spectrum,
                                 plot_spectrum=False, plot_processed_spectrum=True,
                                 title='Processed spectrum - {id}')
@@ -159,22 +159,22 @@ class TempFitTrace(Trace, SpectrumTrace):
             self.flush_figures()
 
         if self.log_level >= Trace.LOG_LEVEL_NONE:
-            self._save_spectrum_history(f'pfsGA-RVFit-spectrum-{arm}-{i}-{{id}}.log', spectrum)
+            self._save_spectrum_history(f'pfsGA-tempfit-spectrum-{arm}-{i}-{{id}}.log', spectrum)
 
         self.inc_counter('process_spectrum')
 
     def on_process_template(self, arm, rv, template, processed_template):
         if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
 
-            self._plot_spectrum(f'pfsGA-RVFit-template-{arm}-{{id}}', arm,
+            self._plot_spectrum(f'pfsGA-tempfit-template-{arm}-{{id}}', arm,
                                 template=template,
                                 plot_template=True,
                                 title='Original template - {id}')
             
-            self._plot_spectrum(f'pfsGA-RVFit-template-processed-{arm}-{{id}}', arm,
+            self._plot_spectrum(f'pfsGA-tempfit-template-processed-{arm}-{{id}}', arm,
                                 template=template, processed_template=processed_template,
                                 plot_template=False, plot_processed_template=True,
-                                title='Processed template - {id}')
+                                title='Convolved template - {id}')
 
             self.flush_figures()
 
@@ -184,14 +184,14 @@ class TempFitTrace(Trace, SpectrumTrace):
         if self.get_counter('resample_template') is None:
             if self.plot_level:
 
-                self._plot_spectrum(f'pfsGA-RVFit-template-resampled-{arm}-{{id}}', arm,
+                self._plot_spectrum(f'pfsGA-tempfit-template-resampled-{arm}-{{id}}', arm,
                                     template=resampled_template,
                                     title='Resampled template - {id}')
 
                 self.flush_figures()
 
             if self.log_level >= Trace.LOG_LEVEL_NONE:
-                self._save_spectrum_history(f'pfsGA-RVFit-resampled-template-{arm}-{{id}}.log', resampled_template)
+                self._save_spectrum_history(f'pfsGA-tempfit-resampled-template-{arm}-{{id}}.log', resampled_template)
 
         self.inc_counter('resample_template')
 

@@ -86,7 +86,7 @@ class ModelGridTempFitTrace(TempFitTrace):
         nparam = len(params_fit)
         if not rv_fixed:
             nparam += 1
-        f = self.get_diagram_page('pfsGA-RVFit-params-{id}', npages=1, nrows=nparam, ncols=nparam)
+        f = self.get_diagram_page('pfsGA-tempfit-params-{id}', npages=1, nrows=nparam, ncols=nparam)
 
         # Collect the axes from the free parameters and RV
         axes = []
