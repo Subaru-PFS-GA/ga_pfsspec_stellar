@@ -1037,7 +1037,7 @@ class ModelGrid(PfsObject):
             if self.array_grid is None and self.rbf_grid is None:
                 raise NotImplementedError("General interpolation is supported on ArrayGrid and RbfGrid only.")
         
-            msg_method = 'calculated from {method} interpolation'
+            msg_method = f'calculated from {method} interpolation'
 
         if psf is not None:
             msg_psf = f' and convolved with PSF of type `{type(psf).__name__}`'
