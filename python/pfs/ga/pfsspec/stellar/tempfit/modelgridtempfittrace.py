@@ -126,4 +126,7 @@ class ModelGridTempFitTrace(TempFitTrace):
         # Plot the priors            
         cc.plot_priors(*priors, normalize=True)
 
+        # Print the final best fit parameters and their errors
+        cc.print_parameters(*all_params)
+
         self.flush_figures()
