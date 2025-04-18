@@ -751,7 +751,7 @@ class ModelGrid(PfsObject):
     
     #region Model accessor functions
 
-    def get_model_post_process(self, wlim, psf=None):
+    def get_model_pre_process(self, wlim, psf=None):
         """
         Returns a function to be executed before interpolation. The results of the
         function are cached by the grid object and reused in further interpolations.
@@ -771,7 +771,7 @@ class ModelGrid(PfsObject):
         tuple
             Cache key prefix
         function
-            Post-process function
+            Pre-process function, for example PSF convolution.
         """
 
         # Perform the kernel convolution in a post-process step. This way the results will
@@ -780,16 +780,16 @@ class ModelGrid(PfsObject):
         psf = psf if psf is not None else self.psf
         if psf is not None:
             cache_key_prefix = (psf,)
-            def post_process(value):
+            def pre_process(value):
                 # TODO: Use wave limits
                 _, vv, _, shift = psf.convolve(self.wave[wlim], values=[ value ], errors=[], size=None, normalize=True)
                 value[shift:-shift] = vv[0]
                 return value
         else:
             cache_key_prefix = ()
-            post_process = None
+            pre_process = None
 
-        return cache_key_prefix, post_process
+        return cache_key_prefix, pre_process
 
     def get_model(self, denormalize=True, wlim=None, psf=None, **kwargs):
         """
@@ -841,9 +841,9 @@ class ModelGrid(PfsObject):
             Model spectrum
         """
 
-        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
+        def interp_fun(name, pre_process, cache_key_prefix, wlim, idx, **kwargs):
             params = self.grid.get_params_at(idx, **kwargs)
-            return self.grid.get_value_at(name, idx, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim), params
+            return self.grid.get_value_at(name, idx, pre_process=pre_process, cache_key_prefix=cache_key_prefix, s=wlim), params
         
         return self.interpolate_model_impl('grid', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, idx=idx)
     
@@ -898,10 +898,10 @@ class ModelGrid(PfsObject):
             Model spectrum
         """
 
-        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
+        def interp_fun(name, pre_process, cache_key_prefix, wlim, idx, **kwargs):
             idx = self.grid.get_nearest_index(**kwargs)
             params = self.grid.get_params_at(idx, **kwargs)
-            return self.grid.get_value_at(name, idx, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim), params
+            return self.grid.get_value_at(name, idx, pre_process=pre_process, cache_key_prefix=cache_key_prefix, s=wlim), params
         
         return self.interpolate_model_impl('nearest', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
         
@@ -927,8 +927,8 @@ class ModelGrid(PfsObject):
             Model spectrum        
         """
 
-        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
-            return self.grid.interpolate_value_linear(name, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
+        def interp_fun(name, pre_process, cache_key_prefix, wlim, idx, **kwargs):
+            return self.grid.interpolate_value_linear(name, pre_process=pre_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
 
         return self.interpolate_model_impl('linear', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
 
@@ -956,8 +956,8 @@ class ModelGrid(PfsObject):
             Model spectrum
         """
 
-        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
-            return self.grid.interpolate_value_spline(name, free_param, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
+        def interp_fun(name, pre_process, cache_key_prefix, wlim, idx, **kwargs):
+            return self.grid.interpolate_value_spline(name, free_param, pre_process=pre_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
         
         spec = self.interpolate_model_impl('spline', interp_fun, denormalize=denormalize, wlim=wlim, psf=psf, **kwargs)
 
@@ -989,8 +989,8 @@ class ModelGrid(PfsObject):
             Model spectrum  
         """
 
-        def interp_fun(name, post_process, cache_key_prefix, wlim, idx, **kwargs):
-            return self.grid.interpolate_value_rbf(name, post_process=post_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
+        def interp_fun(name, pre_process, cache_key_prefix, wlim, idx, **kwargs):
+            return self.grid.interpolate_value_rbf(name, pre_process=pre_process, cache_key_prefix=cache_key_prefix, s=wlim, **kwargs)
 
         if isinstance(self.grid, RbfGrid) or \
            isinstance(self.grid, PcaGrid) and isinstance(self.grid.grid, RbfGrid):
@@ -1052,9 +1052,9 @@ class ModelGrid(PfsObject):
         # Get post-processing function to be passed to the grid. The grid object will
         # execute this before interpolation and optinally cache the results for
         # further interpolations.
-        cache_key_prefix, post_process = self.get_model_post_process(wlim=wlim, psf=psf)
+        cache_key_prefix, pre_process = self.get_model_pre_process(wlim=wlim, psf=psf)
     
-        r = interp_fun('flux', post_process=post_process, cache_key_prefix=cache_key_prefix, wlim=wlim, idx=idx, **kwargs)
+        r = interp_fun('flux', pre_process=pre_process, cache_key_prefix=cache_key_prefix, wlim=wlim, idx=idx, **kwargs)
         if r is None:
             return None
         flux, params = r
@@ -1071,7 +1071,7 @@ class ModelGrid(PfsObject):
                 spec.append_history('Flux error vector is not found in grid.')
 
             if self.grid.has_value('cont'):
-                r = interp_fun('cont', post_process=post_process, cache_key_prefix=cache_key_prefix, wlim=wlim, idx=idx, **kwargs)
+                r = interp_fun('cont', pre_process=pre_process, cache_key_prefix=cache_key_prefix, wlim=wlim, idx=idx, **kwargs)
                 if r is not None:
                     spec.cont, _ = r
                     spec.append_history(f'Continuum model vector {msg_method}{msg_psf}.')
