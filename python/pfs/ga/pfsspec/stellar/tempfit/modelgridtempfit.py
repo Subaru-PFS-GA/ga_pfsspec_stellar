@@ -136,7 +136,7 @@ class ModelGridTempFit(TempFit):
 
         return templates, missing
 
-    def get_normalization(self, spectra, templates=None, params_0=None, params_fixed=None, **kwargs):
+    def get_normalization(self, spectra, templates=None, rv_0=None, params_0=None, params_fixed=None, **kwargs):
         # Calculate a normalization factor for the spectra, as well as
         # the templates assuming an RV=0 and params_0 for the template.
         # This is just a factor to bring spectra to the same scale and avoid
@@ -167,7 +167,7 @@ class ModelGridTempFit(TempFit):
         if missing:
             raise Exception(f"Template parameters {params} are outside the grid.")
         else:
-            return super().get_normalization(spectra, templates)
+            return super().get_normalization(spectra, templates, rv_0=rv_0)
         
     def process_template_impl(self, arm, template, spectrum, rv, psf=None, wlim=None):
         # Skip convolution because convolution is pushed down to the
@@ -177,7 +177,8 @@ class ModelGridTempFit(TempFit):
     def calculate_log_L(self, spectra, templates,
                         rv, rv_prior=None,
                         params=None, params_fixed=None, params_priors=None,
-                        a=None):
+                        a=None,
+                        pp_spec=None):
         
         """
         Calculate the logarithm of the likelihood at the given values of RV.
@@ -204,7 +205,8 @@ class ModelGridTempFit(TempFit):
             raise Exception("Template parameters {params} are outside the grid.")
         else:
             log_L = super().calculate_log_L(spectra, templates,
-                                            rv, rv_prior=rv_prior, a=a)
+                                            rv, rv_prior=rv_prior, a=a,
+                                            pp_spec=pp_spec)
             
             if params_priors is not None:
                 for p in params_priors.keys():
@@ -411,7 +413,8 @@ class ModelGridTempFit(TempFit):
     def get_objective_function(self, spectra,
                                rv_0, rv_fixed, rv_prior,
                                params_0, params_priors, params_free, params_fixed=None,
-                               mode='full'):
+                               mode='full',
+                               pp_spec=None):
     
         """
         Return the objective function and parameter packing/unpacking functions for optimizers
@@ -440,7 +443,8 @@ class ModelGridTempFit(TempFit):
                     log_L = self.calculate_log_L(spectra, templates,
                                                  rv, rv_prior=rv_prior,
                                                  params=params, params_priors=params_priors,
-                                                 a=a)
+                                                 a=a,
+                                                 pp_spec=pp_spec)
                     return log_L
         elif mode == 'params_rv':
             def log_L(params_rv):
@@ -454,7 +458,8 @@ class ModelGridTempFit(TempFit):
                 else:
                     log_L = self.calculate_log_L(spectra, templates,
                                                  rv, rv_prior=rv_prior,
-                                                 params=params, params_priors=params_priors)
+                                                 params=params, params_priors=params_priors,
+                                                 pp_spec=pp_spec)
                     return log_L
         elif mode == 'params':
             def log_L(params):
@@ -466,7 +471,10 @@ class ModelGridTempFit(TempFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, params=params, params_priors=params_priors)
+                    log_L = self.calculate_log_L(spectra, templates,
+                                                 rv_0, rv_prior=rv_prior,
+                                                 params=params, params_priors=params_priors,
+                                                 pp_spec=pp_spec)
                     return log_L
         elif mode == 'rv':
             def log_L(rv):
@@ -478,7 +486,10 @@ class ModelGridTempFit(TempFit):
                     # Trying to extrapolate outside the grid
                     return -np.inf
                 else:
-                    log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, params=params_0, params_priors=params_priors)
+                    log_L = self.calculate_log_L(spectra, templates,
+                                                 rv, rv_prior=rv_prior,
+                                                 params=params_0, params_priors=params_priors,
+                                                 pp_spec=pp_spec)
                     return log_L
         else:
             raise NotImplementedError()
@@ -489,7 +500,8 @@ class ModelGridTempFit(TempFit):
                     rv_0, params_0,
                     rv_bounds=None, rv_prior=None, rv_fixed=None,
                     params_bounds=None, params_priors=None, params_fixed=None,
-                    step=None, mode='full', method='hessian'):
+                    step=None, mode='full', method='hessian',
+                    pp_spec=None):
         
         """
         Evaluate the Fisher matrix around the provided rv_0 and params_0
@@ -518,12 +530,16 @@ class ModelGridTempFit(TempFit):
         
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, rv_0, rv_fixed, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode=mode)
+            spectra,
+            rv_0, rv_fixed, rv_prior,
+            params_0, params_priors, params_free, params_fixed=params_fixed,
+            mode=mode,
+            pp_spec=pp_spec)
         
         if mode == 'full' or mode == 'a_params_rv':
             # Calculate a_0
             templates, missing = self.get_templates(spectra, params_0)
-            a_0, _, _ = self.calculate_coeffs(spectra, templates, rv_0)
+            a_0, _, _ = self.calculate_coeffs(spectra, templates, rv_0, pp_spec=pp_spec)
             x_0 = pack_params(a_0, params_0, rv_0)[0]
             bounds = pack_bounds(np.size(a_0) * [(-np.inf, np.inf)], params_bounds, rv_bounds)
         elif mode == 'params_rv':
@@ -550,7 +566,8 @@ class ModelGridTempFit(TempFit):
                     rv_0, params_0,
                     rv_bounds=None, rv_prior=None, rv_fixed=None,
                     params_bounds=None, params_priors=None, params_fixed=None,
-                    step=None):
+                    step=None,
+                    pp_spec=None):
         """
         Evaluate the Fisher matrix that includes the RV, the template parameters, as well
         as the flux correction coefficients.
@@ -600,7 +617,11 @@ class ModelGridTempFit(TempFit):
         
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, rv_0, rv_fixed, rv_prior, params_0, params_priors, params_free, params_fixed=params_fixed, mode='full')
+            spectra,
+            rv_0, rv_fixed, rv_prior,
+            params_0, params_priors, params_free, params_fixed=params_fixed,
+            mode='full',
+            pp_spec=pp_spec)
         
         # Calculate derivatives by the model params and RV only, compose Fisher
         # matrix according to Eq. 28
@@ -692,7 +713,8 @@ class ModelGridTempFit(TempFit):
                  rv_bounds=None, rv_prior=None, rv_step=None,
                  params_0=None, params_fixed=None,
                  steps=None,
-                 method='lorentz'):
+                 method='lorentz',
+                 pp_spec=None):
         
         """
         Guess an initial state to close best RV, either using the supplied set of templates or
@@ -722,11 +744,13 @@ class ModelGridTempFit(TempFit):
         return super().guess_rv(spectra, templates,
                                      rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
                                      steps=steps,
-                                     method=method)
+                                     method=method,
+                                     pp_spec=pp_spec)
     
     def prepare_fit(self, spectra, /,
                     rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
-                    params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None):
+                    params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None,
+                    pp_spec=None):
         
         """
         :param params_0: Dictionary of initial values.
@@ -756,7 +780,7 @@ class ModelGridTempFit(TempFit):
         if self.template_wlim is None:
             # Use different template wlim for each arm but same for each exposure
             self.template_wlim = {}
-            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False,  rv_bounds=rv_bounds)
+            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False, rv_bounds=rv_bounds)
             for mi, arm in enumerate(spectra):
                 self.template_wlim[arm] = wlim[mi]
 
@@ -766,13 +790,23 @@ class ModelGridTempFit(TempFit):
                     
         if params_fixed is None:
             params_fixed = []
+
+        # Calculate the pre-normalization constants. This is only here to make sure that the
+        # matrix elements during calculations stay around unity
+        if self.spec_norm is None or self.temp_norm is None:
+            self.spec_norm, self.temp_norm = self.get_normalization(spectra, rv_0=rv_0, params_0=params_0, params_fixed=params_fixed)
+
+        # Preprocess the spectra
+        if pp_spec is None:
+            pp_spec = self.preprocess_spectra(spectra)
         
         # Get objective function
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra,
             rv_0, rv_fixed, rv_prior,
             params_0, params_priors, params_free, params_fixed=params_fixed,
-            mode='params_rv')
+            mode='params_rv',
+            pp_spec=pp_spec)
         
         # Initial values
         if params_0 is not None and rv_0 is not None:
@@ -791,7 +825,8 @@ class ModelGridTempFit(TempFit):
         bounds = pack_bounds(bounds, rv_bounds)
         bounds = self.get_bounds_array(bounds)
 
-        return (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
+        return (pp_spec,
+                rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
                 params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
                 log_L_fun, pack_params, unpack_params, pack_bounds,
                 x_0, bounds, steps)
@@ -846,7 +881,8 @@ class ModelGridTempFit(TempFit):
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds)
         
-        (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
+        (pp_spec, 
+            rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
             log_L_fun, pack_params, unpack_params, pack_bounds,
             x_0, bounds, steps) = self.prepare_fit(spectra,
@@ -882,7 +918,8 @@ class ModelGridTempFit(TempFit):
             _, _, rv_0 = self.guess_rv(spectra, None, 
                                        rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
                                        params_0=params_0, params_fixed=params_fixed,
-                                       method='max')
+                                       method='max',
+                                       pp_spec=pp_spec)
             
             # Update initial values
             if params_0 is not None and rv_0 is not None:
@@ -915,7 +952,7 @@ class ModelGridTempFit(TempFit):
         
         # Calculate the flux correction or continuum fit coefficients at best fit values
         templates, missing = self.get_templates(spectra, params_fit)
-        a_fit, _, _ = self.calculate_coeffs(spectra, templates, rv_fit)
+        a_fit, _, _ = self.calculate_coeffs(spectra, templates, rv_fit, pp_spec=pp_spec)
         
         if calculate_error:
             if rv_fixed:
@@ -926,7 +963,8 @@ class ModelGridTempFit(TempFit):
                                         rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
                                         params_fixed=params_fixed,
                                         step=rv_step,
-                                        mode='rv', method='hessian')
+                                        mode='rv', method='hessian',
+                                        pp_spec=pp_spec)
                 
                 with np.errstate(invalid='warn'):
                     rv_err = np.sqrt(C).item()
@@ -942,7 +980,8 @@ class ModelGridTempFit(TempFit):
                                         rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
                                         params_bounds=params_bounds, params_priors=params_priors, params_fixed=pf,
                                         step=1e-3,
-                                        mode='params', method='hessian')
+                                        mode='params', method='hessian',
+                                        pp_spec=pp_spec)
 
                 with np.errstate(invalid='warn'):
                     params_err[p] = np.sqrt(C).item()
@@ -964,7 +1003,8 @@ class ModelGridTempFit(TempFit):
                                     params_0=params_fit, params_fixed=params_fixed,
                                     params_bounds=params_bounds, params_priors=params_priors,
                                     step=1e-3,
-                                    mode='params_rv', method='hessian')
+                                    mode='params_rv', method='hessian',
+                                    pp_spec=pp_spec)
 
             # Check if the covariance matrix is positive definite
             with np.errstate(all='raise'):
@@ -988,7 +1028,8 @@ class ModelGridTempFit(TempFit):
             def log_L_fun(rv):
                 return self.calculate_log_L(spectra, templates,
                                             rv, rv_prior=rv_prior, params=params_fit,
-                                            params_priors=params_priors)
+                                            params_priors=params_priors,
+                                            pp_spec=pp_spec)
 
             self.trace.on_fit_rv_finish(spectra, None, tt,
                                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
@@ -1065,7 +1106,8 @@ class ModelGridTempFit(TempFit):
     
     def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                               params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None,
-                              cov=None, randomize=False, random_size=()):
+                              cov=None, randomize=False, random_size=(),
+                              pp_spec=None):
         
         """
         Randomize the initial parameters for MCMC.
@@ -1135,7 +1177,8 @@ class ModelGridTempFit(TempFit):
             spectra,
             rv_0, rv_fixed, rv_prior,
             params_0, params_priors, params_free, params_fixed=params_fixed,
-            mode='params_rv')
+            mode='params_rv',
+            pp_spec=pp_spec)
 
         # Generate an initial state for MCMC by sampling the priors randomly
 
@@ -1204,7 +1247,8 @@ class ModelGridTempFit(TempFit):
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds)
 
-        (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
+        (pp_spec,
+            rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             params_0, params_fixed, params_free, params_bounds, params_priors, params_steps,
             log_L_fun, pack_params, unpack_params, pack_bounds,
             x_0, bounds, steps) = self.prepare_fit(spectra,

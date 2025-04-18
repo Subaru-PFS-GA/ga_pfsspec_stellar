@@ -156,7 +156,7 @@ class ContNorm(CorrectionModel):
 
         return log_L
     
-    def fit_continuum(self, spectra, templates):
+    def fit_continuum(self, pp_spec, pp_temp):
         """
         Fit the continuum model to the ratio of the spectra and the templates or,
         if the templates are not provided, to the continuum directly.
@@ -171,9 +171,9 @@ class ContNorm(CorrectionModel):
 
         Parameters
         ----------
-        spectra : dict of list
+        pp_spec : dict of list
             Dictionary of preprocessed spectra for each arm and exposure.
-        templates : dict of list
+        pp_temp : dict of list
             Dictionary of preprocessed templates for each arm and exposure.
         """
 
@@ -248,14 +248,14 @@ class ContNorm(CorrectionModel):
         flux_err = { i: [] for i in r }
         mask = { i: [] for i in r }
         
-        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(spectra,
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec,
                                                                 per_arm=self.cont_per_arm,
                                                                 per_exp=self.cont_per_exp,
                                                                 include_none=False):
             
             key[mi].append((arm, ei))
 
-            temp = templates[arm][ei]
+            temp = pp_temp[arm][ei]
             w, f, fe, m = get_pixels_per_exp(arm, spec, temp)
 
             # Apply the continuum fit range definitions
@@ -271,9 +271,9 @@ class ContNorm(CorrectionModel):
         # Model parameter are returned in a dictionary keyed by the model index,
         # whereas the continua are returned in a dict of lists keyed by the arm.
         coeffs = {}
-        continua = { arm: [] for arm in spectra }
-        masks = { arm: [] for arm in spectra }
-        for arm, ei, _, _ in self.tempfit.enumerate_spectra(spectra,
+        continua = { arm: [] for arm in pp_spec }
+        masks = { arm: [] for arm in pp_spec }
+        for arm, ei, _, _ in self.tempfit.enumerate_spectra(pp_spec,
                                                             per_arm=False, per_exp=False,
                                                             include_none=True):
             continua[arm].append(None)
@@ -375,7 +375,8 @@ class ContNorm(CorrectionModel):
 
         return continua, masks
     
-    def apply_correction(self, spectra, corrections, correction_masks,
+    def apply_correction(self, spectra, templates,
+                         corrections, correction_masks,
                          apply_flux=False, apply_mask=False,
                          mask_bit=1,
                          inverse=False,
@@ -405,6 +406,9 @@ class ContNorm(CorrectionModel):
             If True, divide the flux by the correction model instead of multiplying it.
         """
 
+        # TODO: implement corrections for templates
+        raise NotImplementedError()
+
         if self.use_cont_norm:
             for arm in spectra:
                 for ei, (spec, cont, mask) in enumerate(zip(spectra[arm], corrections[arm], correction_masks[arm])):
@@ -431,6 +435,9 @@ class ContNorm(CorrectionModel):
                                 spec.multiply(cont)
 
                         spec.cont = cont
+
+    def apply_normalization(self, spectra, normalization=None):
+        pass
                             
     def get_wave_include(self):
         return self.cont_wave_include

@@ -143,7 +143,7 @@ class TempFit():
             self.template_wlim = None               # Model wavelength limits for each spectrograph arm to limit convolution
             self.template_wlim_buffer = 100         # Wavelength buffer in A, depends on line spread function
             
-            self.cache_templates = False    # Cache PSF-convolved templates
+            self.cache_templates = True     # Cache PSF-convolved templates
 
             self.rv_0 = None                # RV initial guess
             self.rv_fixed = False           # Fix RV to the initial guess or default value
@@ -896,6 +896,9 @@ class TempFit():
         # Create a mask based on the wavelength coverage
         temp.mask = self.get_full_mask(temp)
 
+        if temp.weight is not None:
+            temp.mask &= ~np.isnan(temp.weight)
+
         return temp
 
     def preprocess_templates(self, spectra, templates, rv):
@@ -1355,7 +1358,11 @@ class TempFit():
 
         return pack_params, unpack_params, pack_bounds
     
-    def get_objective_function(self, spectra, templates, rv_prior, mode='full'):
+    def get_objective_function(self,
+                               spectra, templates,
+                               rv_prior,
+                               mode='full',
+                               pp_spec=None):
         """
         Return the objective function and parameter packing/unpacking functions for optimizers
 
@@ -1387,12 +1394,12 @@ class TempFit():
         if mode == 'full' or mode == 'a_rv':
             def log_L(a_rv):
                 a, rv = unpack_params(a_rv)
-                log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a)
+                log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a, pp_spec=pp_spec)
                 return log_L
         elif mode == 'rv':
             def log_L(rv):
                 rv = unpack_params(rv)
-                log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
+                log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, pp_spec=pp_spec)
                 return log_L
         elif mode == 'a':
             raise NotImplementedError()
@@ -1445,7 +1452,8 @@ class TempFit():
 
     def calculate_F(self, spectra, templates,
                     rv_0=None, rv_fixed=None, rv_bounds=None, rv_prior=None,
-                    step=None, mode='full', method='hessian'):
+                    step=None, mode='full', method='hessian',
+                    pp_spec=None):
         
         """
         Evaluate the Fisher matrix around the provided rv_0.
@@ -1478,12 +1486,15 @@ class TempFit():
 
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates, rv_prior, mode=mode)
+            spectra, templates,
+            rv_prior,
+            mode=mode,
+            pp_spec=pp_spec)
             
         if mode == 'full' or mode == 'a_rv':
             # Determine the flux correction or continuum fit parameters at the
             # optimum RV
-            a_0, _, _ = self.calculate_coeffs(spectra, templates, rv_0)
+            a_0, _, _ = self.calculate_coeffs(spectra, templates, rv_0, pp_spec=pp_spec)
             x_0 = pack_params(a_0, rv_0)[0]
             bounds = pack_bounds(np.size(a_0) * [(-np.inf, np.inf)], rv_bounds)
         elif mode == 'rv':
@@ -1673,7 +1684,9 @@ class TempFit():
 
         return pp, pcov
 
-    def calculate_log_L(self, spectra, templates, rv, rv_prior=None, a=None):
+    def calculate_log_L(self, spectra, templates,
+                        rv, rv_prior=None, a=None,
+                        pp_spec=None):
         """
         Calculate the logarithm of the likelihood at the given values of RV.
 
@@ -1706,7 +1719,8 @@ class TempFit():
         if self.trace is not None:
             trace_state = TempFitTraceState()
 
-        pp_spec = self.preprocess_spectra(spectra)
+        if pp_spec is None:
+            pp_spec = self.preprocess_spectra(spectra)
 
         # Calculate log L at each RV
         log_L = np.full(rvv.shape, np.nan)
@@ -1742,7 +1756,7 @@ class TempFit():
 
         return log_L
 
-    def calculate_coeffs(self, spectra, templates, rv):
+    def calculate_coeffs(self, spectra, templates, rv, pp_spec=None):
         """
         Given a set of observed spectra and templates, evaluate the correction model
         to determine the correction model parameters at the given RV.
@@ -1764,16 +1778,18 @@ class TempFit():
             Preprocessed templates that match the observed spectra in wavelength
         """
 
-        pp_specs = self.preprocess_spectra(spectra)
-        pp_temps = self.preprocess_templates(spectra, templates, rv)
-        a = self.correction_model.calculate_coeffs(pp_specs, pp_temps)
+        if pp_spec is None:
+            pp_spec = self.preprocess_spectra(spectra)
+        pp_temp = self.preprocess_templates(spectra, templates, rv)
+        a = self.correction_model.calculate_coeffs(pp_spec, pp_temp)
         
-        return a, pp_specs, pp_temps
+        return a, pp_spec, pp_temp
 
     def guess_rv(self, spectra, templates, /,
                  rv_bounds=None, rv_prior=None, rv_step=None,
                  steps=None,
-                 method='lorentz'):
+                 method='lorentz',
+                 pp_spec=None):
         """
         Given a spectrum and a template, make a good initial guess for RV where a minimization
         algorithm can be started from.
@@ -1816,7 +1832,7 @@ class TempFit():
             steps = 31
     
         rv = np.linspace(*rv_bounds, steps)
-        log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
+        log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, pp_spec=pp_spec)
         
         # Mask out infs here in case the prior is very narrow
         mask = (~np.isnan(log_L) & ~np.isinf(log_L))
@@ -1860,7 +1876,8 @@ class TempFit():
         return rv, log_L, rv_guess
     
     def prepare_fit(self, spectra, templates, /,
-                    rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None):
+                    rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
+                    pp_spec=None):
         """
         This function is called before template fitting to normalize all parameters and
         prepare them for the optimization.
@@ -1895,23 +1912,32 @@ class TempFit():
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         rv_step = rv_step if rv_step is not None else self.rv_step
 
+        # Calculate the pre-normalization constants. This is only here to make sure that the
+        # matrix elements during calculations stay around unity
+        if self.spec_norm is None or self.temp_norm is None:
+            self.spec_norm, self.temp_norm = self.get_normalization(spectra, templates, rv_0)
+
         # Determine the (buffered) wavelength limit in which the templates will be convolved
         # with the PSF. This should be slightly larger than the observed wavelength range.
         if self.template_wlim is None:
             # Use different template wlim for each arm but same for each exposure
             self.template_wlim = {}
-            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False,  rv_bounds=rv_bounds)
+            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False, rv_bounds=rv_bounds)
             for mi, arm in enumerate(spectra):
                 self.template_wlim[arm] = wlim[mi]
 
         for mi, arm in enumerate(spectra):
             logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
 
+        # Preprocess the spectra
+        if pp_spec is None:
+            pp_spec = self.preprocess_spectra(spectra)
+
         log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             spectra, templates,
             rv_prior=rv_prior,
-            mode='rv'
-        )
+            mode='rv',
+            pp_spec=pp_spec)
         
         if rv_0 is not None:
             x_0 = pack_params(rv_0)[0]
@@ -1928,7 +1954,8 @@ class TempFit():
         bounds = pack_bounds(rv_bounds)
         bounds = self.get_bounds_array(bounds)
 
-        return (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
+        return (pp_spec,
+                rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
                 log_L_fun, pack_params, unpack_params, pack_bounds,
                 x_0, bounds, steps)
 
@@ -1981,7 +2008,8 @@ class TempFit():
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds)
 
-        (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
+        (pp_spec,
+            rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             log_L_fun, pack_params, unpack_params, pack_bounds,
             x_0, bounds, steps) = self.prepare_fit(spectra, templates,
                                                    rv_0=rv_0,
@@ -2000,7 +2028,8 @@ class TempFit():
         if rv_0 is None and spectra is not None:
             _, _, rv_0 = self.guess_rv(spectra, templates,
                                        rv_bounds=rv_bounds, rv_prior=rv_prior,
-                                       method='max')
+                                       method='max',
+                                       pp_spec=pp_spec)
             
             # Update initial values
             if rv_0 is not None:
@@ -2009,14 +2038,9 @@ class TempFit():
             if rv_fixed:
                 logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
 
-        # Calculate the pre-normalization constants. This is only here to make sure that the
-        # matrix elements during calculations stay around unity
-        if self.spec_norm is None or self.temp_norm is None:
-            self.spec_norm, self.temp_norm = self.get_normalization(spectra, templates, rv_0)
-
         if rv_fixed:
             # Only calculate the flux correction or continuum model coefficients at rv_0
-            results = self.fit_rv_fixed(spectra, templates, rv_0, rv_prior=rv_prior)
+            results = self.fit_rv_fixed(spectra, templates, rv_0, rv_prior=rv_prior, pp_spec=pp_spec)
         else:
             # Optimize for RV
             results = self.fit_rv_optimize(spectra, templates,
@@ -2028,7 +2052,8 @@ class TempFit():
         return results
 
     def fit_rv_fixed(self, spectra, templates,
-                     rv_0, rv_prior):
+                     rv_0, rv_prior,
+                     pp_spec=None):
         """
         Calculate the log likelihood at the provided RV. This requires evaluating the 
         correction model (flux correction or continuum normalization).
@@ -2052,13 +2077,13 @@ class TempFit():
         # continuum fit parameters
         # a_fit, _, _ = self.calculate_coeffs(spectra, templates, rv_0)
         # a_err = np.full_like(a_fit, np.nan)
-        # log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, a=a_fit)
+        # log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, a=a_fit, pp_spec=pp_spec)
         
         # Calculate log_L in a single step, this won't provide the flux correction or
         # continuum fit parameters
         a_fit = None
         a_err = None
-        log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior)
+        log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, pp_spec=pp_spec)
 
         results = TempFitResults(rv_fit=rv_0, rv_err=np.nan,
                                  a_fit=a_fit, a_err=a_err,
@@ -2348,7 +2373,8 @@ class TempFit():
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds)
 
-        (rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
+        (pp_spec,
+            rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
             log_L_fun, pack_params, unpack_params, pack_bounds,
             x_0, bounds, steps) = self.prepare_fit(spectra, templates,
                                                    rv_0=rv_0, rv_bounds=rv_bounds,
