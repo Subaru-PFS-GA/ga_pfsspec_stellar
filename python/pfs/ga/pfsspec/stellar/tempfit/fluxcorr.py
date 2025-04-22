@@ -678,7 +678,7 @@ class FluxCorr(CorrectionModel):
             for arm in spectra:
                 for ei, (spec, corr) in enumerate(zip(spectra[arm], corrections[arm])):
                     if spec is not None and corr is not None:
-                        spec.flux_corr = corr
+                        spec.flux_corr = 1.0 / corr
                         if apply_flux:
                             spec.multiply(1.0 / corr)
 
