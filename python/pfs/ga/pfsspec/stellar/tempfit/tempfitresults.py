@@ -1,6 +1,6 @@
 class TempFitResults():
     def __init__(self, /,
-                 rv_fit=None, rv_err=None, rv_mcmc=None,
+                 rv_fit=None, rv_err=None, rv_mcmc=None, rv_flags=None,
                  a_fit=None, a_err=None, a_mcmc=None,
                  log_L_fit=None, log_L_mcmc=None,
                  accept_rate=None,
@@ -12,6 +12,7 @@ class TempFitResults():
             self.rv_fit = rv_fit                        # Best fit RV
             self.rv_err = rv_err                        # Best fit RV uncertainty
             self.rv_mcmc = rv_mcmc                      # RV MC samples
+            self.rv_flags = rv_flags                    # RV flags
             self.a_fit = a_fit                          # Best fit flux corr / continuum parameters
             self.a_err = a_err
             self.a_mcmc = a_mcmc
@@ -24,6 +25,7 @@ class TempFitResults():
             self.rv_fit = rv_fit if rv_fit is not None else orig.rv_fit
             self.rv_err = rv_err if rv_err is not None else orig.rv_err
             self.rv_mcmc = rv_mcmc if rv_mcmc is not None else orig.rv_mcmc
+            self.rv_flags = rv_flags if rv_flags is not None else orig.rv_flags
             self.a_fit = a_fit if a_fit is not None else orig.a_fit
             self.a_err = a_err if a_err is not None else orig.a_err
             self.a_mcmc = a_mcmc if a_mcmc is not None else orig.a_mcmc

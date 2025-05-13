@@ -14,7 +14,7 @@ from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import RESAMPLERS
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
-from .tempfitflags import TempFitFlags
+from .tempfitflag import TempFitFlag
 from .tempfittrace import TempFitTrace
 from .tempfittracestate import TempFitTraceState
 from .tempfitresults import TempFitResults
@@ -1441,7 +1441,7 @@ class TempFit():
         else:
             return None
 
-    def check_bounds_edge(self,
+    def check_bounds_edge(self, flags, rv_flags,
                           rv_fit, rv_bounds, rv_prior, rv_fixed,
                           eps=1e-3):
 
@@ -1449,29 +1449,27 @@ class TempFit():
         Check if the fitted parameters are at the edge of the bounds.
         """
 
-        flags = 0
-
         # Check if the RV is at the edge of the bounds
         if not rv_fixed and rv_fit is not None and rv_bounds is not None:
             if rv_bounds[0] is not None and np.abs(rv_fit - rv_bounds[0]) < eps:
                 logger.warning(f"RV {rv_fit} is at the lower bound {rv_bounds[0]}.")
-                flags |= TempFitFlags.RVEDGE
+                rv_flags |= TempFitFlag.PARAMEDGE
             if rv_bounds[1] is not None and np.abs(rv_fit - rv_bounds[1]) < eps:
                 logger.warning(f"RV {rv_fit} is at the upper bound {rv_bounds[1]}.")
-                flags |= TempFitFlags.RVEDGE
+                rv_flags |= TempFitFlag.PARAMEDGE
 
         # Check if the RV is at the edge of the prior distribution
         if not rv_fixed and rv_fit is not None and isinstance(rv_prior, Distribution):
             if rv_prior.is_at_edge(rv_fit):
                 logger.warning(f"RV {rv_fit} is at the edge of the prior distribution.")
-                flags |= TempFitFlags.RVEDGE
+                rv_flags |= TempFitFlag.PARAMEDGE
 
-        if flags != 0:
-            flags |= TempFitFlags.BADCONVERGE
+        if rv_flags != 0:
+            flags |= TempFitFlag.BADCONVERGE
 
-        return flags
+        return flags, rv_flags
 
-    def check_prior_unlikely(self,
+    def check_prior_unlikely(self, flags, rv_flags,
                              rv_fit, rv_bounds, rv_prior, rv_fixed,
                              lp_limit=-5):
         
@@ -1480,15 +1478,13 @@ class TempFit():
         that the convergence might be bad.
         """
 
-        flags = 0
-
         if rv_fit is not None and rv_prior is not None:
             lp = self.eval_prior(rv_prior, rv_fit)
             if lp is not None and lp / np.log(10) < lp_limit:
                 logger.warning(f"Prior for RV {rv_fit} is very unlikely with lp {lp}.")
-                flags |= TempFitFlags.UNLIKELYPRIOR
+                rv_flags |= TempFitFlag.UNLIKELYPRIOR
 
-        return flags
+        return flags, rv_flags
         
     # endregion
     # region Fisher matrix evaluation
@@ -2183,7 +2179,8 @@ class TempFit():
             Step size for MCMC or numerical differentiation
         """
         
-        flags = 0
+        flags = TempFitFlag.OK
+        rv_flags = TempFitFlag.OK
                 
         # Cost function
         def llh(rv):
@@ -2215,10 +2212,12 @@ class TempFit():
         else:
             raise Exception(f"Could not fit RV using `{method}`")
 
-        flags |= self.check_bounds_edge(rv_fit, rv_bounds, rv_prior, rv_fixed=False)
-
-        flags |= self.check_prior_unlikely(rv_fit, rv_bounds, rv_prior, rv_fixed=False)
+        flags, rv_flags = self.check_bounds_edge(flags, rv_flags,
+                                                 rv_fit, rv_bounds, rv_prior, rv_fixed=False)
         
+        flags, rv_flags = self.check_prior_unlikely(flags, rv_flags,
+                                              rv_fit, rv_bounds, rv_prior, rv_fixed=False)
+
         # Calculate the flux correction or continuum fit coefficients at best fit values
         a_fit, pp_specs, pp_temps = self.calculate_coeffs(spectra, templates, rv_fit)
 
@@ -2246,7 +2245,7 @@ class TempFit():
                                         rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, False,
                                         log_L_fun)
         
-        return TempFitResults(rv_fit=rv_fit, rv_err=rv_err,
+        return TempFitResults(rv_fit=rv_fit, rv_err=rv_err, rv_flags=rv_flags,
                               a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                               log_L_fit=lp,
                               cov=C,

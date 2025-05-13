@@ -5,15 +5,16 @@ from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 import numdifftools as nd
 
-from pfs.ga.pfsspec.core.setup_logger import logger
 from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 from pfs.ga.pfsspec.core.util.timer import Timer
 from .tempfit import TempFit
-from .tempfitflags import TempFitFlags
+from .tempfitflag import TempFitFlag
 from .modelgridtempfitresults import ModelGridTempFitResults
 from .modelgridtempfittrace import ModelGridTempFitTrace
+
+from .setup_logger import logger
 
 class ModelGridTempFit(TempFit):
     """
@@ -497,7 +498,7 @@ class ModelGridTempFit(TempFit):
         
         return log_L, pack_params, unpack_params, pack_bounds
 
-    def check_bounds_edge(self,
+    def check_bounds_edge(self, flags, rv_flags, params_flags,
                           rv_fit, rv_bounds, rv_prior, rv_fixed,
                           params_fit, params_bounds, params_priors, params_fixed,
                           eps=1e-3):
@@ -505,8 +506,9 @@ class ModelGridTempFit(TempFit):
         Check if the fitted parameters are at the edge of the bounds.
         """
 
-        flags = super().check_bounds_edge(rv_fit, rv_bounds, rv_prior, rv_fixed,
-                                          eps=eps)
+        flags, rv_flags = super().check_bounds_edge(flags, rv_flags, 
+                                                    rv_fit, rv_bounds, rv_prior, rv_fixed,
+                                                    eps=eps)
 
         for p in ['T_eff', 'M_H', 'log_g']:
             if params_fit is not None and p in params_fit and \
@@ -514,23 +516,24 @@ class ModelGridTempFit(TempFit):
                 if params_bounds is not None and p in params_bounds and params_bounds[p] is not None:
                     if params_bounds[p][0] is not None and np.abs(params_fit[p] - params_bounds[p][0]) < eps:
                         logger.warning(f"Parameter {p} {params_fit[p]} is at the lower bound {params_bounds[p][0]}.")
-                        flags |= TempFitFlags.PARAMEDGE
+                        params_flags[p] |= TempFitFlag.PARAMEDGE
                     if params_bounds[p][1] is not None and np.abs(params_fit[p] - params_bounds[p][1]) < eps:
                         logger.warning(f"Parameter {p} {params_fit[p]} is at the upper bound {params_bounds[p][1]}.")
-                        flags |= TempFitFlags.PARAMEDGE
+                        params_flags[p] |= TempFitFlag.PARAMEDGE
 
-        if flags != 0:
-            flags |= TempFitFlags.BADCONVERGE
+            if params_flags[p] != 0:
+                flags |= TempFitFlag.BADCONVERGE
             
-        return flags
+        return flags, rv_flags, params_flags
 
-    def check_prior_unlikely(self,
+    def check_prior_unlikely(self, flags, rv_flags, params_flags,
                              rv_fit, rv_bounds, rv_prior, rv_fixed,
                              params_fit, params_bounds, params_priors, params_fixed,
                              lp_limit=-5):
 
-        flags = super().check_prior_unlikely(rv_fit, rv_bounds, rv_prior, rv_fixed,
-                                             lp_limit=lp_limit)
+        flags, rv_flags = super().check_prior_unlikely(flags, rv_flags,
+                                                       rv_fit, rv_bounds, rv_prior, rv_fixed,
+                                                       lp_limit=lp_limit)
         
         if params_fit is not None and params_priors is not None:
             for p in params_fit:
@@ -538,9 +541,9 @@ class ModelGridTempFit(TempFit):
                     lp = self.eval_prior(params_priors[p], params_fit[p])
                     if lp is not None and lp / np.log(10) < lp_limit:
                         logger.warning(f"Prior for parameter {p} {params_fit[p]} is very unlikely with lp {lp}.")
-                        flags |= TempFitFlags.UNLIKELYPRIOR
+                        params_flags[p] |= TempFitFlag.UNLIKELYPRIOR
 
-        return flags
+        return flags, rv_flags, params_flags
 
     def calculate_F(self, spectra,
                     rv_0, params_0,
@@ -934,8 +937,6 @@ class ModelGridTempFit(TempFit):
                 
         max_iter = max_iter if max_iter is not None else self.max_iter
 
-        flags = 0
-
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds)
         
@@ -949,6 +950,10 @@ class ModelGridTempFit(TempFit):
                                                    params_0=params_0, params_bounds=params_bounds,
                                                    params_priors=params_priors, params_steps=None,
                                                    params_fixed=params_fixed)
+
+        flags = TempFitFlag.OK
+        rv_flags = TempFitFlag.OK
+        params_flags = { p: TempFitFlag.OK for p in params_0 }
         
         if self.trace is not None:
             # If tracing, create a full list of included and excluded wavelengths, independent
@@ -1004,11 +1009,13 @@ class ModelGridTempFit(TempFit):
         params_fit, rv_fit = unpack_params(x_fit)
         params_fit = { **params_fit, **params_fixed }
 
-        flags |= self.check_bounds_edge(rv_fit, rv_bounds, rv_prior, rv_fixed,
-                                   params_fit, params_bounds, params_priors, params_fixed)
+        flags, rv_flags, params_flags = self.check_bounds_edge(flags, rv_flags, params_flags,
+                                                               rv_fit, rv_bounds, rv_prior, rv_fixed,
+                                                               params_fit, params_bounds, params_priors, params_fixed)
         
-        flags |= self.check_prior_unlikely(rv_fit, rv_bounds, rv_prior, rv_fixed,
-                                        params_fit, params_bounds, params_priors, params_fixed)
+        flags, rv_flags, params_flags = self.check_prior_unlikely(flags, rv_flags, params_flags,
+                                                                  rv_fit, rv_bounds, rv_prior, rv_fixed,
+                                                                  params_fit, params_bounds, params_priors, params_fixed)
                 
         # Calculate the flux correction or continuum fit coefficients at best fit values
         templates, missing = self.get_templates(spectra, params_fit)
@@ -1053,8 +1060,8 @@ class ModelGridTempFit(TempFit):
                                         C,
                                         log_L_fun)
 
-        return ModelGridTempFitResults(rv_fit=rv_fit, rv_err=rv_err,
-                                       params_free=params_free, params_fit=params_fit, params_err=params_err,
+        return ModelGridTempFitResults(rv_fit=rv_fit, rv_err=rv_err, rv_flags=rv_flags,
+                                       params_free=params_free, params_fit=params_fit, params_err=params_err, params_flags=params_flags,
                                        a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
                                        cov=C,
                                        flags=flags)
@@ -1077,7 +1084,7 @@ class ModelGridTempFit(TempFit):
         else:
             logger.warning('No step size is specified, cannot generate initial simplex.')
             xx_0 = None
-            flags |= TempFitFlags.BADINIT
+            flags |= TempFitFlag.BADINIT
         
         if self.trace is not None:
             def callback(x):
@@ -1109,7 +1116,7 @@ class ModelGridTempFit(TempFit):
 
             if max_iter == out.nit:
                 logger.warning("Nelder-Mead optimization reached the maximum number of iterations.")
-                flags |= TempFitFlags.MAXITER
+                flags |= TempFitFlag.MAXITER
                 
             return out.x, flags
         else:
