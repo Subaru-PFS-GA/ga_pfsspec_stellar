@@ -1470,6 +1470,25 @@ class TempFit():
             flags |= TempFitFlags.BADCONVERGE
 
         return flags
+
+    def check_prior_unlikely(self,
+                             rv_fit, rv_bounds, rv_prior, rv_fixed,
+                             lp_limit=-5):
+        
+        """
+        Check if the fitted parameters are unlikely a priori. This means
+        that the convergence might be bad.
+        """
+
+        flags = 0
+
+        if rv_fit is not None and rv_prior is not None:
+            lp = self.eval_prior(rv_prior, rv_fit)
+            if lp is not None and lp / np.log(10) < lp_limit:
+                logger.warning(f"Prior for RV {rv_fit} is very unlikely with lp {lp}.")
+                flags |= TempFitFlags.UNLIKELYPRIOR
+
+        return flags
         
     # endregion
     # region Fisher matrix evaluation
@@ -2197,6 +2216,8 @@ class TempFit():
             raise Exception(f"Could not fit RV using `{method}`")
 
         flags |= self.check_bounds_edge(rv_fit, rv_bounds, rv_prior, rv_fixed=False)
+
+        flags |= self.check_prior_unlikely(rv_fit, rv_bounds, rv_prior, rv_fixed=False)
         
         # Calculate the flux correction or continuum fit coefficients at best fit values
         a_fit, pp_specs, pp_temps = self.calculate_coeffs(spectra, templates, rv_fit)

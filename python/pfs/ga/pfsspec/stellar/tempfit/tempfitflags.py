@@ -11,3 +11,4 @@ class TempFitFlags:
     PARAMEDGE = 1 << 5          # Template parameters at the bounds
     BADERROR = 1 << 6           # Errors could not be calculated
     BADCOV = 1 << 7             # Covariance matrix could not be calculated
+    UNLIKELYPRIOR = 1 << 8      # Unlikely prior

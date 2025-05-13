@@ -524,6 +524,24 @@ class ModelGridTempFit(TempFit):
             
         return flags
 
+    def check_prior_unlikely(self,
+                             rv_fit, rv_bounds, rv_prior, rv_fixed,
+                             params_fit, params_bounds, params_priors, params_fixed,
+                             lp_limit=-5):
+
+        flags = super().check_prior_unlikely(rv_fit, rv_bounds, rv_prior, rv_fixed,
+                                             lp_limit=lp_limit)
+        
+        if params_fit is not None and params_priors is not None:
+            for p in params_fit:
+                if params_fit[p] is not None and p in params_priors:
+                    lp = self.eval_prior(params_priors[p], params_fit[p])
+                    if lp is not None and lp / np.log(10) < lp_limit:
+                        logger.warning(f"Prior for parameter {p} {params_fit[p]} is very unlikely with lp {lp}.")
+                        flags |= TempFitFlags.UNLIKELYPRIOR
+
+        return flags
+
     def calculate_F(self, spectra,
                     rv_0, params_0,
                     rv_bounds=None, rv_prior=None, rv_fixed=None,
@@ -988,6 +1006,9 @@ class ModelGridTempFit(TempFit):
 
         flags |= self.check_bounds_edge(rv_fit, rv_bounds, rv_prior, rv_fixed,
                                    params_fit, params_bounds, params_priors, params_fixed)
+        
+        flags |= self.check_prior_unlikely(rv_fit, rv_bounds, rv_prior, rv_fixed,
+                                        params_fit, params_bounds, params_priors, params_fixed)
                 
         # Calculate the flux correction or continuum fit coefficients at best fit values
         templates, missing = self.get_templates(spectra, params_fit)
