@@ -14,6 +14,7 @@ from pfs.ga.pfsspec.core.sampling import MCMC
 from pfs.ga.pfsspec.core.caching import ReadOnlyCache
 from pfs.ga.pfsspec.core.obsmod.resampling import RESAMPLERS
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
+from .tempfitflags import TempFitFlags
 from .tempfittrace import TempFitTrace
 from .tempfittracestate import TempFitTraceState
 from .tempfitresults import TempFitResults
@@ -1439,6 +1440,36 @@ class TempFit():
             return np.array(bb)
         else:
             return None
+
+    def check_bounds_edge(self,
+                          rv_fit, rv_bounds, rv_prior, rv_fixed,
+                          eps=1e-3):
+
+        """
+        Check if the fitted parameters are at the edge of the bounds.
+        """
+
+        flags = 0
+
+        # Check if the RV is at the edge of the bounds
+        if not rv_fixed and rv_fit is not None and rv_bounds is not None:
+            if rv_bounds[0] is not None and np.abs(rv_fit - rv_bounds[0]) < eps:
+                logger.warning(f"RV {rv_fit} is at the lower bound {rv_bounds[0]}.")
+                flags |= TempFitFlags.RVEDGE
+            if rv_bounds[1] is not None and np.abs(rv_fit - rv_bounds[1]) < eps:
+                logger.warning(f"RV {rv_fit} is at the upper bound {rv_bounds[1]}.")
+                flags |= TempFitFlags.RVEDGE
+
+        # Check if the RV is at the edge of the prior distribution
+        if not rv_fixed and rv_fit is not None and isinstance(rv_prior, Distribution):
+            if rv_prior.is_at_edge(rv_fit):
+                logger.warning(f"RV {rv_fit} is at the edge of the prior distribution.")
+                flags |= TempFitFlags.RVEDGE
+
+        if flags != 0:
+            flags |= TempFitFlags.BADCONVERGE
+
+        return flags
         
     # endregion
     # region Fisher matrix evaluation
@@ -2087,7 +2118,9 @@ class TempFit():
 
         results = TempFitResults(rv_fit=rv_0, rv_err=np.nan,
                                  a_fit=a_fit, a_err=a_err,
-                                 cov=None, log_L_fit=log_L_fit)
+                                 log_L_fit=log_L_fit,
+                                 cov=None,
+                                 flags=0)
 
         return results
         
@@ -2131,6 +2164,8 @@ class TempFit():
             Step size for MCMC or numerical differentiation
         """
         
+        flags = 0
+                
         # Cost function
         def llh(rv):
             return -log_L_fun(pack_params(rv))
@@ -2160,6 +2195,8 @@ class TempFit():
                              f"number of function evaluations: {out.nfev}")
         else:
             raise Exception(f"Could not fit RV using `{method}`")
+
+        flags |= self.check_bounds_edge(rv_fit, rv_bounds, rv_prior, rv_fixed=False)
         
         # Calculate the flux correction or continuum fit coefficients at best fit values
         a_fit, pp_specs, pp_temps = self.calculate_coeffs(spectra, templates, rv_fit)
@@ -2190,7 +2227,9 @@ class TempFit():
         
         return TempFitResults(rv_fit=rv_fit, rv_err=rv_err,
                               a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
-                              cov=C, log_L_fit=lp)
+                              log_L_fit=lp,
+                              cov=C,
+                              flags=flags)
 
     def get_spectra_templates_for_trace(self, spectra, templates, rv_fit, a_fit):
         # If tracing, evaluate the template at the best fit RV.

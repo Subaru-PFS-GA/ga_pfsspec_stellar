@@ -5,6 +5,7 @@ class TempFitResults():
                  log_L_fit=None, log_L_mcmc=None,
                  accept_rate=None,
                  cov=None,
+                 flags=None,
                  orig=None):
         
         if not isinstance(orig, TempFitResults):
@@ -18,6 +19,7 @@ class TempFitResults():
             self.log_L_mcmc = log_L_mcmc                # log likelihood at MC samples
             self.accept_rate = accept_rate              # MC acceptance rate
             self.cov = cov                              # Covariance matrix
+            self.flags = flags                          # Flags for the fit
         else:
             self.rv_fit = rv_fit if rv_fit is not None else orig.rv_fit
             self.rv_err = rv_err if rv_err is not None else orig.rv_err
@@ -29,3 +31,4 @@ class TempFitResults():
             self.log_L_mcmc = log_L_mcmc if log_L_mcmc is not None else orig.log_L_mcmc
             self.accept_rate = accept_rate if accept_rate is not None else orig.accept_rate
             self.cov = cov if cov is not None else orig.cov
+            self.flags = flags if flags is not None else orig.flags

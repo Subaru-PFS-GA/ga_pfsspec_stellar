@@ -11,6 +11,7 @@ from pfs.ga.pfsspec.core import Physics
 from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 from pfs.ga.pfsspec.core.util.timer import Timer
 from .tempfit import TempFit
+from .tempfitflags import TempFitFlags
 from .modelgridtempfitresults import ModelGridTempFitResults
 from .modelgridtempfittrace import ModelGridTempFitTrace
 
@@ -496,6 +497,33 @@ class ModelGridTempFit(TempFit):
         
         return log_L, pack_params, unpack_params, pack_bounds
 
+    def check_bounds_edge(self,
+                          rv_fit, rv_bounds, rv_prior, rv_fixed,
+                          params_fit, params_bounds, params_priors, params_fixed,
+                          eps=1e-3):
+        """
+        Check if the fitted parameters are at the edge of the bounds.
+        """
+
+        flags = super().check_bounds_edge(rv_fit, rv_bounds, rv_prior, rv_fixed,
+                                          eps=eps)
+
+        for p in ['T_eff', 'M_H', 'log_g']:
+            if params_fit is not None and p in params_fit and \
+                (params_fixed is None or p not in params_fixed):
+                if params_bounds is not None and p in params_bounds and params_bounds[p] is not None:
+                    if params_bounds[p][0] is not None and np.abs(params_fit[p] - params_bounds[p][0]) < eps:
+                        logger.warning(f"Parameter {p} {params_fit[p]} is at the lower bound {params_bounds[p][0]}.")
+                        flags |= TempFitFlags.PARAMEDGE
+                    if params_bounds[p][1] is not None and np.abs(params_fit[p] - params_bounds[p][1]) < eps:
+                        logger.warning(f"Parameter {p} {params_fit[p]} is at the upper bound {params_bounds[p][1]}.")
+                        flags |= TempFitFlags.PARAMEDGE
+
+        if flags != 0:
+            flags |= TempFitFlags.BADCONVERGE
+            
+        return flags
+
     def calculate_F(self, spectra,
                     rv_0, params_0,
                     rv_bounds=None, rv_prior=None, rv_fixed=None,
@@ -831,6 +859,16 @@ class ModelGridTempFit(TempFit):
                 log_L_fun, pack_params, unpack_params, pack_bounds,
                 x_0, bounds, steps)
 
+    def get_wave_include_exclude(self):
+        wave_include = []
+        wave_exclude = []
+        wave_include.extend(self.wave_include or [])
+        wave_exclude.extend(self.wave_exclude or [])
+        wave_include.extend(self.correction_model.get_wave_include() or [])
+        wave_exclude.extend(self.correction_model.get_wave_exclude() or [])
+
+        return wave_include, wave_exclude
+
     def fit_rv(self, spectra, /,
                rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
@@ -878,6 +916,8 @@ class ModelGridTempFit(TempFit):
                 
         max_iter = max_iter if max_iter is not None else self.max_iter
 
+        flags = 0
+
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds)
         
@@ -895,14 +935,7 @@ class ModelGridTempFit(TempFit):
         if self.trace is not None:
             # If tracing, create a full list of included and excluded wavelengths, independent
             # of any masks defines by the spectra
-
-            wave_include = []
-            wave_exclude = []
-            wave_include.extend(self.wave_include or [])
-            wave_exclude.extend(self.wave_exclude or [])
-            wave_include.extend(self.correction_model.get_wave_include() or [])
-            wave_exclude.extend(self.correction_model.get_wave_exclude() or [])
-            
+            wave_include, wave_exclude = self.get_wave_include_exclude()
             self.trace.on_fit_rv_start(spectra, None,
                                        rv_0, rv_bounds, rv_prior, rv_step,
                                        params_0, params_bounds, params_priors, params_steps,
@@ -939,55 +972,32 @@ class ModelGridTempFit(TempFit):
             all_params = {**params_0, **params_fixed}
             raise Exception(f"Invalid starting point for template fitting. Are the parameters {all_params} outside the grid?")
         
-        # Optimizers require different initialization
+        # Call the optimizer
         if method == 'Nelder-Mead':
-            x_fit = self.optimize_nelder_mead(x_0, steps, bounds,
+            # TODO: return optimizer flags
+            x_fit, fl = self.optimize_nelder_mead(x_0, steps, bounds,
                                               llh, pack_params, unpack_params,
                                               method, max_iter)
+            flags |= fl
         else:
             raise NotImplementedError()
         
+        # Unpack the optimized parameters
         params_fit, rv_fit = unpack_params(x_fit)
         params_fit = { **params_fit, **params_fixed }
-        
+
+        flags |= self.check_bounds_edge(rv_fit, rv_bounds, rv_prior, rv_fixed,
+                                   params_fit, params_bounds, params_priors, params_fixed)
+                
         # Calculate the flux correction or continuum fit coefficients at best fit values
         templates, missing = self.get_templates(spectra, params_fit)
         a_fit, _, _ = self.calculate_coeffs(spectra, templates, rv_fit, pp_spec=pp_spec)
         
         if calculate_error:
-            if rv_fixed:
-                rv_err = np.nan
-            else:
-                # Error of RV only!
-                F, C = self.calculate_F(spectra, rv_fit, params_fit,
-                                        rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
-                                        params_fixed=params_fixed,
-                                        step=rv_step,
-                                        mode='rv', method='hessian',
-                                        pp_spec=pp_spec)
-                
-                with np.errstate(invalid='warn'):
-                    rv_err = np.sqrt(C).item()
-
-            # Error of the parameters one by one
-            params_err = {}
-            for i, p in enumerate(params_free):
-                pp = { p: params_fit[p] }
-                pf = { s: params_fit[s] for j, s in enumerate(params_free) if j != i }
-                pf.update({ s: params_fixed[s] for j, s in enumerate(params_fixed) })
-
-                F, C = self.calculate_F(spectra, rv_fit, pp,
-                                        rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
-                                        params_bounds=params_bounds, params_priors=params_priors, params_fixed=pf,
-                                        step=1e-3,
-                                        mode='params', method='hessian',
-                                        pp_spec=pp_spec)
-
-                with np.errstate(invalid='warn'):
-                    params_err[p] = np.sqrt(C).item()
-
-            for i, p in enumerate(params_fixed):
-                params_err[p] =  0.0
+            rv_err, params_err = self.fit_rv_get_error(spectra, rv_fit, params_fit, params_free,
+                                                       rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed, rv_step=rv_step,
+                                                       params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed,
+                                                       pp_spec=pp_spec)
         else:
             rv_err = np.nan
             params_err = {}
@@ -997,25 +1007,10 @@ class ModelGridTempFit(TempFit):
                 params_err[p] = np.nan
 
         if calculate_cov:
-            # Calculate the correlated errors from the Fisher matrix            
-            F, C = self.calculate_F(spectra, 
-                                    rv_0=rv_fit, rv_bounds=None, rv_prior=None, rv_fixed=rv_fixed,
-                                    params_0=params_fit, params_fixed=params_fixed,
-                                    params_bounds=params_bounds, params_priors=params_priors,
-                                    step=1e-3,
-                                    mode='params_rv', method='hessian',
+            C = self.fit_rv_get_cov(spectra, rv_fit, params_fit, params_free,
+                                    rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed, rv_step=rv_step,
+                                    params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed,
                                     pp_spec=pp_spec)
-
-            # Check if the covariance matrix is positive definite
-            with np.errstate(all='raise'):
-                try:
-                    np.linalg.cholesky(C)
-                except LinAlgError as ex:
-                    # Matrix is not positive definite
-                    F = C = np.full_like(C, np.nan)
-                    
-            with np.errstate(invalid='warn'):
-                err = np.sqrt(np.diag(C)) # sigma
         else:
             C = None
 
@@ -1040,7 +1035,8 @@ class ModelGridTempFit(TempFit):
         return ModelGridTempFitResults(rv_fit=rv_fit, rv_err=rv_err,
                                        params_free=params_free, params_fit=params_fit, params_err=params_err,
                                        a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
-                                       cov=C)
+                                       cov=C,
+                                       flags=flags)
     
     def optimize_nelder_mead(self, x_0, steps, bounds,
                              llh, pack_params, unpack_params,
@@ -1050,6 +1046,8 @@ class ModelGridTempFit(TempFit):
         Run the Nelder-Mead optimizer to fit the RV and template parameters.
         """
 
+        flags = 0
+
         # Generate the initial simplex for the Nelder-Mead method
         if steps is not None:
             xx_0 = np.empty((x_0.size + 1, x_0.size))
@@ -1058,6 +1056,7 @@ class ModelGridTempFit(TempFit):
         else:
             logger.warning('No step size is specified, cannot generate initial simplex.')
             xx_0 = None
+            flags |= TempFitFlags.BADINIT
         
         if self.trace is not None:
             def callback(x):
@@ -1082,12 +1081,16 @@ class ModelGridTempFit(TempFit):
             vol_0 = vol(xx_0)
             vol_f = vol(out.final_simplex[0])
 
-            logger.debug(f"Nelder-Mead message: {out.message}")
-            logger.debug(f"Nelder-Mead number of iterations: {out.nit}, "
+            logger.info(f"Nelder-Mead message: {out.message}")
+            logger.info(f"Nelder-Mead number of iterations: {out.nit}, "
                          f"number of function evaluations: {out.nfev}")
-            logger.debug(f"Nelder-Mead initial simplex volume: {vol_0:0.3f}, final simplex volume: {vol_f:0.3f}")
+            logger.info(f"Nelder-Mead initial simplex volume: {vol_0:0.3f}, final simplex volume: {vol_f:0.3f}")
 
-            return out.x
+            if max_iter == out.nit:
+                logger.warning("Nelder-Mead optimization reached the maximum number of iterations.")
+                flags |= TempFitFlags.MAXITER
+                
+            return out.x, flags
         else:
             raise Exception(f"Could not fit RV using `{method}`, reason: {out.message}")
 
@@ -1103,6 +1106,74 @@ class ModelGridTempFit(TempFit):
                         calculate_error=True, calculate_cov=True):
         
         raise NotImplementedError()
+
+    def fit_rv_get_error(self, spectra, rv_fit, params_fit, params_free,
+                         rv_bounds=None, rv_prior=None, rv_fixed=None, rv_step=None,
+                         params_bounds=None, params_priors=None, params_fixed=None,
+                         pp_spec=None):
+        
+        if rv_fixed:
+            rv_err = np.nan
+        else:
+            # Error of RV only!
+            F, C = self.calculate_F(spectra, rv_fit, params_fit,
+                                    rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
+                                    params_fixed=params_fixed,
+                                    step=rv_step,
+                                    mode='rv', method='hessian',
+                                    pp_spec=pp_spec)
+            
+            with np.errstate(invalid='warn'):
+                rv_err = np.sqrt(C).item()
+
+        # Error of the parameters one by one
+        params_err = {}
+        for i, p in enumerate(params_free):
+            pp = { p: params_fit[p] }
+            pf = { s: params_fit[s] for j, s in enumerate(params_free) if j != i }
+            pf.update({ s: params_fixed[s] for j, s in enumerate(params_fixed) })
+
+            F, C = self.calculate_F(spectra, rv_fit, pp,
+                                    rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
+                                    params_bounds=params_bounds, params_priors=params_priors, params_fixed=pf,
+                                    step=1e-3,
+                                    mode='params', method='hessian',
+                                    pp_spec=pp_spec)
+
+            with np.errstate(invalid='warn'):
+                params_err[p] = np.sqrt(C).item()
+
+        for i, p in enumerate(params_fixed):
+            params_err[p] =  0.0
+
+        return rv_err, params_err
+
+    def fit_rv_get_cov(self, spectra, rv_fit, params_fit, params_free,
+                       rv_bounds=None, rv_prior=None, rv_fixed=None, rv_step=None,
+                       params_bounds=None, params_priors=None, params_fixed=None,
+                       pp_spec=None):
+        
+        # Calculate the correlated errors from the Fisher matrix
+        F, C = self.calculate_F(spectra, 
+                                rv_0=rv_fit, rv_bounds=None, rv_prior=None, rv_fixed=rv_fixed,
+                                params_0=params_fit, params_fixed=params_fixed,
+                                params_bounds=params_bounds, params_priors=params_priors,
+                                step=1e-3,
+                                mode='params_rv', method='hessian',
+                                pp_spec=pp_spec)
+
+        # Check if the covariance matrix is positive definite
+        with np.errstate(all='raise'):
+            try:
+                np.linalg.cholesky(C)
+            except LinAlgError as ex:
+                # Matrix is not positive definite
+                F = C = np.full_like(C, np.nan)
+                
+        # with np.errstate(invalid='warn'):
+        #     err = np.sqrt(np.diag(C)) # sigma
+
+        return C
     
     def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                               params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None,

@@ -2,20 +2,11 @@ from .tempfitresults import TempFitResults
 
 class ModelGridTempFitResults(TempFitResults):
     def __init__(self, /,
-                 rv_fit=None, rv_err=None, rv_mcmc=None,
-                 a_fit=None, a_err=None, a_mcmc=None,
                  params_free=None, params_fit=None, params_err=None, params_mcmc=None,
-                 log_L_fit=None, log_L_mcmc=None,
-                 accept_rate=None,
-                 cov=None,
-                 orig=None):
+                 orig=None,
+                 **kwargs):
 
-        super().__init__(rv_fit=rv_fit, rv_err=rv_err, rv_mcmc=rv_mcmc,
-                         a_fit=a_fit, a_err=a_err, a_mcmc=a_mcmc,
-                         log_L_fit=log_L_fit, log_L_mcmc=log_L_mcmc,
-                         accept_rate=accept_rate,
-                         cov=cov,
-                         orig=orig)
+        super().__init__(orig=orig, **kwargs)
 
         if not isinstance(orig, ModelGridTempFitResults):
             self.params_free = params_free                  # Lis of free model parameters
