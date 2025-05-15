@@ -123,6 +123,14 @@ class FluxCorr(CorrectionModel):
         -------
         basis : dict of list of np.ndarray
             Dictionary of basis vectors, in a form of ndarray for each arm and exposure.
+        basis_size: int
+            Size of the basis matrix.
+        model_mask : dict of list of np.ndarray
+            Dictionary of model masks for each arm and exposure. The mask is a boolean
+            array that selects the coefficients belonging to the arm/exposure.
+        wave_mask : dict of list of np.ndarray
+            Dictionary of wavelength masks for each arm and exposure. The mask is a boolean
+            array that selects the valid values of the basis function.
 
         The structure of the basis matrix is determined by the configuration options
         `amplitude_per_arm`, `amplitude_per_exp`, `flux_corr_per_arm` and `flux_corr_per_exp`.
@@ -635,11 +643,9 @@ class FluxCorr(CorrectionModel):
             if self.use_flux_corr:
                 # Full flux correction
                 corr = np.dot(basis, a)
-                # mask = np.full(corr.shape, True, dtype=bool)
             else:
                 # This is an amplitude only
                 corr = a
-                mask = True
 
             return corr, mask
 
@@ -649,50 +655,25 @@ class FluxCorr(CorrectionModel):
         bases, basis_size, basis_mask, wave_mask = self.get_flux_corr_basis(pp_specs)
 
         corrections = { arm: [] for arm in pp_specs }
-        masks = { arm: [] for arm in pp_specs }
+        correction_masks = { arm: [] for arm in pp_specs }
 
         for arm in pp_specs:
             for ei, (spec, temp) in enumerate(zip(pp_specs[arm], pp_temps[arm])):
                 if spec is not None:
-                    corr, mask = eval_flux_corr(temp, bases[arm][ei], basis_mask[arm][ei], a)
+                    corr, mask = eval_flux_corr(temp, bases[arm][ei], wave_mask[arm][ei], a)
                     corrections[arm].append(corr)
-                    masks[arm].append(mask)
+                    correction_masks[arm].append(mask)
                 else:
                     corrections[arm].append(None)
-                    masks[arm].append(None)
+                    correction_masks[arm].append(None)
                     
-        return corrections, masks
-    
-    def apply_correction(self, spectra, templates,
-                         corrections, correction_masks,
-                         apply_flux=False, apply_mask=False,
-                         mask_bit=1,
-                         inverse=False,
-                         normalization=None):
+        return corrections, correction_masks
 
-        # NOTE: unlike continuum normalization, flux correction doesn't
-        #       have a `correction_mask` because it's valid on the entire
-        #       wavelength range
-        
-        if spectra is not None:
-            for arm in spectra:
-                for ei, (spec, corr) in enumerate(zip(spectra[arm], corrections[arm])):
-                    if spec is not None and corr is not None:
-                        spec.flux_corr = 1.0 / corr
-                        if apply_flux:
-                            spec.multiply(1.0 / corr)
+    def _apply_correction_impl(self, spec, corr, template=False, apply_flux=False):
+        super()._apply_correction_impl(spec, corr, template=template, apply_flux=apply_flux)
 
-        if templates is not None:
-            for arm in templates:
-                for ei, (spec, corr) in enumerate(zip(templates[arm], corrections[arm])):
-                    if spec is not None and corr is not None:
-                        spec.flux_corr = corr
-                        if apply_flux:
-                            spec.multiply(corr)
-       
-    def apply_normalization(self, spectra, normalization=None):
-        if normalization is not None:
-            for arm in spectra:
-                for ei, spec in enumerate(spectra[arm]):
-                    if spec is not None:
-                        spec.multiply(normalization)
+        spec.flux_corr = corr
+           
+    def _apply_normalization_impl(self, spec, norm, template=False):
+        if spec is not None:
+            spec.multiply(norm)

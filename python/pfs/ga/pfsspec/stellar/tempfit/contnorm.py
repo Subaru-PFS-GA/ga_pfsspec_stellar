@@ -374,70 +374,14 @@ class ContNorm(CorrectionModel):
             masks = None
 
         return continua, masks
-    
-    def apply_correction(self, spectra, templates,
-                         corrections, correction_masks,
-                         apply_flux=False, apply_mask=False,
-                         mask_bit=1,
-                         inverse=False,
-                         normalization=None):
-        
-        """
-        Apply the flux correction to the spectra. This function appends the correction
-        model to the spectrum and optionally applies it to the flux and sets the
-        mask bits. The function modifies the objects in-place.
-        
-        Parameters
-        ----------
-        spectra : dict of list
-            Dictionary of spectra for each arm and exposure.
-        corrections : dict of list
-            Flux correction evaluated on the wavelength grid.
-        correction_masks: dict of list
-            Masks where the correction model is valid.
-        apply_flux: bool
-            Apply the correction model to the flux. When inverse is False, it multiplies
-            the flux vectors by the correction model. When inverse is True, it divides
-            the flux vectors by the correction model.
-        apply_mask: bool
-            Set the mask bits where the correction model is valid. True where the
-            model is valid.
-        inverse: bool
-            If True, divide the flux by the correction model instead of multiplying it.
-        """
 
-        # TODO: implement corrections for templates
-        raise NotImplementedError()
+    def _apply_correction_impl(self, spec, corr, template=False, apply_flux=False):
+        super()._apply_correction_impl(spec, corr, template=template, apply_flux=apply_flux)
 
-        if self.use_cont_norm:
-            for arm in spectra:
-                for ei, (spec, cont, mask) in enumerate(zip(spectra[arm], corrections[arm], correction_masks[arm])):
-                    if spec is not None and cont is not None:
-                        
-                        if mask is not None and apply_mask:
-                            if spec.mask is None:
-                                spec.mask = mask
-                            elif spec.mask.dtype == bool:
-                                spec.mask &= mask
-                            else:                           
-                                # spec.mask is a bit mask
-                                # mask is True where the continuum is valid so set the bit
-                                # where where the mask is false
-                                spec.mask = np.where(mask, spec.mask, spec.mask | mask_bit)
+        spec.cont = corr    
 
-                        if normalization is not None:
-                            cont *= normalization
-                        
-                        if apply_flux:
-                            if inverse:
-                                spec.multiply(1.0 / cont)
-                            else:
-                                spec.multiply(cont)
-
-                        spec.cont = cont
-
-    def apply_normalization(self, spectra, normalization=None):
-        pass
+    def _apply_normalization_impl(self, spec, norm, template=False):
+        spec.cont *= norm
                             
     def get_wave_include(self):
         return self.cont_wave_include

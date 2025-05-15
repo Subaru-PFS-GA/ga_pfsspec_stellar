@@ -2260,11 +2260,16 @@ class TempFit():
         tt = pp_temp                        # Template resampled to the instrument
 
         # Append the correction model to the original spectra but do not change the original flux
-        self.correction_model.apply_correction(ss, None, corrections, correction_masks, apply_flux=False, apply_mask=True)
+        self.correction_model.apply_correction(ss, 
+                                               corrections, correction_masks, None,
+                                               apply_flux=False, apply_mask=True,
+                                               template=False)
 
         # Multiply the templates with the correction model and scale them to the observed flux
-        self.correction_model.apply_correction(None, tt, corrections, correction_masks, apply_flux=True, apply_mask=True)
-        self.correction_model.apply_normalization(tt, self.spec_norm)
+        self.correction_model.apply_correction(tt,
+                                               corrections, correction_masks, self.spec_norm,
+                                               apply_flux=True, apply_mask=True, apply_normalization=True,
+                                               template=True)
 
         return ss, tt
 
@@ -2287,14 +2292,24 @@ class TempFit():
         a : ndarray
             Correction model parameters (optional)
 
+        Returns
+        -------
+        pp_specs: dict of list of Spectrum
+            Preprocessed spectra with normalization applied.
+        pp_temps: dict of list of Spectrum
+            Preprocessed templates that match the wave grid of the observed spectra
+        corrections: dict of list of np.ndarray
+            Correction model for each arm and exposure
+        correction_masks: dict of list of np.ndarray
+            Correction model masks for each arm and exposure
         """
 
         pp_specs = self.preprocess_spectra(spectra)
         pp_temps = self.preprocess_templates(spectra, templates, rv)
         
-        corrections, masks = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
+        corrections, correction_masks = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
 
-        return pp_specs, pp_temps, corrections, masks
+        return pp_specs, pp_temps, corrections, correction_masks
     
     def multiply_spectra(self, spectra, factor):
         for arm in spectra:
