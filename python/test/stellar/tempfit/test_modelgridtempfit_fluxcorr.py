@@ -387,7 +387,8 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                 self.get_initialized_tempfit(**config)
             
             log_L, axes, labels = rvfit.map_log_L(
-                specs, None,        # Pass in no templates
+                specs, 
+                templates=None,        # Pass in no templates
                 rv=rv_real, 
                 params={
                     'T_eff': params_0['T_eff'],

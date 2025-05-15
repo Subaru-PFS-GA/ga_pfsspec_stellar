@@ -147,10 +147,14 @@ class TempFitTrace(Trace, SpectrumTrace):
                 rv_fit=rv_fit, rv_err=rv_err,
                 title='TempFit results zoom-in - {id}')
 
-        # TODO: plot the convergence of RV, if available
-        if self.plot_rv_convergence:
-            pass
-            pass
+        # Plot the convergence of RV, if available
+        if self.plot_rv_convergence and self.rv_iter is not None and self.log_L_iter is not None:
+            rv = np.array(self.rv_iter)
+            log_L = np.array(self.log_L_iter)
+
+            self._plot_rv_convergence('pfsGA-tempfit-rv-converge-{id}',
+                                      rv=rv, log_L=log_L,
+                                      title='RV convergence - {id}',)
             
         self.flush_figures()
 
@@ -350,3 +354,16 @@ class TempFitTrace(Trace, SpectrumTrace):
         ax.set_ylabel('normalized log-posterior')
 
         self.flush_figures()
+
+    def _plot_rv_convergence(self, key, /, rv=None, log_L=None, title=None):
+        
+        f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1,
+                                  title=title,
+                                  page_size=(5.5, 3.5))
+        ax = f.add_axes((0, 0, 0))
+        ax.plot(rv, '-k')
+        ax2 = ax.twinx()
+        ax2.plot(log_L, '-b')
+        ax.set_xlabel('iteration')
+        ax.set_ylabel('RV [km s$^{-1}$]')
+        ax2.set_ylabel('log-posterior')

@@ -210,7 +210,7 @@ class ModelGridTempFit(TempFit):
             msg = f"Template parameters {params} are outside the grid."
             if ignore_missing_template:
                 log_L = np.nan
-                logger.warning(msg)
+                logger.debug(msg)
             else:
                 raise Exception(msg)
         else:
@@ -225,7 +225,7 @@ class ModelGridTempFit(TempFit):
 
         return log_L
         
-    def map_log_L(self, spectra, templates, size=10,
+    def map_log_L(self, spectra, templates=None, size=10,
                   rv=None, rv_prior=None, rv_bounds=None,
                   params=None, params_fixed=None, params_priors=None, params_bounds=None,
                   squeeze=False):
@@ -297,6 +297,10 @@ class ModelGridTempFit(TempFit):
             
         if squeeze:
             log_L = log_L.squeeze()
+
+        if self.trace is not None:
+            params = { l: v for l, v in zip(labels, axes) }
+            self.trace.on_map_log_L(spectra, templates, params, log_L)
 
         return log_L, axes, labels
         

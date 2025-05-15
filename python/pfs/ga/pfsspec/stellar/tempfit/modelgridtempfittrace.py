@@ -17,6 +17,8 @@ class ModelGridTempFitTrace(TempFitTrace):
 
         self.plot_params_priors = False
         self.plot_params_cov = False
+        self.plot_params_convergence = False
+        self.plot_log_L_map = False
 
         super().__init__(id=id, figdir=figdir, logdir=logdir, plot_inline=plot_inline, plot_level=plot_level, log_level=log_level)
     
@@ -33,6 +35,8 @@ class ModelGridTempFitTrace(TempFitTrace):
 
         self.plot_params_priors = get_arg('plot_params_priors', self.plot_params_priors, args)
         self.plot_params_cov = get_arg('plot_params_cov', self.plot_params_cov, args)
+        self.plot_params_convergence = get_arg('plot_params_convergence', self.plot_params_convergence, args)
+        self.plot_log_L_map = get_arg('plot_log_L_map', self.plot_log_L_map, args)
 
     def on_fit_rv_start(self, spectra, templates, 
                         rv_0, rv_bounds, rv_prior, rv_step,
@@ -75,6 +79,29 @@ class ModelGridTempFitTrace(TempFitTrace):
             self._plot_fit_results(rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                                       params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
                                       cov)
+
+        # Plot the convergence of template params, if available
+        if self.plot_params_convergence and self.params_iter is not None:
+            params = { p: np.array(v) for p, v in self.params_iter.items() }
+            log_L = np.array(self.log_L_iter)
+
+            self._plot_params_convergence('pfsGA-tempfit-params-converge-{id}',
+                                      params=params, log_L=log_L,
+                                      title='Parameter convergence - {id}')
+
+        self.flush_figures()
+            
+    def on_map_log_L(self, spectra, templates, params, log_L):
+
+        if self.plot_log_L_map:
+            # Cannot plot a map for less than 1 or more than 2 parameters
+            if len(params) == 2:
+                pnames = '_'.join(list(params.keys()))
+                self._plot_log_L_map(f'pfsGA-tempfit-logL-map-{pnames}-{{id}}',
+                                    params=params,
+                                    log_L=log_L)
+        
+        self.flush_figures()
         
     def _plot_fit_results(self,
                           rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
@@ -130,4 +157,34 @@ class ModelGridTempFitTrace(TempFitTrace):
         # Print the final best fit parameters and their errors
         cc.print_parameters(*all_params)
 
-        self.flush_figures()
+    def _plot_params_convergence(self, key, /, params=None, log_L=None, title=None):
+        
+        f = self.get_diagram_page(key, npages=1, nrows=len(params) + 1, ncols=1,
+                                  title=title)
+
+        ax = f.add_axes((0, 0, 0))
+        ax.plot(log_L, '-k')
+        ax.set_xlabel('iteration')
+        ax.set_ylabel('log-posterior')
+        
+        for i, p in enumerate(params):
+            ax = f.add_axes((0, i + 1, 0))
+            ax.plot(params[p], '-k')
+            ax.set_xlabel('iteration')
+            ax.set_ylabel(p)
+
+    def _plot_log_L_map(self, key, /, params=None, log_L=None, title=None):
+
+        f = self.get_diagram_page(key, npages=1, nrows=1, ncols=1,
+                                  title=title,
+                                  page_size=(4, 4))
+
+        labels = list(params.keys())
+        axes = list(params.values())
+
+        ax = f.add_axes((0, 0, 0))
+
+        ax.imshow(log_L, aspect='auto', origin='lower',
+                  extent=[axes[0][0], axes[0][-1], axes[1][0], axes[1][-1]],)
+        ax.set_xlabel(labels[0])
+        ax.set_ylabel(labels[1])
