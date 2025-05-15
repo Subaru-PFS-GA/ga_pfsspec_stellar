@@ -84,7 +84,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
             ax.plot(rv, y1, '-')
   
         if guess_rv or fit_rv or calculate_error:
-            _, _, rv0 = tempfit.guess_rv(specs, temps)
+            _, _, rv0, lL0 = tempfit.guess_rv(specs, temps)
             ax.axvline(rv0, color='k', label='rv guess')
 
     def test_init_correction_model(self):
@@ -203,7 +203,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
             
             tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
 
-            basis, basis_size = tempfit.correction_model.eval_flux_corr_basis(specs)
+            basis, basis_size, model_mask, wave_mask = tempfit.correction_model.eval_flux_corr_basis(specs)
 
             self.assertEqual(gt_amp_count + gt_coeff_count, basis_size)
             for arm in basis:
@@ -225,7 +225,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         f, ax = plt.subplots(1, 1)
         
-        basis, basis_size = tempfit.correction_model.eval_flux_corr_basis(specs)
+        basis, basis_size, model_mask, wave_mask = tempfit.correction_model.eval_flux_corr_basis(specs)
         for k in specs:
             for ei, ee in enumerate(specs[k] if isinstance(specs[k], list) else [specs[k]]):
                 ax.plot(ee.wave, basis[k][ei])

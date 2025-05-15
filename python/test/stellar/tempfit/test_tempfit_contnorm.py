@@ -94,7 +94,7 @@ class TestTempFitContNorm(TempFitTestBase):
             ax.plot(rv, y1, '-')
   
         if guess_rv or fit_rv or calculate_error:
-            _, _, rv0 = tempfit.guess_rv(specs, temps)
+            _, _, rv0, lL0 = tempfit.guess_rv(specs, temps)
             ax.axvline(rv0, color='k', label='rv guess')
 
     def test_init_correction_model(self):

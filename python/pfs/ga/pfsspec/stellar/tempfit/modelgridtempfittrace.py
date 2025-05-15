@@ -37,20 +37,20 @@ class ModelGridTempFitTrace(TempFitTrace):
     def on_fit_rv_start(self, spectra, templates, 
                         rv_0, rv_bounds, rv_prior, rv_step,
                         params_0, params_bounds, params_priors, params_steps,
-                        log_L_fun,
+                        log_L_0, log_L_fun,
                         wave_include=None, wave_exclude=None):
         
         super().on_fit_rv_start(spectra, templates,
                                 rv_0, rv_bounds, rv_prior, rv_step,
-                                log_L_fun,
+                                log_L_0, log_L_fun,
                                 wave_include=wave_include, wave_exclude=wave_exclude)
         
         self.params_iter = { p: [ params_0[p] ] for p in params_0 }
 
         # Plot priors etc.
 
-    def on_fit_rv_iter(self, rv, params):
-        super().on_fit_rv_iter(rv)
+    def on_fit_rv_iter(self, rv, params, log_L, log_L_fun):
+        super().on_fit_rv_iter(rv, log_L, log_L_fun)
 
         for p in params:
             if p in self.params_iter:
@@ -60,7 +60,7 @@ class ModelGridTempFitTrace(TempFitTrace):
                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                          params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
                          cov,
-                         log_L_fun):
+                         log_L_0, log_L_fit, log_L_fun):
         
         for p in params_fit:
             if p in self.params_iter:
@@ -68,7 +68,7 @@ class ModelGridTempFitTrace(TempFitTrace):
 
         super().on_fit_rv_finish(spectra, templates, processed_templates,
                             rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
-                            log_L_fun)
+                            log_L_0, log_L_fit, log_L_fun)
         
         if self.plot_rv_fit:
             # Corner plot of parameters

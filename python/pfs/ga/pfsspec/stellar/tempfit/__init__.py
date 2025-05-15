@@ -1,5 +1,5 @@
 from .tempfit import TempFit
-from .tempfitflags import TempFitFlags
+from .tempfitflag import TempFitFlag
 from .tempfittrace import TempFitTrace
 from .tempfittrace import TempFitTrace as TempFitTrace
 from .modelgridtempfit import ModelGridTempFit

@@ -31,6 +31,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.plot_priors = False
         self.plot_rv_guess = False
         self.plot_rv_fit = False
+        self.plot_rv_convergence = False
         self.plot_input_spec = False
         self.plot_fit_spec = {}
 
@@ -44,6 +45,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         super().reset()
 
         self.rv_iter = None                    # Keep track of convergence
+        self.log_L_iter = None
         self.guess_rv_results = None
 
         self.continuum_fit_iter = 0
@@ -59,6 +61,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.plot_priors = get_arg('plot_priors', self.plot_priors, args)
         self.plot_rv_guess = get_arg('plot_rv_guess', self.plot_rv_guess, args)
         self.plot_rv_fit = get_arg('plot_rv_fit', self.plot_rv_fit, args)
+        self.plot_rv_convergence = get_arg('plot_rv_convergence', self.plot_rv_convergence, args)
         self.plot_input_spec = get_arg('plot_input_spec', self.plot_input_spec, args)
         self.plot_fit_spec = get_arg('plot_fit_spec', self.plot_fit_spec, args)
 
@@ -71,10 +74,11 @@ class TempFitTrace(Trace, SpectrumTrace):
 
     def on_fit_rv_start(self, spectra, templates, 
                         rv_0, rv_bounds, rv_prior, rv_step,
-                        log_L_fun,
+                        log_L_0, log_L_fun,
                         wave_include=None, wave_exclude=None):
         
         self.rv_iter = [ rv_0 ]
+        self.log_L_iter = [ log_L_0 ]
 
         if self.plot_input_spec:
             self._plot_spectra('pfsGA-tempfit-input-{id}',
@@ -89,11 +93,11 @@ class TempFitTrace(Trace, SpectrumTrace):
                              title='Prior on RV - {id}')
             self.flush_figures()
 
-    def on_guess_rv(self, rv, log_L, rv_guess, log_L_fit, function, pp, pcov):
+    def on_guess_rv(self, rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov):
         # Called when the RV guess is made
 
         # Save results for later plotting
-        self.guess_rv_results = (rv, log_L, rv_guess, log_L_fit, function, pp, pcov)
+        self.guess_rv_results = (rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov)
 
         if self.plot_rv_guess or self.plot_level >= Trace.PLOT_LEVEL_INFO:
             self._plot_rv_fit('pfsGA-tempfit-rv-guess-{id}',
@@ -101,14 +105,16 @@ class TempFitTrace(Trace, SpectrumTrace):
                               rv_guess=rv_guess,
                               title='RV guess - {id}')
     
-    def on_fit_rv_iter(self, rv):
+    def on_fit_rv_iter(self, rv, log_L, log_L_fun):
         self.rv_iter.append(rv)
+        self.log_L_iter.append(log_L)
     
     def on_fit_rv_finish(self, spectra, templates, processed_templates, 
                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
-                         log_L_fun):
+                         log_L_0, log_L_fit, log_L_fun):
         
         self.rv_iter.append(rv_fit)
+        self.log_L_iter.append(log_L_fit)
         
         # Plot the final results based on the configuration settings
         for key, config in self.plot_fit_spec.items():
@@ -117,9 +123,9 @@ class TempFitTrace(Trace, SpectrumTrace):
         # Plot rv_fit and rv_guess and the likelihood function
         if self.plot_rv_fit:
             if self.guess_rv_results is not None:
-                rv, log_L, rv_guess, log_L_fit, function, pp, pcov = self.guess_rv_results
+                rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov = self.guess_rv_results
             else:
-                rv, log_L, rv_guess, log_L_fit, function, pp, pcov = None, None, None, None, None, None
+                rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov = None, None, None, None, None, None, None
 
             self._plot_rv_fit(
                 'pfsGA-tempfit-rv-fit-{id}',
@@ -140,6 +146,11 @@ class TempFitTrace(Trace, SpectrumTrace):
                 rv_guess=rv_guess, rv_0=rv_0,
                 rv_fit=rv_fit, rv_err=rv_err,
                 title='TempFit results zoom-in - {id}')
+
+        # TODO: plot the convergence of RV, if available
+        if self.plot_rv_convergence:
+            pass
+            pass
             
         self.flush_figures()
 

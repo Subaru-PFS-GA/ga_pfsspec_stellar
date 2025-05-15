@@ -1,4 +1,6 @@
+from deprecated import deprecated
 from typing import Callable
+from types import SimpleNamespace
 import numpy as np
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
@@ -463,6 +465,16 @@ class TempFit():
                             yield arm, ei, None, None
                         elif spec is not None and is_good(spec):
                             yield arm, ei, mi, spec
+
+    def get_wave_include_exclude(self):
+        wave_include = []
+        wave_exclude = []
+        wave_include.extend(self.wave_include or [])
+        wave_exclude.extend(self.wave_exclude or [])
+        wave_include.extend(self.correction_model.get_wave_include() or [])
+        wave_exclude.extend(self.correction_model.get_wave_exclude() or [])
+
+        return wave_include, wave_exclude
     
     def determine_wlim(self, spectra: dict, /, per_arm=True, per_exp=True,
                        rv_bounds=None, wlim_buffer=None, round_to=None):
@@ -550,6 +562,8 @@ class TempFit():
         force : bool
             Force reinitialization of the models
         """
+
+        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
 
         if self.correction_model is not None:
             self.correction_model.trace = self.trace
@@ -1441,50 +1455,42 @@ class TempFit():
         else:
             return None
 
-    def check_bounds_edge(self, flags, rv_flags,
-                          rv_fit, rv_bounds, rv_prior, rv_fixed,
-                          eps=1e-3):
+    def check_bounds_edge(self, state, eps=1e-3):
 
         """
         Check if the fitted parameters are at the edge of the bounds.
         """
 
         # Check if the RV is at the edge of the bounds
-        if not rv_fixed and rv_fit is not None and rv_bounds is not None:
-            if rv_bounds[0] is not None and np.abs(rv_fit - rv_bounds[0]) < eps:
-                logger.warning(f"RV {rv_fit} is at the lower bound {rv_bounds[0]}.")
-                rv_flags |= TempFitFlag.PARAMEDGE
-            if rv_bounds[1] is not None and np.abs(rv_fit - rv_bounds[1]) < eps:
-                logger.warning(f"RV {rv_fit} is at the upper bound {rv_bounds[1]}.")
-                rv_flags |= TempFitFlag.PARAMEDGE
+        if not state.rv_fixed and state.rv_fit is not None and state.rv_bounds is not None:
+            if state.rv_bounds[0] is not None and np.abs(state.rv_fit - state.rv_bounds[0]) < eps:
+                logger.warning(f"RV {state.rv_fit} is at the lower bound {state.rv_bounds[0]}.")
+                state.rv_flags |= TempFitFlag.PARAMEDGE
+            if state.rv_bounds[1] is not None and np.abs(state.rv_fit - state.rv_bounds[1]) < eps:
+                logger.warning(f"RV {state.rv_fit} is at the upper bound {state.rv_bounds[1]}.")
+                state.rv_flags |= TempFitFlag.PARAMEDGE
 
         # Check if the RV is at the edge of the prior distribution
-        if not rv_fixed and rv_fit is not None and isinstance(rv_prior, Distribution):
-            if rv_prior.is_at_edge(rv_fit):
-                logger.warning(f"RV {rv_fit} is at the edge of the prior distribution.")
-                rv_flags |= TempFitFlag.PARAMEDGE
+        if not state.rv_fixed and state.rv_fit is not None and isinstance(state.rv_prior, Distribution):
+            if state.rv_prior.is_at_edge(state.rv_fit):
+                logger.warning(f"RV {state.rv_fit} is at the edge of the prior distribution.")
+                state.rv_flags |= TempFitFlag.PARAMEDGE
 
-        if rv_flags != 0:
-            flags |= TempFitFlag.BADCONVERGE
+        if state.rv_flags != 0:
+            state.flags |= TempFitFlag.BADCONVERGE
 
-        return flags, rv_flags
-
-    def check_prior_unlikely(self, flags, rv_flags,
-                             rv_fit, rv_bounds, rv_prior, rv_fixed,
-                             lp_limit=-5):
+    def check_prior_unlikely(self, state, lp_limit=-5):
         
         """
         Check if the fitted parameters are unlikely a priori. This means
         that the convergence might be bad.
         """
 
-        if rv_fit is not None and rv_prior is not None:
-            lp = self.eval_prior(rv_prior, rv_fit)
+        if not state.rv_fixed and state.rv_fit is not None and state.rv_prior is not None:
+            lp = self.eval_prior(state.rv_prior, state.rv_fit)
             if lp is not None and lp / np.log(10) < lp_limit:
-                logger.warning(f"Prior for RV {rv_fit} is very unlikely with lp {lp}.")
-                rv_flags |= TempFitFlag.UNLIKELYPRIOR
-
-        return flags, rv_flags
+                logger.warning(f"Prior for RV {state.rv_fit} is very unlikely with lp {lp}.")
+                state.rv_flags |= TempFitFlag.UNLIKELYPRIOR
         
     # endregion
     # region Fisher matrix evaluation
@@ -1867,11 +1873,19 @@ class TempFit():
 
         logger.info(f"Guessing RV with method `{method}` using a fixed template. RV bounds are {rv_bounds} km/s, "
                     f"number of steps is {steps}.")
+
+        if rv_bounds is None:
+            rv_bounds = (-500, 500)
+        else:
+            if rv_bounds[0] is None or not np.isfinite(rv_bounds[0]):
+                rv_bounds = (-500, rv_bounds[1])
+            if rv_bounds[1] is None or not np.isfinite(rv_bounds[1]):
+                rv_bounds = (rv_bounds[0], 500)
         
         # Calculate the number of steps for the RV grid
         if steps is None and rv_bounds is not None and rv_step is not None \
             and rv_bounds[0] is not None and rv_bounds[1] is not None \
-            and ~np.isinf(rv_bounds[0]) and ~np.isinf(rv_bounds[1]):
+            and np.isfinite(rv_bounds[0]) and np.isfinite(rv_bounds[1]):
 
             steps = int((rv_bounds[1] - rv_bounds[0]) / rv_step)
         else:
@@ -1888,6 +1902,7 @@ class TempFit():
         if method == 'lorentz':
             pp, pcov = self.fit_lorentz(rv[mask], log_L[mask])
             rv_guess = pp[1]
+            log_L_guess = self.lorentz(rv_guess, *pp)
 
             # The maximum of the Lorentz curve might be outside the bounds
             outside = False
@@ -1903,23 +1918,24 @@ class TempFit():
                                f"which is outside the search bounds {rv_bounds}.")
                 
             if self.trace is not None:
-                self.trace.on_guess_rv(rv, log_L, rv_guess, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
+                self.trace.on_guess_rv(rv, log_L, rv_guess, log_L_guess, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
         elif method == 'max':
             imax = np.argmax(log_L)
             rv_guess = rv[imax]
+            log_L_guess = log_L[imax]
 
             if imax == 0 or imax == log_L.size - 1:
                 logger.warning(f"RV guess form method `{method}` is {rv_guess:0.3f} km/s, "
                                f"which is at the edge of the search bounds {rv_bounds}.")
           
             if self.trace is not None:
-                self.trace.on_guess_rv(rv, log_L, rv_guess, None, 'max', None, None)
+                self.trace.on_guess_rv(rv, log_L, rv_guess, log_L_guess, None, 'max', None, None)
         else:
             raise NotImplementedError()
         
         logger.info(f"Initial guess for RV using the method `{method}` is {rv_guess:0.3f} km/s.")
 
-        return rv, log_L, rv_guess
+        return rv, log_L, rv_guess, log_L_guess
     
     def prepare_fit(self, spectra, templates, /,
                     rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
@@ -1951,24 +1967,28 @@ class TempFit():
         tuple
             Tuple of parameters to be used in the optimization
         """
+
+        state = SimpleNamespace()
         
-        rv_0 = rv_0 if rv_0 is not None else self.rv_0
-        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
-        rv_bounds = rv_bounds if rv_bounds is not None else (self.rv_bounds if self.rv_bounds is not None else (-500, 500))
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
-        rv_step = rv_step if rv_step is not None else self.rv_step
+        state.rv_0 = rv_0 if rv_0 is not None else self.rv_0
+        state.rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
+        state.rv_bounds = rv_bounds if rv_bounds is not None else (self.rv_bounds if self.rv_bounds is not None else (-500, 500))
+        state.rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        state.rv_step = rv_step if rv_step is not None else self.rv_step
 
         # Calculate the pre-normalization constants. This is only here to make sure that the
         # matrix elements during calculations stay around unity
+        # TODO: this has side effect, should add spec_norm and temp_norm to the state instead?
         if self.spec_norm is None or self.temp_norm is None:
-            self.spec_norm, self.temp_norm = self.get_normalization(spectra, templates, rv_0)
+            self.spec_norm, self.temp_norm = self.get_normalization(spectra, templates, state.rv_0)
 
         # Determine the (buffered) wavelength limit in which the templates will be convolved
         # with the PSF. This should be slightly larger than the observed wavelength range.
+        # TODO: this has side-effect, add template_wlim to the state instead?
         if self.template_wlim is None:
             # Use different template wlim for each arm but same for each exposure
             self.template_wlim = {}
-            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False, rv_bounds=rv_bounds)
+            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False, rv_bounds=state.rv_bounds)
             for mi, arm in enumerate(spectra):
                 self.template_wlim[arm] = wlim[mi]
 
@@ -1976,36 +1996,43 @@ class TempFit():
             logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
 
         # Preprocess the spectra
-        if pp_spec is None:
-            pp_spec = self.preprocess_spectra(spectra)
-
-        log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
-            spectra, templates,
-            rv_prior=rv_prior,
-            mode='rv',
-            pp_spec=pp_spec)
-        
-        if rv_0 is not None:
-            x_0 = pack_params(rv_0)[0]
+        if pp_spec is not None:
+            state.pp_spec = pp_spec
         else:
-            x_0 = None
+            state.pp_spec = self.preprocess_spectra(spectra)
+
+        state.log_L_fun, state.pack_params, state.unpack_params, state.pack_bounds = self.get_objective_function(
+            spectra, templates,
+            rv_prior=state.rv_prior,
+            mode='rv',
+            pp_spec=state.pp_spec)
+        
+        if state.rv_0 is not None:
+            state.x_0 = state.pack_params(state.rv_0)[0]
+        else:
+            state.x_0 = None
 
         # Step size for MCMC
-        if rv_step is not None:
-            steps = pack_params(rv_step)[0]
+        if state.rv_step is not None:
+            state.steps = state.pack_params(state.rv_step)[0]
         else:
-            steps = None
+            state.steps = None
 
         # Parameter bounds for optimizers, bounds is a list of tuples, convert to an array
-        bounds = pack_bounds(rv_bounds)
-        bounds = self.get_bounds_array(bounds)
+        bounds = state.pack_bounds(state.rv_bounds)
+        state.bounds = self.get_bounds_array(bounds)
 
-        return (pp_spec,
-                rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
-                log_L_fun, pack_params, unpack_params, pack_bounds,
-                x_0, bounds, steps)
+        # Set default values of the flags
+        state.flags = TempFitFlag.OK
+        state.rv_flags = TempFitFlag.OK
 
-    def fit_rv(self, spectra, templates,
+        return state
+
+    @deprecated("Use `run_ml` instead.")
+    def fit_rv(self, spectra, templates, **kwargs):
+        return self.run_ml(spectra, templates, **kwargs)
+
+    def run_ml(self, spectra, templates,
                rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
                method='bounded', max_iter=None,
                calculate_error=True):
@@ -2052,54 +2079,51 @@ class TempFit():
         max_iter = max_iter if max_iter is not None else self.max_iter
 
         # Initialize flux correction or continuum models for each arm and exposure
-        self.init_correction_models(spectra, rv_bounds)
+        self.init_correction_models(spectra, rv_bounds=rv_bounds)
 
-        (pp_spec,
-            rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
-            log_L_fun, pack_params, unpack_params, pack_bounds,
-            x_0, bounds, steps) = self.prepare_fit(spectra, templates,
-                                                   rv_0=rv_0,
-                                                   rv_fixed=rv_fixed,
-                                                   rv_bounds=rv_bounds,
-                                                   rv_prior=rv_prior)
-                
-        if self.trace is not None:
-            self.trace.on_fit_rv_start(spectra, templates,
-                                       rv_0, rv_bounds, rv_prior, rv_step,
-                                       log_L_fun,
-                                       wave_include=self.wave_include,
-                                       wave_exclude=self.wave_exclude)
-            
+        state = self.prepare_fit(
+                spectra, templates,
+                rv_0=rv_0,
+                rv_fixed=rv_fixed,
+                rv_bounds=rv_bounds,
+                rv_prior=rv_prior)
+                            
         # Guess the initial RV
         if rv_0 is None and spectra is not None:
-            _, _, rv_0 = self.guess_rv(spectra, templates,
-                                       rv_bounds=rv_bounds, rv_prior=rv_prior,
-                                       method='max',
-                                       pp_spec=pp_spec)
+            _, _, state.rv_0, state.log_L_0 = self.guess_rv(
+                spectra, templates,
+                rv_bounds=state.rv_bounds, rv_prior=state.rv_prior,
+                method='max',
+                pp_spec=state.pp_spec)
             
             # Update initial values
-            if rv_0 is not None:
-                x_0 = pack_params(rv_0)[0]
+            if state.rv_0 is not None:
+                state.x_0 = state.pack_params(state.rv_0)[0]
             
-            if rv_fixed:
+            if state.rv_fixed:
                 logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
 
-        if rv_fixed:
+        if self.trace is not None:
+            wave_include, wave_exclude = self.get_wave_include_exclude()
+            self.trace.on_fit_rv_start(spectra, templates,
+                                       state.rv_0, state.rv_bounds, state.rv_prior, state.rv_step,
+                                       state.log_L_0, state.log_L_fun,
+                                       wave_include=wave_include,
+                                       wave_exclude=wave_exclude)
+
+        if state.rv_fixed:
             # Only calculate the flux correction or continuum model coefficients at rv_0
-            results = self.fit_rv_fixed(spectra, templates, rv_0, rv_prior=rv_prior, pp_spec=pp_spec)
+            results = self.fit_rv_fixed(spectra, templates,
+                                        state)
         else:
             # Optimize for RV
             results = self.fit_rv_optimize(spectra, templates,
-                                           rv_0, rv_bounds, rv_prior, rv_step,
-                                           log_L_fun, pack_params, unpack_params, pack_bounds,
-                                           x_0, bounds, steps,
+                                           state,
                                            method, calculate_error)
 
         return results
 
-    def fit_rv_fixed(self, spectra, templates,
-                     rv_0, rv_prior,
-                     pp_spec=None):
+    def fit_rv_fixed(self, spectra, templates, state):
         """
         Calculate the log likelihood at the provided RV. This requires evaluating the 
         correction model (flux correction or continuum normalization).
@@ -2129,20 +2153,18 @@ class TempFit():
         # continuum fit parameters
         a_fit = None
         a_err = None
-        log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, pp_spec=pp_spec)
+        log_L_fit = self.calculate_log_L(spectra, templates, state.rv_0, rv_prior=state.rv_prior, pp_spec=state.pp_spec)
 
-        results = TempFitResults(rv_fit=rv_0, rv_err=np.nan,
+        results = TempFitResults(rv_fit=state.rv_0, rv_err=np.nan,
                                  a_fit=a_fit, a_err=a_err,
                                  log_L_fit=log_L_fit,
                                  cov=None,
-                                 flags=0)
+                                 flags=state.flags, rv_flags=state.rv_flags)
 
         return results
         
     def fit_rv_optimize(self, spectra, templates,
-                        rv_0, rv_bounds, rv_prior, rv_step,
-                        log_L_fun, pack_params, unpack_params, pack_bounds,
-                        x_0, bounds, steps,
+                        state,
                         method, calculate_error):
 
         """
@@ -2154,41 +2176,15 @@ class TempFit():
             Observed spectra
         templates : dict of Spectrum
             Synthetic stellar templates for each arm
-        rv_0 : float
-            Initial guess for the RV
-        rv_bounds : tuple
-            RV bounds to limit the search for initial RV if not provided as well as
-            limits to the fit.
-        rv_prior : Distribution or callable
-            Prior distribution for the RV
-        rv_step : float
-            Step size for MCMC or numerical differentiation
-        log_L_fun : callable
-            Log likelihood function
-        pack_params : callable
-            Function to pack individual parameters into a 1d array
-        unpack_params : callable
-            Function to unpack individual parameters from a 1d array
-        pack_bounds : callable
-            Function to pack parameter bounds into a list of tuples
-        x_0 : ndarray
-            Initial parameters
-        bounds : ndarray
-            Bounds for the parameters
-        steps : ndarray
-            Step size for MCMC or numerical differentiation
         """
-        
-        flags = TempFitFlag.OK
-        rv_flags = TempFitFlag.OK
                 
         # Cost function
         def llh(rv):
-            return -log_L_fun(pack_params(rv))
+            return -state.log_L_fun(state.pack_params(rv))
         
         # Univariate method
         # NOTE: scipy.optimize is sensitive to type of args
-        rv_bounds = tuple(float(b) for b in rv_bounds)
+        rv_bounds = tuple(float(b) for b in state.rv_bounds)
         bracket = None
             
         try:
@@ -2200,8 +2196,8 @@ class TempFit():
             raise ex
 
         if out.success:
-            rv_fit = unpack_params(out.x)
-            lp = -out.fun
+            state.rv_fit = state.unpack_params(out.x)
+            state.log_L_fit = -out.fun
         
             if method == 'grid':
                 pass
@@ -2212,44 +2208,45 @@ class TempFit():
         else:
             raise Exception(f"Could not fit RV using `{method}`")
 
-        flags, rv_flags = self.check_bounds_edge(flags, rv_flags,
-                                                 rv_fit, rv_bounds, rv_prior, rv_fixed=False)
-        
-        flags, rv_flags = self.check_prior_unlikely(flags, rv_flags,
-                                              rv_fit, rv_bounds, rv_prior, rv_fixed=False)
+        self.check_bounds_edge(state)
+        self.check_prior_unlikely(state)
+
+        # TODO: check if log_L decreased
 
         # Calculate the flux correction or continuum fit coefficients at best fit values
-        a_fit, pp_specs, pp_temps = self.calculate_coeffs(spectra, templates, rv_fit)
+        state.a_fit, _, _ = self.calculate_coeffs(spectra, templates,
+                                                  state.rv_fit,
+                                                  pp_spec=state.pp_spec)
 
         # Calculate the error from the Fisher matrix
         if calculate_error:
-            _, C = self.calculate_F(spectra, templates,
-                                    rv_fit, rv_bounds=rv_bounds, rv_prior=rv_prior,
+            _, state.C = self.calculate_F(spectra, templates,
+                                    state.rv_fit, rv_bounds=state.rv_bounds, rv_prior=state.rv_prior,
                                     mode='rv', method='hessian')
 
             with np.errstate(invalid='warn'):
-                rv_err = np.sqrt(C[-1, -1])         # sigma
+                state.rv_err = np.sqrt(state.C[-1, -1])         # sigma
         else:
-            rv_err = None
-            C = None
+            state.rv_err = None
+            state.C = None
 
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit RV.
-            ss, tt = self.get_spectra_templates_for_trace(spectra, templates, rv_fit, a_fit)
+            ss, tt = self.get_spectra_templates_for_trace(spectra, templates, state.rv_fit, state.a_fit)
 
             # Pass the log likelihood function to the trace
             def log_L_fun(rv):
-                return self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior)
+                return self.calculate_log_L(spectra, templates, rv, rv_prior=state.rv_prior)
 
             self.trace.on_fit_rv_finish(spectra, templates, tt, 
-                                        rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, False,
-                                        log_L_fun)
+                                        state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, False,
+                                        state.log_L_0, state.log_L_fit, log_L_fun)
         
-        return TempFitResults(rv_fit=rv_fit, rv_err=rv_err, rv_flags=rv_flags,
-                              a_fit=a_fit, a_err=np.full_like(a_fit, np.nan),
-                              log_L_fit=lp,
-                              cov=C,
-                              flags=flags)
+        return TempFitResults(rv_fit=state.rv_fit, rv_err=state.rv_err, rv_flags=state.rv_flags,
+                              a_fit=state.a_fit, a_err=np.full_like(state.a_fit, np.nan),
+                              log_L_fit=state.log_L_fit,
+                              cov=state.C,
+                              flags=state.flags)
 
     def get_spectra_templates_for_trace(self, spectra, templates, rv_fit, a_fit):
         # If tracing, evaluate the template at the best fit RV.
@@ -2430,33 +2427,41 @@ class TempFit():
         gamma = gamma if gamma is not None else self.mcmc_gamma
 
         # Initialize flux correction or continuum models for each arm and exposure
-        self.init_correction_models(spectra, rv_bounds)
+        self.init_correction_models(spectra, rv_bounds=rv_bounds)
 
-        (pp_spec,
-            rv_0, rv_fixed, rv_bounds, rv_prior, rv_step,
-            log_L_fun, pack_params, unpack_params, pack_bounds,
-            x_0, bounds, steps) = self.prepare_fit(spectra, templates,
-                                                   rv_0=rv_0, rv_bounds=rv_bounds,
-                                                   rv_prior=rv_prior, rv_step=rv_step,
-                                                   rv_fixed=rv_fixed)
+        state = self.prepare_fit(
+                spectra, templates,
+                rv_0=rv_0, rv_bounds=rv_bounds,
+                rv_prior=rv_prior, rv_step=rv_step,
+                rv_fixed=rv_fixed)
         
-        if bounds is not None and np.any((np.transpose(x_0) < bounds[..., 0]) | (bounds[..., 1] < np.transpose(x_0))):
+        if state.bounds is not None and \
+            np.any((np.transpose(state.x_0) < state.bounds[..., 0]) |
+                   (state.bounds[..., 1] < np.transpose(state.x_0))):
+
             raise Exception("Initial state is outside bounds.")
         
         # We only have a single parameter, there's no need for Gibbs sampling
         gibbs_blocks = [[ 0 ]]
 
-        mcmc = MCMC(log_L_fun, step_size=steps, gibbs_blocks=gibbs_blocks,
+        mcmc = MCMC(state.log_L_fun, step_size=state.steps,
+                    gibbs_blocks=gibbs_blocks,
                     walkers=walkers, gamma=0.99)
         
         # A leading dimension is required by the mcmc sampler in x_0
         # res_x.shape: (num_vars, samples, walkers)
         # res_lp.shape: (samples, walkers)
-        res_x, res_lp, accept_rate = mcmc.sample(x_0[None, ...], burnin, samples, gamma=gamma)
+        res_x, res_lp, accept_rate = mcmc.sample(state.x_0[None, ...],
+                                                 burnin, samples, gamma=gamma)
 
-        rv = unpack_params(res_x)
+        rv = state.unpack_params(res_x)
 
-        return TempFitResults(rv_mcmc=rv, log_L_mcmc=res_lp, accept_rate=accept_rate)
+        # TODO: assign flags, calculate moments, etc.
+
+        return TempFitResults(rv_mcmc=rv, rv_flags=state.rv_flags,
+                              log_L_mcmc=res_lp,
+                              accept_rate=accept_rate,
+                              flags=state.flags)
     
     @staticmethod
     def minimize_gridsearch(fun, bounds, nstep=100):
