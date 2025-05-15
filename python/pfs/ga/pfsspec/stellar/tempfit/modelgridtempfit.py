@@ -182,7 +182,8 @@ class ModelGridTempFit(TempFit):
                         rv, rv_prior=None,
                         params=None, params_fixed=None, params_priors=None,
                         a=None,
-                        pp_spec=None):
+                        pp_spec=None,
+                        ignore_missing_template=False):
         
         """
         Calculate the logarithm of the likelihood at the given values of RV.
@@ -206,7 +207,12 @@ class ModelGridTempFit(TempFit):
             missing = False
 
         if missing:
-            raise Exception("Template parameters {params} are outside the grid.")
+            msg = f"Template parameters {params} are outside the grid."
+            if ignore_missing_template:
+                log_L = np.nan
+                logger.warning(msg)
+            else:
+                raise Exception(msg)
         else:
             log_L = super().calculate_log_L(spectra, templates,
                                             rv, rv_prior=rv_prior, a=a,
@@ -217,12 +223,13 @@ class ModelGridTempFit(TempFit):
                     if p in params:
                         log_L += self.eval_prior(params_priors[p], params[p])
 
-            return log_L
+        return log_L
         
     def map_log_L(self, spectra, templates, size=10,
                   rv=None, rv_prior=None, rv_bounds=None,
                   params=None, params_fixed=None, params_priors=None, params_bounds=None,
                   squeeze=False):
+        
         # Evaluate log L on a grid
 
         rv_prior = rv_prior if rv_prior is not None else self.rv_prior
@@ -233,6 +240,10 @@ class ModelGridTempFit(TempFit):
 
         params_free = self.determine_free_params(params_fixed)
 
+        # Initialize flux correction or continuum models for each arm and exposure
+        self.init_correction_models(spectra, rv_bounds=rv_bounds)
+
+        # Generate the map axes
         def get_axis(name, value, bounds, prior):
             if value is None:
                 if bounds is not None:
@@ -257,9 +268,9 @@ class ModelGridTempFit(TempFit):
         
         ppv = {}
         for p in params_free:
-            v = get_axis(p, params[p] if params is not None else None, 
-                         params_bounds[p] if params_bounds is not None else None,
-                         params_priors[p] if params_priors is not None else None)
+            v = get_axis(p, params[p] if params is not None and p in params else None, 
+                         params_bounds[p] if params_bounds is not None and p in params_bounds else None,
+                         params_priors[p] if params_priors is not None and p in params_priors else None)
             ppv[p] = v
             if not squeeze or v.size > 1:
                 axes.append(v)
@@ -277,8 +288,11 @@ class ModelGridTempFit(TempFit):
                 params[p] = v[ix[i + 1]]
 
             lp = self.calculate_log_L(spectra, templates,
-                                      rv=rv, rv_prior=rv_prior,
-                                      params={ **params, **params_fixed }, params_priors=params_priors)
+                                      rv=rv,
+                                      rv_prior=rv_prior,
+                                      params={ **params, **params_fixed },
+                                      params_priors=params_priors,
+                                      ignore_missing_template=True)
             log_L[ix] = lp
             
         if squeeze:

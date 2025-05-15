@@ -374,3 +374,35 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             pass
 
         self.save_fig(f)
+
+    def test_map_log_L(self):
+        configs = [
+            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        ]
+
+        f, axs = plt.subplots(len(configs), 1, figsize=(4, 4 * len(configs)), squeeze=False)
+
+        for ax, config in zip(axs[:, 0], configs):
+            rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+                self.get_initialized_tempfit(**config)
+            
+            log_L, axes, labels = rvfit.map_log_L(
+                specs, None,        # Pass in no templates
+                rv=rv_real, 
+                params={
+                    'T_eff': params_0['T_eff'],
+                    'a_M': params_0['a_M'],
+                    'C_M': params_0['C_M'],
+                },
+                params_bounds={
+                    'M_H': (params_0['M_H'] - 1.0, params_0['M_H'] + 1.0),
+                    'log_g': (params_0['log_g'] - 1.0, params_0['log_g'] + 1.0),
+                },
+                squeeze=True)
+            
+            ax.imshow(log_L, aspect='auto', origin='lower',
+                      extent=[axes[0][0], axes[0][-1], axes[1][0], axes[1][-1]],)
+            ax.set_xlabel(labels[0])
+            ax.set_ylabel(labels[1])
+
+        self.save_fig(f)
