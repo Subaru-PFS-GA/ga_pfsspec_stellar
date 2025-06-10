@@ -283,14 +283,14 @@ class ModelGridTempFit(TempFit):
         # Iterate over the grid and evaluate the function
         for ix in np.ndindex(*shape):
             rv = rvv[ix[0]]
-            params = {}
+            pp = {}
             for i, (p, v) in enumerate(ppv.items()):
-                params[p] = v[ix[i + 1]]
+                pp[p] = v[ix[i + 1]]
 
             lp = self.calculate_log_L(spectra, templates,
                                       rv=rv,
                                       rv_prior=rv_prior,
-                                      params={ **params, **params_fixed },
+                                      params={ **pp, **params_fixed },
                                       params_priors=params_priors,
                                       ignore_missing_template=True)
             log_L[ix] = lp
