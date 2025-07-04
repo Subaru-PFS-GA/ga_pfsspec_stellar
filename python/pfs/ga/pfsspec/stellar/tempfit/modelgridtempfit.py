@@ -5,6 +5,7 @@ import numpy as np
 from numpy.linalg import LinAlgError
 from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
+from scipy.special import factorial
 import numdifftools as nd
 
 from pfs.ga.pfsspec.core.sampling import MCMC
@@ -1153,7 +1154,7 @@ class ModelGridTempFit(TempFit):
             # Calculate the volume of the initial and final simplex
             def vol(xx):
                 if xx is not None:
-                    return np.linalg.det(xx[:-1] - xx[-1]) / np.math.factorial(xx.shape[1])
+                    return np.linalg.det(xx[:-1] - xx[-1]) / factorial(xx.shape[1])
                 else:
                     return np.nan
             
