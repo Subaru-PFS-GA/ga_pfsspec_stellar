@@ -29,11 +29,11 @@ class ModelSpectrum(StellarSpectrum):
 
     def get_name(self):
         params = {
-            '[M/H]': self.M_H,
-            '[Fe/H]': self.Fe_H,
-            '$T_\mathrm{eff}$': self.T_eff,
-            '$\log g$': self.log_g,
-            '[a/M]': self.a_M,
+            R'[M/H]': self.M_H,
+            R'[Fe/H]': self.Fe_H,
+            R'$T_\mathrm{eff}$': self.T_eff,
+            R'$\log g$': self.log_g,
+            R'[a/M]': self.a_M,
         }
 
 
