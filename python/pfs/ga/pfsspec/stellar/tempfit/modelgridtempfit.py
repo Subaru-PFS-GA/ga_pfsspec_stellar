@@ -1431,3 +1431,29 @@ class ModelGridTempFit(TempFit):
                                        accept_rate=accept_rate,
                                        flags=state.flags)
     
+    def append_corrections_and_templates(
+            self,
+            spectra,
+            templates,
+            rv_fit,
+            params_fit,
+            a_fit=None,
+            match=None,
+            apply_correction=True):
+
+        if templates is None:
+            templates, missing = self.get_templates(spectra, params_fit)
+
+        if a_fit is None:
+            pp_spec = self.preprocess_spectra(spectra)
+            a_fit, _, _ = self.calculate_coeffs(spectra, templates,
+                                                rv_fit,
+                                                pp_spec=pp_spec)
+
+        return super().append_corrections_and_templates(
+            spectra,
+            templates,
+            rv_fit,
+            a_fit=a_fit,
+            match=match,
+            apply_correction=apply_correction)

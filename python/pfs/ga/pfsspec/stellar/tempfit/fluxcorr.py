@@ -669,11 +669,16 @@ class FluxCorr(CorrectionModel):
                     
         return corrections, correction_masks
 
-    def _apply_correction_impl(self, spec, corr, template=False, apply_flux=False):
-        super()._apply_correction_impl(spec, corr, template=template, apply_flux=apply_flux)
+    def _append_model_impl(self, spec, corr, normalization, apply_normalization=False):
+        super()._append_model_impl(spec, corr, normalization, apply_normalization=apply_normalization)
 
-        spec.flux_corr = corr
-           
-    def _apply_normalization_impl(self, spec, norm, template=False):
-        if spec is not None:
-            spec.multiply(norm)
+        if apply_normalization and normalization is not None:
+            spec.flux_corr = corr * normalization
+        else:
+            spec.flux_corr = corr
+
+    def _apply_correction_impl(self, spec, template=False):
+        if not template:
+            spec.multiply(1.0 / spec.flux_corr)
+        else:
+            spec.multiply(spec.flux_corr)
