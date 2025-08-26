@@ -2123,13 +2123,16 @@ class TempFit():
 
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit RV.
-            ss, tt = self.get_spectra_templates_for_trace(spectra, templates, state.rv_fit, state.a_fit)
+            ss, tt = self.append_corrections_and_templates(spectra, templates,
+                                                           state.rv_fit, a_fit=state.a_fit,
+                                                           match='spectrum',
+                                                           apply_correction=False)
 
             # Pass the log likelihood function to the trace
             def log_L_fun(rv):
                 return self.calculate_log_L(spectra, templates, rv, rv_prior=state.rv_prior)
 
-            self.trace.on_fit_rv_finish(spectra, templates, tt, 
+            self.trace.on_fit_rv_finish(ss, tt, 
                                         state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, False,
                                         state.log_L_0, state.log_L_fit, log_L_fun)
 
@@ -2258,35 +2261,6 @@ class TempFit():
                               cov=state.C,
                               flags=state.flags)
 
-    def get_spectra_templates_for_trace(self, spectra, templates, rv_fit, a_fit):
-        # If tracing, evaluate the template at the best fit RV.
-
-        # Evaluate the correction model at the best fit parameters
-        # Also return preprocessed spectra and templates that match the observed spectra
-        pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(spectra, templates, rv_fit, a=a_fit)
-
-        # Append (but do not apply) the correction model to the original spectrum and the preprocessed template
-        ss = safe_deep_copy(spectra)        # Original observed spectra
-        tt = pp_temp                        # Template resampled to the instrument
-
-        # Append the correction model to the original spectra but do not change the original flux
-        # TODO: Do we want to set a specific mask bit here?
-        self.correction_model.append_model(ss, corrections, correction_masks, None,
-                                           apply_mask=True)
-        
-        self.correction_model.apply_correction(ss, template=False)
-
-        # Multiply the templates with the correction model and scale them to the observed flux
-        self.correction_model.append_model(ss, corrections, correction_masks, None,
-                                           apply_mask=True)
-
-        self.correction_model.apply_correction(tt,
-                                               corrections, correction_masks, self.spec_norm,
-                                               apply_flux=True, apply_mask=True, apply_normalization=True,
-                                               template=True)
-
-        return ss, tt
-
     def eval_correction(self, spectra, templates, rv, a=None):
         """
         Evaluate the correction model at the given RV on the wavelength grid
@@ -2339,6 +2313,27 @@ class TempFit():
 
         The flux is not modified, only the correction model and best fit template are
         appended. The mask of the correction model is applied to the spectrum mask.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        templates : dict of Spectrum
+            Synthetic stellar templates for each arm
+        rv_fit : float
+            Best fit radial velocity
+        a_fit : ndarray
+            Best fit correction model parameters
+        match : str or None
+            If 'spectrum', the correction model is applied to the templates so that they match
+            the observed flux. If 'template', the correction model is applied to the observed
+            spectra so that they match the template. If None, the correction model is just appended
+            to the spectra and templates but not applied.
+        apply_correction : bool
+            If True and `match` is 'template', the correction model is applied to the observed
+            spectra so that they match the template. If True and `match` is 'spectrum', the correction
+            model is applied to the templates so that they match the observed flux. If False, the
+            correction model is just appended to the spectra and templates but not applied to the flux.
         """
 
         spectra = safe_deep_copy(spectra)
@@ -2350,29 +2345,28 @@ class TempFit():
         # pp_spec.flux is observed flux scaled to unity and pp_temp.flux is scaled to unity.
 
         # Append the correction model to the original spectra but do not change the flux
-
-
-        if match is None:
-            # Only append the correction model, do not scale or correct the flux
-            pass
-        elif match == 'spectrum':
-            # Apply the flux correction to the templates so that they match the observed flux
-            self.correction_model.append_model(pp_temp, corrections, correction_masks, apply_mask=False,
+        self.correction_model.append_model(spectra, corrections, correction_masks, apply_mask=True,
                                                normalization=None, apply_normalization=False)
-            
-            # The correction is always applied to the templates
-            self.correction_model.apply_correction(pp_temp, template=True)
-        elif match == 'template':
-            # Append the correction model to the observed spectra
-            self.correction_model.append_model(spectra, corrections, correction_masks, apply_mask=True,
-                                               normalization=None, apply_normalization=False)
+        
+        # Append the flux correction to the templates so that they match the observed flux but
+        # do not actually change the flux
+        self.correction_model.append_model(pp_temp, corrections, correction_masks, apply_mask=False,
+                                            normalization=None, apply_normalization=False)
 
-            # If requested, apply the flux correction to the observed spectra
-            # so that they match the template
-            if apply_correction:
+        if apply_correction:
+            if match is None:
+                # Only append the correction model, do not scale or correct the flux
+                pass
+            elif match == 'spectrum':           
+                # The correction is applied to the templates
+                # TODO: why don't we have an `if apply_correction` here?
+                self.correction_model.apply_correction(pp_temp, template=True)
+            elif match == 'template':
+                # If requested, apply the flux correction to the observed spectra
+                # so that they match the template
                 self.correction_model.apply_correction(spectra, template=False)
-        else:
-            raise NotImplementedError()
+            else:
+                raise NotImplementedError()
 
         # Scale the templates to the spectra
         self.multiply_spectra(pp_temp, self.spec_norm)
@@ -2384,7 +2378,7 @@ class TempFit():
                 if spec is not None:
                     spec.flux_model = pp_temp[arm][ei].flux
 
-        return spectra
+        return spectra, pp_temp
     
     def multiply_spectra(self, spectra, factor):
         for arm in spectra:

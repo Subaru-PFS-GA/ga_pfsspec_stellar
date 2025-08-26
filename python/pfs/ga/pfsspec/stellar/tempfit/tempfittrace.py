@@ -109,7 +109,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.rv_iter.append(rv)
         self.log_L_iter.append(log_L)
     
-    def on_fit_rv_finish(self, spectra, templates, processed_templates, 
+    def on_fit_rv_finish(self, spectra, templates,
                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                          log_L_0, log_L_fit, log_L_fun):
         
@@ -118,7 +118,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         
         # Plot the final results based on the configuration settings
         for key, config in self.plot_fit_spec.items():
-            self._plot_spectra(key, spectra, templates=processed_templates, **config)
+            self._plot_spectra(key, spectra, templates=templates, **config)
 
         # Plot rv_fit and rv_guess and the likelihood function
         if self.plot_rv_fit:

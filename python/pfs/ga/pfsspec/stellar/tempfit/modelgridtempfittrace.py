@@ -60,7 +60,7 @@ class ModelGridTempFitTrace(TempFitTrace):
             if p in self.params_iter:
                 self.params_iter[p].append(params[p])
 
-    def on_fit_rv_finish(self, spectra, templates, processed_templates,
+    def on_fit_rv_finish(self, spectra, templates,
                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                          params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
                          cov,
@@ -70,7 +70,7 @@ class ModelGridTempFitTrace(TempFitTrace):
             if p in self.params_iter:
                 self.params_iter[p].append(params_fit[p])
 
-        super().on_fit_rv_finish(spectra, templates, processed_templates,
+        super().on_fit_rv_finish(spectra, templates,
                             rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                             log_L_0, log_L_fit, log_L_fun)
         

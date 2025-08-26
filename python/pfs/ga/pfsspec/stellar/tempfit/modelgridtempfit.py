@@ -1101,7 +1101,10 @@ class ModelGridTempFit(TempFit):
 
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit parameters for each exposure
-            ss, tt = self.get_spectra_templates_for_trace(spectra, templates, state.rv_fit, state.a_fit)
+            ss, tt = self.append_corrections_and_templates(spectra, templates,
+                                                           state.rv_fit, a_fit=state.a_fit,
+                                                           match='template',
+                                                           apply_correction=True)
 
             # Wrap log_L_fun to expect a single parameter only and use the best fit model parameters
             # This is for plptting purposes only
@@ -1111,7 +1114,7 @@ class ModelGridTempFit(TempFit):
                                             params_priors=state.params_priors,
                                             pp_spec=state.pp_spec)
 
-            self.trace.on_fit_rv_finish(spectra, None, tt,
+            self.trace.on_fit_rv_finish(ss, tt,
                                         state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, state.rv_fixed,
                                         state.params_0, state.params_fit, state.params_err, state.params_bounds, state.params_priors, state.params_steps, state.params_free,
                                         state.C,
@@ -1436,7 +1439,7 @@ class ModelGridTempFit(TempFit):
             spectra,
             templates,
             rv_fit,
-            params_fit,
+            params_fit=None,
             a_fit=None,
             match=None,
             apply_correction=True):
