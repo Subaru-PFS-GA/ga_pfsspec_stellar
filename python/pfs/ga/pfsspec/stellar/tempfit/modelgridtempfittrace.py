@@ -74,14 +74,18 @@ class ModelGridTempFitTrace(TempFitTrace):
                             rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                             log_L_0, log_L_fit, log_L_fun)
         
-        if self.plot_rv_fit:
+        if self.plot_rv_fit is None and self.plot_level >= Trace.PLOT_LEVEL_INFO \
+            or self.plot_rv_fit:
+            
             # Corner plot of parameters
             self._plot_fit_results(rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                                       params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
                                       cov)
 
         # Plot the convergence of template params, if available
-        if self.plot_params_convergence and self.params_iter is not None:
+        if (self.plot_params_convergence is None and self.plot_level >= Trace.PLOT_LEVEL_TRACE \
+            or self.plot_params_convergence) and self.params_iter is not None:
+            
             params = { p: np.array(v) for p, v in self.params_iter.items() }
             log_L = np.array(self.log_L_iter)
 
