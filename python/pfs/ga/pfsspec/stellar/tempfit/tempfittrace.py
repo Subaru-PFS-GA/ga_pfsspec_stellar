@@ -180,12 +180,12 @@ class TempFitTrace(Trace, SpectrumTrace):
 
             self._plot_spectrum(f'pfsGA-tempfit-spectrum-{arm}-{i}-{{id}}', arm,
                                 spectrum=spectrum,
-                                plot_spectrum=True,
+                                plot_flux=True,
                                 title='Observed spectrum - {id}')
             
             self._plot_spectrum(f'pfsGA-tempfit-spectrum-processed-{arm}-{i}-{{id}}', arm,
-                                spectrum=spectrum, processed_spectrum=processed_spectrum,
-                                plot_spectrum=False, plot_processed_spectrum=True,
+                                spectrum=processed_spectrum,
+                                plot_flux=True,
                                 title='Processed spectrum - {id}')
 
             self.flush_figures()
@@ -205,8 +205,8 @@ class TempFitTrace(Trace, SpectrumTrace):
                                     title='Original template - {id}')
                 
                 self._plot_spectrum(f'pfsGA-tempfit-template-processed-{arm}-{{id}}', arm,
-                                    template=template, processed_template=processed_template,
-                                    plot_template=False, plot_processed_template=True,
+                                    template=processed_template,
+                                    plot_flux=True,
                                     title='Convolved template - {id}')
 
                 self.flush_figures()
