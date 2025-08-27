@@ -32,9 +32,6 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.plot_rv_guess = None
         self.plot_rv_fit = None
         self.plot_rv_convergence = None
-        self.plot_input_spec = None
-        self.plot_best_temp = None
-        self.plot_fit_spec = {}
 
         self.plot_continuum_fit_start = None
         self.plot_continuum_fit_iter = None
@@ -63,9 +60,6 @@ class TempFitTrace(Trace, SpectrumTrace):
         self.plot_rv_guess = get_arg('plot_rv_guess', self.plot_rv_guess, args)
         self.plot_rv_fit = get_arg('plot_rv_fit', self.plot_rv_fit, args)
         self.plot_rv_convergence = get_arg('plot_rv_convergence', self.plot_rv_convergence, args)
-        self.plot_input_spec = get_arg('plot_input_spec', self.plot_input_spec, args)
-        self.plot_best_temp = get_arg('plot_best_temp', self.plot_best_temp, args)
-        self.plot_fit_spec = get_arg('plot_fit_spec', self.plot_fit_spec, args)
 
         self.plot_continuum_fit_start = get_arg('plot_continuum_fit_start', self.plot_continuum_fit_start, args)
         self.plot_continuum_fit_iter = get_arg('plot_continuum_fit_iter', self.plot_continuum_fit_iter, args)
@@ -81,16 +75,6 @@ class TempFitTrace(Trace, SpectrumTrace):
         
         self.rv_iter = [ rv_0 ]
         self.log_L_iter = [ log_L_0 ]
-
-        if self.plot_input_spec is None and self.plot_level >= Trace.PLOT_LEVEL_DEBUG \
-            or self.plot_input_spec:
-
-            self._plot_spectra('pfsGA-tempfit-input-{id}',
-                               spectra=spectra,
-                               plot_flux=True, plot_flux_err=True,
-                               title='TempFit input spectra - {id}',
-                               wave_include=wave_include, wave_exclude=wave_exclude)
-            self.flush_figures()
         
         if self.plot_priors is None and self.plot_level >= Trace.PLOT_LEVEL_DEBUG \
             or self.plot_priors:
@@ -130,14 +114,10 @@ class TempFitTrace(Trace, SpectrumTrace):
         else:
             rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov = None, None, None, None, None, None, None
 
-        # Plot rv_fit and rv_guess and the likelihood function
-        if self.plot_best_temp is None and self.plot_level >= Trace.PLOT_LEVEL_DEBUG \
-            or self.plot_best_temp:
-
-            # Plot the final results based on the configuration settings
-            for key, config in self.plot_fit_spec.items():
-                self._plot_spectra(key, spectra, templates=templates, **config)
-
+        if self.plot_rv_fit is None and self.plot_level >= Trace.PLOT_LEVEL_INFO \
+            or self.plot_rv_fit:
+            
+            # Plot the QA plot of the rv fit that shows log L vs RV
             self._plot_rv_fit(
                 'pfsGA-tempfit-rv-fit-{id}',
                 rv=rv, log_L=log_L, log_L_fit=log_L_fit,
@@ -146,19 +126,17 @@ class TempFitTrace(Trace, SpectrumTrace):
                 title='TempFit results - {id}')
             
         # Plot a zoom-in of the likelihood function
-        if log_L_fun is not None and rv_fit is not None and rv_err is not None \
-            and (self.plot_rv_fit is None and self.plot_level >= Trace.PLOT_LEVEL_INFO \
-                 or self.plot_rv_fit):
+            if log_L_fun is not None and rv_fit is not None and rv_err is not None:
 
-            rv = np.linspace(rv_fit - 3 * rv_err, rv_fit + 3 * rv_err, 100)
-            log_L = log_L_fun(rv)
+                rv = np.linspace(rv_fit - 3 * rv_err, rv_fit + 3 * rv_err, 100)
+                log_L = log_L_fun(rv)
 
-            self._plot_rv_fit(
-                'pfsGA-tempfit-rv-fit-zoom-{id}',
-                rv=rv, log_L=log_L, log_L_fit=log_L_fit,
-                rv_guess=rv_guess, rv_0=rv_0,
-                rv_fit=rv_fit, rv_err=rv_err,
-                title='TempFit results zoom-in - {id}')
+                self._plot_rv_fit(
+                    'pfsGA-tempfit-rv-fit-zoom-{id}',
+                    rv=rv, log_L=log_L, log_L_fit=log_L_fit,
+                    rv_guess=rv_guess, rv_0=rv_0,
+                    rv_fit=rv_fit, rv_err=rv_err,
+                    title='TempFit results zoom-in - {id}')
 
         # Plot the convergence of RV, if available
         if self.rv_iter is not None and self.log_L_iter is not None \
