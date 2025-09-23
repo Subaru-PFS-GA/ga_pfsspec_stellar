@@ -348,8 +348,9 @@ class FluxCorr(CorrectionModel):
                 cc *= weight
             
             if sigma2 is not None:
-                pp /= sigma2
-                cc /= sigma2
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    pp /= sigma2
+                    cc /= sigma2
 
             mm = model_mask
             mmx = np.ix_(mm, mm)
