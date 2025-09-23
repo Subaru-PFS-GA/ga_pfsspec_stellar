@@ -1,2 +1,2 @@
 import logging
-logger = logging.getLogger('rvfit')
+logger = logging.getLogger('tempfit')

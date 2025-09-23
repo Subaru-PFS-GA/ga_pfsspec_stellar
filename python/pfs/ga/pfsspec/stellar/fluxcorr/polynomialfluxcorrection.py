@@ -6,7 +6,7 @@ class PolynomialFluxCorrection(LinearFluxCorrection):
     """
     Implements a polynomial flux correction basis. The flux correction is
     multiplicative. The basis does not contain the constant function because
-    the amplitude is treated separately when applying flux correction in rvfit.
+    the amplitude is treated separately when applying flux correction in tempfit.
     """
 
     def __init__(self, orig=None, function=None, degree=None, wlim=None):
