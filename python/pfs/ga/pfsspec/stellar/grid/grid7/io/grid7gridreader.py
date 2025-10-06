@@ -32,11 +32,11 @@ class Grid7GridReader(ModelGridReader):
     
     def determine_grid_axes(self, input_path):
         # Read the first spectrum from a file to get the wavelength grid
-        _, wave, wave_edges, is_wave_regular, is_wave_lin, is_wave_log = super().determine_grid_axes(input_path)
+        _, wave, wave_edges, is_wave_regular, is_wave_lin, is_wave_log, is_wave_vacuum = super().determine_grid_axes(input_path)
 
         axes = self.get_grid_axes(input_path)
 
-        return axes, wave, wave_edges, is_wave_regular, is_wave_lin, is_wave_log
+        return axes, wave, wave_edges, is_wave_regular, is_wave_lin, is_wave_log, is_wave_vacuum
     
     def get_grid_axes(self, grid_path):
         # Figure out grid steps and bounds

@@ -638,7 +638,7 @@ class ModelGrid(PfsObject):
         if cont is not None:
             self.set_value('cont', cont, **kwargs)
 
-    def set_flux_at(self, index, flux, cont=None):
+    def set_flux_at(self, index, flux, cont=None, line=None):
         """
         Sets the flux at a given point of the grid. The location must be specified
         with the grid index.
@@ -651,11 +651,15 @@ class ModelGrid(PfsObject):
             Flux array
         cont : np.ndarray
             Continuum model array (optional)
+        line : np.ndarray
+            Absorption lines (optional)
         """
 
         self.grid.set_value_at('flux', index, flux)
         if cont is not None:
             self.grid.set_value_at('cont', index, cont)
+        if line is not None:
+            self.grid.set_value_at('line', index, line)
 
     def get_parameterized_spectrum(self, idx=None, wlim=None, wave_vacuum=True, **kwargs):
         """
@@ -686,6 +690,7 @@ class ModelGrid(PfsObject):
         self.grid.set_object_params(spec, idx=idx, **kwargs)
         # TODO: deal with mask
         spec.wave, spec.wave_edges, wave_mask = self.get_wave(s=wlim, wave_vacuum=wave_vacuum)
+        spec.is_wave_vacuum = self.is_wave_vacuum
         spec.resolution = self.resolution
 
         # Process history

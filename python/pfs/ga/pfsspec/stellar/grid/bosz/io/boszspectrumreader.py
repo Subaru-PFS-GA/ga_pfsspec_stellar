@@ -1,10 +1,7 @@
 import os
-import math
 import numpy as np
 import pandas as pd
 import re
-import multiprocessing
-import time
 from astropy.io import fits
 
 from pfs.ga.pfsspec.core.io import SpectrumReader

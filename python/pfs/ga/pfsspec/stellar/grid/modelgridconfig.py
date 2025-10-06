@@ -53,8 +53,8 @@ class ModelGridConfig(GridConfig):
         if self.pca is not None and self.pca:
             raise NotImplementedError()
         else:
-            grid.allocate_value('flux', wave.shape)
-            grid.allocate_value('cont', wave.shape)
+            grid.allocate_value('flux', wave.shape, dtype=float)
+            grid.allocate_value('cont', wave.shape, dtype=float)
 
     def create_spectrum(self):
         return ModelSpectrum()
@@ -77,7 +77,7 @@ class ModelGridConfig(GridConfig):
         #   in memory along the entire interpolation axis
 
         # The shape of the spectrum grid is (param1, param2, wave)
-        if name in grid.values and name in ['flux', 'cont']:
+        if name in grid.values and name in ['flux', 'cont', 'line']:
             newshape = []
             # Keep neighboring 3 models together in every direction
             for i, k, ax in grid.enumerate_axes():

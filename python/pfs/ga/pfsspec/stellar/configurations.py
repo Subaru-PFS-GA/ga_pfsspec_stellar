@@ -6,6 +6,7 @@ from pfs.ga.pfsspec.stellar.grid.phoenix import Phoenix
 from pfs.ga.pfsspec.stellar.grid.phoenix.io import PhoenixGridReader, PhoenixGridDownloader
 from pfs.ga.pfsspec.stellar.grid.grid7.io import Grid7GridReader
 from pfs.ga.pfsspec.stellar.grid.grid7 import Grid7
+from pfs.ga.pfsspec.stellar.grid.gk2025.io import GK2025GridReader, GK2025SpectrumReader
 from pfs.ga.pfsspec.stellar.grid import ModelGridFit, ModelPcaGridBuilder, ModelRbfGridBuilder
 from pfs.ga.pfsspec.stellar.grid import ModelGridConverter
 from pfs.ga.pfsspec.stellar.dataset import ModelDatasetMerger
@@ -51,6 +52,12 @@ IMPORT_CONFIGURATIONS = {
         },
         'grid7': {
             'type': Grid7GridReader,
+            'pipelines': {
+                'basic': Pipeline
+            }
+        },
+        'gk2025': {
+            'type': GK2025GridReader,
             'pipelines': {
                 'basic': Pipeline
             }

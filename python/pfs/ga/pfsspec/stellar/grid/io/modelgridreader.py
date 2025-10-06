@@ -66,15 +66,19 @@ class ModelGridReader(GridReader):
         if self.grid is None:
             self.grid = self.create_grid()
             self.grid.preload_arrays = self.preload_arrays
-        self.grid.init_from_args(config, args)
+
+            if self.pipeline.wave is not None and self.pipeline.wave_lin or self.pipeline.wave_log:
+                self.grid.is_wave_regular = True
+
+        self.grid.init_from_args(args)
 
     def process_item(self, i):
         # Called when processing the grid point by point
         index, params = i
-        fn = self.reader.get_filename(R=self.reader.resolution, **params)
-        fn = os.path.join(self.reader.path, fn)
-
-        if os.path.isfile(fn):
+        fn = self.reader.get_filename(**params)
+        fn = self.reader.prefix_filename(fn)
+        
+        if self.reader.is_file(fn):
             tries = 3
             while True:
                 try:
@@ -109,7 +113,7 @@ class ModelGridReader(GridReader):
     def store_item(self, res):
         if res is not None:
             index, params, spec = res
-            self.grid.set_flux_at(index, spec.flux, spec.cont)
+            self.grid.set_flux_at(index, spec.flux, cont=spec.cont, line=spec.line)
 
     def create_grid(self):
         raise NotImplementedError()
@@ -124,7 +128,7 @@ class ModelGridReader(GridReader):
         self.open_input_data(args, input_path)
 
         if not self.resume:
-            axes, wave, wave_edges, is_wave_regular, is_wave_lin, is_wave_log = self.determine_grid_axes(input_path)
+            axes, wave, wave_edges, is_wave_regular, is_wave_lin, is_wave_log, is_wave_vacuum = self.determine_grid_axes(input_path)
             
             # Update grid axes with new values
             if axes is not None:
@@ -133,14 +137,15 @@ class ModelGridReader(GridReader):
                         ax.values = axes[p]
 
             
-            # Initialize the wavelength grid based on the first spectrum read
-            self.grid.set_wave(wave, wave_edges=wave_edges)
-
             # TODO: Here we assume that all spectra of the grid have the
             #       same binning
+
+            # Initialize the wavelength grid based on the first spectrum read
+            self.grid.set_wave(wave, wave_edges=wave_edges)
             self.grid.is_wave_regular = is_wave_regular
             self.grid.is_wave_lin = is_wave_lin
             self.grid.is_wave_log = is_wave_log
+            self.grid.is_wave_vacuum = is_wave_vacuum
 
             self.grid.build_axis_indexes()
         
@@ -167,7 +172,13 @@ class ModelGridReader(GridReader):
         if os.path.isdir(input_path):
             # Load the first spectrum to get wavelength grid.
             fn = self.get_example_filename()
-            fn = os.path.join(self.path, fn)
+
+            if isinstance(fn, tuple):
+                archive_name, file_name = fn
+                fn = (os.path.join(self.path, archive_name), file_name)
+            else:
+                fn = os.path.join(self.path, fn)
+            
             spec = self.reader.read(fn)
         else:
             # Load the first spectrum to get wavelength grid
@@ -180,7 +191,7 @@ class ModelGridReader(GridReader):
 
         logger.info('Found spectrum with {} wavelength elements.'.format(spec.wave.shape))
 
-        return None, spec.wave, spec.wave_edges, spec.is_wave_regular, spec.is_wave_lin, spec.is_wave_log
+        return None, spec.wave, spec.wave_edges, spec.is_wave_regular, spec.is_wave_lin, spec.is_wave_log, spec.is_wave_vacuum
 
     def open_output_data(self, args, output_path):
         fn = os.path.join(output_path, 'spectra.h5')
