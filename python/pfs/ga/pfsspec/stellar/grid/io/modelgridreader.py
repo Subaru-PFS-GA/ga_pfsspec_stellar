@@ -16,13 +16,11 @@ class ModelGridReader(GridReader):
             self.reader = None
             self.pipeline = None
             self.path = None
-            self.preload_arrays = False
             self.files = None
         else:
             self.reader = orig.reader
             self.pipeline = orig.pipeline
             self.path = orig.path
-            self.preload_arrays = orig.preload_arrays
             self.files = None
 
     def add_subparsers(self, configurations, parser):
@@ -66,6 +64,9 @@ class ModelGridReader(GridReader):
         if self.grid is None:
             self.grid = self.create_grid()
             self.grid.preload_arrays = self.preload_arrays
+
+            self.grid.config.chunking = self.chunking
+            self.grid.config.compression = self.compression
 
             if self.pipeline.wave is not None and self.pipeline.wave_lin or self.pipeline.wave_log:
                 self.grid.is_wave_regular = True

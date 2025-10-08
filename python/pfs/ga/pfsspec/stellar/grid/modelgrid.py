@@ -80,7 +80,14 @@ class ModelGrid(PfsObject):
             self.is_wave_regular = None
             self.is_wave_lin = None
             self.is_wave_log = None
-            self.is_wave_vacuum = None                  # When True, wavelength is in vacuum
+            self.is_wave_vacuum = None                  # When True, wavelength is in vacuum, otherwise in air
+            
+            # Cache for the equivalent wavelength vectors in air and vacuum
+            self.wave_air = None                        # If wave vector is not None, this is the wavelength in air
+            self.wave_edges_air = None                  # If wave edges vector is not None, this is the wavelength edges in air
+            self.wave_vacuum = None                     # If wave vector is not None, this is the wavelength in vacuum
+            self.wave_edges_vacuum = None               # If wave edges vector is not None, this is the wavelength edges in vacuum
+            
             self.resolution = None
 
             self.wave_lim = None                        # Wavelength limits then reading the grid
@@ -97,6 +104,12 @@ class ModelGrid(PfsObject):
             self.is_wave_lin = orig.is_wave_lin
             self.is_wave_log = orig.is_wave_log
             self.is_wave_vacuum = orig.is_wave_vacuum
+            
+            self.wave_air = orig.wave_air
+            self.wave_edges_air = orig.wave_edges_air
+            self.wave_vacuum = orig.wave_vacuum
+            self.wave_edges_vacuum = orig.wave_edges_vacuum
+            
             self.resolution = orig.resolution
 
             self.wave_lim = orig.wave_lim
@@ -440,6 +453,30 @@ class ModelGrid(PfsObject):
         self.wave = self.load_item('/'.join((self.PREFIX_MODELGRID, 'wave')), np.ndarray)
         self.wave_edges = self.load_item('/'.join((self.PREFIX_MODELGRID, 'wave_edges')), np.ndarray)
 
+        # If the wave vector is constant, i.e. not None, we cache the wavelengths in air and vacuum
+        if self.wave is not None:
+            if self.is_wave_vacuum is None or self.is_wave_vacuum:
+                # Wavelength is already in vacuum or we assume it is in vacuum by default
+                self.is_wave_vacuum = True
+                self.wave_vacuum = self.wave
+                self.wave_edges_vacuum = self.wave_edges
+                self.wave_air = Physics.vac_to_air(self.wave)
+                if self.wave_edges is not None:
+                    self.wave_edges_air = Physics.vac_to_air(self.wave_edges)
+                else:
+                    self.wave_edges_air = None
+            else:
+                # Wavelength is already in air
+                self.wave_air = self.wave
+                self.wave_edges_air = self.wave_edges
+                self.wave_vacuum = Physics.air_to_vac(self.wave)
+                if self.wave_edges is not None:
+                    self.wave_edges_vacuum = Physics.air_to_vac(self.wave_edges)
+                else:
+                    self.wave_edges_vacuum = None
+
+        # Load the continuum model if any
+
         name = self.load_item('/'.join((self.PREFIX_MODELGRID, 'continuum_model')), str)
         if name is not None:
             wave = self.get_wave()[0]
@@ -513,9 +550,11 @@ class ModelGrid(PfsObject):
         
         return self.grid.get_index(**kwargs)
 
-    def get_wave(self, wave_vacuum=True, s=None):
+    def get_wave(self, wave_vacuum=None, wave_air=None, s=None):
         """
         Gets the wavelength vector and optionally the edges and the wavelength mask.
+
+        This function will only work if the entire grid is sampled at the same wavelengths.
 
         Parameters
         ----------
@@ -525,27 +564,26 @@ class ModelGrid(PfsObject):
             Slice of the wavelength vector
         """
 
+        if wave_vacuum is not None and wave_vacuum and wave_air is not None and wave_air:
+            raise Exception("Only one of `wave_vacuum` and `wave_air` can be True.")
+
+        if wave_vacuum is None:
+            wave_vacuum = False if wave_air is None else not wave_air
+
         # If no slice is provided, use the default slice
         if s is None:
             s = self.get_wave_slice() or slice(None)
+
+        if s != slice(None) and self.wave_edges is not None:
+            raise NotImplementedError("Slicing of wave edges is not implemented.")
         
-        wave = self.wave[s]
-        
-        if self.wave_edges is not None:
-            if s != slice(None):
-                # TODO: Implement slicing of wave edges
-                wave_edges = None
-            else:
-                wave_edges = self.wave_edges
+        if wave_vacuum:
+            wave = self.wave_vacuum[s]
+            wave_edges = self.wave_edges_vacuum[s] if self.wave_edges_vacuum is not None else None
         else:
-            wave_edges = None
-
-        # Convert wavelength to vacuum. Wavelength is condired in vacuum by default and
-        # conversion happend only if the wavelength is specifically defined in air.
-        if wave_vacuum and self.is_wave_vacuum is not None and not self.is_wave_vacuum:
-            # Convert wavelength to vacuum
-            wave = Physics.air_to_vac(wave)
-
+            wave = self.wave_air[s]
+            wave_edges = self.wave_edges_air[s] if self.wave_edges_air is not None else None
+        
         return wave, wave_edges, None
 
     def set_wave(self, wave, wave_edges=None):
@@ -796,7 +834,13 @@ class ModelGrid(PfsObject):
 
         return cache_key_prefix, pre_process
 
-    def get_model(self, denormalize=True, wlim=None, psf=None, **kwargs):
+    def get_model(
+            self,
+            denormalize=True,
+            wlim=None,
+            psf=None,
+            **kwargs
+    ):
         """
         Returns the model nearest to the specified stellar parameters in case of an ArrayGrid
         and the interpolated model in case of an RbfGrid.
@@ -1032,9 +1076,10 @@ class ModelGrid(PfsObject):
         """
 
         # Check if all parameters are defined and within the grid bounds
-        for i, k, ax in self.grid.enumerate_axes():
-            if k not in kwargs:
-                raise Exception(f"Parameter `{k}` is required to interpolate model but not defined.")
+        if idx is None:
+            for i, k, ax in self.grid.enumerate_axes():
+                if k not in kwargs:
+                    raise Exception(f"Parameter `{k}` is required to interpolate model but not defined.")
         
         if method in ['grid', 'nearest']:
             msg_method = 'assigned from grid'

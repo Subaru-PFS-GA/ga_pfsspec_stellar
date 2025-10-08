@@ -22,10 +22,14 @@ class ModelGridConfig(GridConfig):
         super(ModelGridConfig, self).__init__(orig=orig)
 
         if isinstance(orig, ModelGridConfig):
+            self.chunking = orig.chunking
+            self.compression = orig.compression
             self.continuum_model_type = orig.continuum_model_type
             self.normalized = normalized if normalized is not None else orig.normalized
             self.pca = pca if pca is not None else orig.pca
         else:
+            self.chunking = 'none'
+            self.compression = 'none'
             self.continuum_model_type = None
             self.normalized = normalized
             self.pca = pca
@@ -78,15 +82,27 @@ class ModelGridConfig(GridConfig):
 
         # The shape of the spectrum grid is (param1, param2, wave)
         if name in grid.values and name in ['flux', 'cont', 'line']:
-            newshape = []
-            # Keep neighboring 3 models together in every direction
-            for i, k, ax in grid.enumerate_axes():
-                if k in ['log_g', 'Fe_H', 'M_H', 'T_eff']:
-                    newshape.append(min(shape[i], 3))
-                else:
-                    newshape.append(1)
-            # Use small chunks along the wavelength direction
-            newshape.append(min(256, shape[-1]))
-            return tuple(newshape)
-        else:
-            return None
+            if self.chunking == 'granular':
+                newshape = []
+                # Keep neighboring 3 models together in every direction
+                for i, k, ax in grid.enumerate_axes():
+                    if k in ['log_g', 'Fe_H', 'M_H', 'T_eff']:
+                        newshape.append(min(shape[i], 3))
+                    else:
+                        newshape.append(1)
+                # Use small chunks along the wavelength direction
+                newshape.append(min(256, shape[-1]))
+                return tuple(newshape)
+            elif self.chunking == 'spectrum':
+                # Store entire spectra together
+                newshape = [1] * (len(shape) - 1) + [shape[-1]]
+                return tuple(newshape)
+
+        return None
+
+    def get_compression(self, grid, name, shape, s=None):
+        if name in grid.values and name in ['flux', 'cont', 'line']:
+            return self.compression
+        
+        return None
+
