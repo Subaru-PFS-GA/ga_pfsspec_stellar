@@ -59,6 +59,9 @@ class GK2025(ModelGridConfig):
     def get_chunk_shape(self, grid, name, shape, s=None):
         return super().get_chunk_shape(grid, name, shape, s)
 
+    def get_compression(self, grid, name, shape, s=None):
+        return super().get_compression(grid, name, shape, s)
+
     def create_spectrum(self):
         spec = GK2025Spectrum()
         return spec
