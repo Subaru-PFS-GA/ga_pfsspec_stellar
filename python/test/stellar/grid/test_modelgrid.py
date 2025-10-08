@@ -97,6 +97,21 @@ class TestModelGrid(StellarTestBase):
         axes = grid.enumerate_axes(s=slice, squeeze=True)
         self.assertEqual(4, len(list(axes)))
 
+    def test_get_wave_vectors(self):
+        args = {}
+        grid = self.get_test_grid({})
+        grid.wave_type = None
+        wave, wave_edges = grid.get_wave_vectors()
+        self.assertIs(wave, grid.wave_vacuum)
+
+        grid.wave_type = 'air'
+        wave, wave_edges = grid.get_wave_vectors()
+        self.assertIs(wave, grid.wave_air)
+
+        grid.wave_type = 'vacuum'
+        wave, wave_edges = grid.get_wave_vectors()
+        self.assertIs(wave, grid.wave_vacuum)
+
     def test_get_shape(self):
         args = {}
         grid = self.get_test_grid(args)
