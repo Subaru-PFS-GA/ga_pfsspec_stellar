@@ -206,6 +206,21 @@ class TempFitTrace(Trace, SpectrumTrace):
         if self.log_level >= Trace.LOG_LEVEL_DEBUG:
             self._save_spectrum_history(f'pfsGA-tempfit-resampled-template-{arm}-{{id}}.log', resampled_template)
 
+    def on_extinction_template(self, arm, rv, ebv, template, ext_template):
+        if self.get_counter('extinction_template') is None:
+            if self.plot_level >= Trace.PLOT_LEVEL_TRACE:
+
+                self._plot_spectrum(f'pfsGA-tempfit-template-extinction-{arm}-{{id}}', arm,
+                                    template=ext_template,
+                                    title='Template with extinction applied - {id}')
+
+                self.flush_figures()
+
+        self.inc_counter('extinction_template')
+
+        if self.log_level >= Trace.LOG_LEVEL_DEBUG:
+            self._save_spectrum_history(f'pfsGA-tempfit-extinction-template-{arm}-{{id}}.log', ext_template)
+
     def on_template_cache_hit(self, template, rv_q, rv):
         self.inc_counter('template_cache_hit')
     

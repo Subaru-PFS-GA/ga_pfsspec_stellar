@@ -35,7 +35,7 @@ class TempFit():
     being the various spectrograph arms whereas the spectra within the lists are the single
     exposures.
 
-    When the objective is fitting the template parameters, use ModelGridTempFit instead.
+    When the objective is fitting the template parameters or extinction, use ModelGridTempFit instead.
 
     Functions of the class often have parameters that are the same as variables defined on the
     class itself. This is to simplify function calls but also to allow overriding some parameters
@@ -122,7 +122,14 @@ class TempFit():
         Adaptive MCMC proposal memory.
     """
 
-    def __init__(self, trace=None, correction_model=None, orig=None):
+    def __init__(
+            self,
+            trace=None,
+            correction_model=None,
+            extinction_model=None,
+            orig=None
+    ):
+        
         """
         Initializes the template fitting problem.
 
@@ -139,12 +146,13 @@ class TempFit():
         if not isinstance(orig, TempFit):
             self.trace = trace                              # Collect debug info
             self.correction_model = correction_model        # Flux correction or continuum fitting model
+            self.extinction_model = extinction_model    # Extinction model
 
-            self.template_psf = None                # Dict of psf to downgrade templates with
-            self.template_resampler = RESAMPLERS['fluxcons']()  # Resample template to instrument pixels
-            self.template_cache_resolution = 50     # Cache templates with this resolution in RV
-            self.template_wlim = None               # Model wavelength limits for each spectrograph arm to limit convolution
-            self.template_wlim_buffer = 100         # Wavelength buffer in A, depends on line spread function
+            self.template_psf = None                                # Dict of psf to downgrade templates with
+            self.template_resampler = RESAMPLERS['fluxcons']()      # Resample template to instrument pixels
+            self.template_cache_resolution = 50                     # Cache templates with this resolution in RV
+            self.template_wlim = None                               # Model wavelength limits for each spectrograph arm to limit convolution
+            self.template_wlim_buffer = 100                         # Wavelength buffer in A, depends on line spread function
             
             self.cache_templates = True     # Cache PSF-convolved templates
 
@@ -182,6 +190,7 @@ class TempFit():
         else:
             self.trace = trace if trace is not None else orig.trace
             self.correction_model = correction_model if correction_model is not None else orig.correction_model
+            self.extinction_model = extinction_model if extinction_model is not None else orig.extinction_model
 
             self.template_psf = orig.template_psf
             self.template_resampler = orig.template_resampler
@@ -197,7 +206,7 @@ class TempFit():
             self.rv_step = orig.rv_step
 
             self.amplitude_per_arm = orig.amplitude_per_arm
-            self.amplitude_per_fiber = orig.amplitude_per_fiber    
+            self.amplitude_per_fiber = orig.amplitude_per_fiber
             self.amplitude_per_exp = orig.amplitude_per_exp
 
             self.spec_norm = orig.spec_norm
@@ -229,6 +238,9 @@ class TempFit():
 
         if self.correction_model is not None:
             self.correction_model.reset()
+
+        if self.extinction_model is not None:
+            self.extinction_model.reset()
 
     def add_args(self, config, parser):
         """
@@ -264,6 +276,9 @@ class TempFit():
 
         if self.correction_model is not None:
             self.correction_model.add_args(config, parser)
+
+        if self.extinction_model is not None:
+            self.extinction_model.add_args(config, parser)
 
     def init_from_args(self, script, config, args):
         """
@@ -321,6 +336,10 @@ class TempFit():
         # Initialize the continuum correction model
         if self.correction_model is not None:
             self.correction_model.init_from_args(script, config, args)
+
+        # Initialize the extinction model
+        if self.extinction_model is not None:
+            self.extinction_model.init_from_args(script, config, args)
 
     def create_trace(self):
         """
@@ -471,8 +490,14 @@ class TempFit():
         wave_exclude = []
         wave_include.extend(self.wave_include or [])
         wave_exclude.extend(self.wave_exclude or [])
-        wave_include.extend(self.correction_model.get_wave_include() or [])
-        wave_exclude.extend(self.correction_model.get_wave_exclude() or [])
+
+        if self.correction_model is not None:
+            wave_include.extend(self.correction_model.get_wave_include() or [])
+            wave_exclude.extend(self.correction_model.get_wave_exclude() or [])
+
+        if self.extinction_model is not None:
+            wave_include.extend(self.extinction_model.get_wave_include() or [])
+            wave_exclude.extend(self.extinction_model.get_wave_exclude() or [])
 
         return wave_include, wave_exclude
     
@@ -644,6 +669,24 @@ class TempFit():
             return model[ei]
         else:
             return model
+
+    def init_extinction_curves(self, spectra, force=False):
+        """
+        Calculate the extinction curve for each exposure.
+
+        Parameters
+        ----------
+        spectra : dict of Spectrum or dict of list of Spectrum
+            Observed spectra
+        force : bool
+            Force reinitialization of the models
+        """
+
+        if self.extinction_model is not None:
+            self.extinction_model.trace = self.trace
+            self.extinction_model.tempfit = self
+
+            self.extinction_model.init_curves(spectra, force=force)
 
     def get_normalization(self, spectra, templates, rv_0=None):
         """
@@ -861,7 +904,7 @@ class TempFit():
 
         The template is always kept at high resolution during transformations
         until it's resampled to the spectrum pixels using a flux-conserving
-        resampler.
+        or an interpolating resampler.
         """
 
         psf = psf if psf is not None else (self.template_psf[arm] if self.template_psf is not None else None)
@@ -916,7 +959,7 @@ class TempFit():
 
         return temp
 
-    def preprocess_templates(self, spectra, templates, rv):
+    def preprocess_templates(self, spectra, templates, rv, ebv=None):
         """
         Preprocess the templates to match the observations. This is basically simulating
         and observation.
@@ -946,6 +989,16 @@ class TempFit():
                 pp_temp[arm].append(temp)
             else:
                 pp_temp[arm].append(None)
+
+        # Apply the extinction
+        if self.extinction_model is not None and ebv is not None:
+            self.extinction_model.apply_extinction(pp_temp, ebv)
+
+        if self.trace is not None:
+            for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=False, per_exp=False, include_none=True):
+                temp = pp_temp[arm][ei] if spec is not None else None
+                if temp is not None:
+                    self.trace.on_extinction_template(arm, rv, ebv, templates[arm], temp)
 
         return pp_temp
     
@@ -1260,10 +1313,10 @@ class TempFit():
         Parameters
         ----------
         mode : str
-            Optimization mode, either 'full', 'a', 'rv', or 'a_rv', where 'full' means
-            pack all parameters, 'a' means pack only the correction model parameters,
-            'rv' means pack only the RV, and 'a_rv' means pack both the correction model
-            parameters and the RV.
+            Optimization mode, either 'full', 'a', 'rv', or the combination of the two,
+            where 'full' means pack all parameters, 'a' means pack only the correction
+            model parameters, 'rv' means pack only the RV, and 'a_rv' means pack both the
+            correction model parameters and the RV, etc.
 
         Returns
         -------
@@ -1279,9 +1332,10 @@ class TempFit():
         pp_a, up_a, pb_a = self._get_param_packing_functions_a(mode=mode)
 
         # Other parameter packing functions
+        # pack_params, unpack_params, pack_bounds
         pp_rv, up_rv, pb_rv = self._get_param_packing_functions_rv(mode=mode)
 
-        if mode == 'full' or (pp_a is not None and pp_rv is not None):
+        if mode == 'full' or (mode == 'a_rv' and pp_a is not None and pp_rv is not None):
             # Combine correction model coefficients with RV
             def pack_params(a, rv):
                 rv = pp_rv(rv)
@@ -1300,10 +1354,10 @@ class TempFit():
                 if isinstance(rv, np.ndarray) and np.size(rv) == 1:
                     rv = rv.item()
 
-                a = up_a(a_rv[..., :-1])
+                a = up_a(a_rv[..., :-2])
 
                 return a, rv
-            
+
             def pack_bounds(a_bounds, rv_bounds):
                 return pb_a(a_bounds) + pb_rv(rv_bounds)
         elif pp_a is not None:
@@ -1375,7 +1429,8 @@ class TempFit():
     
     def get_objective_function(self,
                                spectra, templates,
-                               rv_prior,
+                               /,
+                               rv_prior=None,
                                mode='full',
                                pp_spec=None):
         """
@@ -1455,29 +1510,66 @@ class TempFit():
         else:
             return None
 
-    def check_bounds_edge(self, state, eps=1e-3):
+    def _check_param_bounds_edge(
+        self,
+        param_name,
+        param_fixed,
+        param_fit,
+        param_bounds,
+        param_prior,
+        params_flags,
+        flags,
+        eps=1e-3
+    ):
+        
+        if not param_fixed and param_fit is not None and param_bounds is not None:
+            if param_bounds[0] is not None and np.abs(param_fit - param_bounds[0]) < eps:
+                logger.warning(f"{param_name} {param_fit} is at the lower bound {param_bounds[0]}.")
+                params_flags |= TempFitFlag.PARAMEDGE
+            if param_bounds[1] is not None and np.abs(param_fit - param_bounds[1]) < eps:
+                logger.warning(f"{param_name} {param_fit} is at the upper bound {param_bounds[1]}.")
+                params_flags |= TempFitFlag.PARAMEDGE
 
+        # Check if the param is at the edge of the prior distribution
+        if not param_fixed and param_fit is not None and isinstance(param_prior, Distribution):
+            if param_prior.is_at_edge(param_fit):
+                logger.warning(f"{param_name} {param_fit} is at the edge of the prior distribution.")
+                params_flags |= TempFitFlag.PARAMEDGE
+
+        if params_flags != 0:
+            flags |= TempFitFlag.BADCONVERGE
+
+        return params_flags, flags
+
+    def check_bounds_edge(self, state, eps=1e-3):
         """
         Check if the fitted parameters are at the edge of the bounds.
         """
 
         # Check if the RV is at the edge of the bounds
-        if not state.rv_fixed and state.rv_fit is not None and state.rv_bounds is not None:
-            if state.rv_bounds[0] is not None and np.abs(state.rv_fit - state.rv_bounds[0]) < eps:
-                logger.warning(f"RV {state.rv_fit} is at the lower bound {state.rv_bounds[0]}.")
-                state.rv_flags |= TempFitFlag.PARAMEDGE
-            if state.rv_bounds[1] is not None and np.abs(state.rv_fit - state.rv_bounds[1]) < eps:
-                logger.warning(f"RV {state.rv_fit} is at the upper bound {state.rv_bounds[1]}.")
-                state.rv_flags |= TempFitFlag.PARAMEDGE
+        state.rv_flags, state.flags = self._check_param_bounds_edge(
+            'RV', state.rv_fixed, state.rv_fit, state.rv_bounds, state.rv_prior,
+            state.rv_flags, state.flags,
+            eps=eps)
 
-        # Check if the RV is at the edge of the prior distribution
-        if not state.rv_fixed and state.rv_fit is not None and isinstance(state.rv_prior, Distribution):
-            if state.rv_prior.is_at_edge(state.rv_fit):
-                logger.warning(f"RV {state.rv_fit} is at the edge of the prior distribution.")
-                state.rv_flags |= TempFitFlag.PARAMEDGE
+    def _check_param_prior_unlikely(
+        self,
+        param_name,
+        param_fixed,
+        param_fit,
+        param_prior,
+        param_flags,
+        flags,
+        lp_limit=-5
+    ):
+        
+        if not param_fixed and param_fit is not None and param_prior is not None:
+            lp = self.eval_prior(param_prior, param_fit)
+            if lp is not None and lp / np.log(10) < lp_limit:
+                logger.warning(f"Prior for {param_name} {param_fit} is very unlikely with lp {lp}.")
+                param_flags |= TempFitFlag.UNLIKELYPRIOR
 
-        if state.rv_flags != 0:
-            state.flags |= TempFitFlag.BADCONVERGE
+        return param_flags, flags
 
     def check_prior_unlikely(self, state, lp_limit=-5):
         
@@ -1485,12 +1577,9 @@ class TempFit():
         Check if the fitted parameters are unlikely a priori. This means
         that the convergence might be bad.
         """
-
-        if not state.rv_fixed and state.rv_fit is not None and state.rv_prior is not None:
-            lp = self.eval_prior(state.rv_prior, state.rv_fit)
-            if lp is not None and lp / np.log(10) < lp_limit:
-                logger.warning(f"Prior for RV {state.rv_fit} is very unlikely with lp {lp}.")
-                state.rv_flags |= TempFitFlag.UNLIKELYPRIOR
+        
+        state.rv_flags, state.flags = self._check_param_prior_unlikely(
+            'RV', state.rv_fixed, state.rv_fit, state.rv_prior, state.rv_flags, state.flags)
         
     # endregion
     # region Fisher matrix evaluation
@@ -1604,7 +1693,11 @@ class TempFit():
         dd_log_L_0 = dd_log_L(x_0)
 
         if inverse:
-            inv = np.linalg.inv(-dd_log_L_0)
+            try:
+                inv = np.linalg.inv(-dd_log_L_0)
+            except np.linalg.LinAlgError:
+                logger.warning("Fisher matrix is singular and cannot be inverted.")
+                inv = None
         else:
             inv = None
 
@@ -1737,7 +1830,9 @@ class TempFit():
         return pp, pcov
 
     def calculate_log_L(self, spectra, templates,
-                        rv, rv_prior=None, a=None,
+                        rv, /, rv_prior=None,
+                        ebv=None, ebv_prior=None,
+                        a=None,
                         pp_spec=None):
         """
         Calculate the logarithm of the likelihood at the given values of RV.
@@ -1782,7 +1877,7 @@ class TempFit():
 
             # Pre-process each exposure in each arm and pass them to the log L calculator
             # function of the flux correction or continuum fit model.
-            pp_temp = self.preprocess_templates(spectra, templates, rvv[i])
+            pp_temp = self.preprocess_templates(spectra, templates, rvv[i], ebv)
 
             # Save everything to the trace
             if self.trace is not None:
@@ -1796,6 +1891,7 @@ class TempFit():
             # Add the priors
             # TODO: factor this into a function that can be overridden
             lp += self.eval_prior(rv_prior, rvv[i])
+            lp += self.eval_prior(ebv_prior, ebv)
 
             log_L[i] = lp
 
@@ -1808,7 +1904,7 @@ class TempFit():
 
         return log_L
 
-    def calculate_coeffs(self, spectra, templates, rv, pp_spec=None):
+    def calculate_coeffs(self, spectra, templates, rv, ebv=None, pp_spec=None):
         """
         Given a set of observed spectra and templates, evaluate the correction model
         to determine the correction model parameters at the given RV.
@@ -1832,7 +1928,7 @@ class TempFit():
 
         if pp_spec is None:
             pp_spec = self.preprocess_spectra(spectra)
-        pp_temp = self.preprocess_templates(spectra, templates, rv)
+        pp_temp = self.preprocess_templates(spectra, templates, rv, ebv)
         a = self.correction_model.calculate_coeffs(pp_spec, pp_temp)
         
         return a, pp_spec, pp_temp
@@ -2261,7 +2357,7 @@ class TempFit():
                               cov=state.C,
                               flags=state.flags)
 
-    def eval_correction(self, spectra, templates, rv, a=None):
+    def eval_correction(self, spectra, templates, rv, ebv=None, a=None):
         """
         Evaluate the correction model at the given RV on the wavelength grid
         of the observed spectra.
@@ -2293,7 +2389,7 @@ class TempFit():
         """
 
         pp_specs = self.preprocess_spectra(spectra)
-        pp_temps = self.preprocess_templates(spectra, templates, rv)
+        pp_temps = self.preprocess_templates(spectra, templates, rv, ebv)
         
         corrections, correction_masks = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
 
@@ -2304,6 +2400,7 @@ class TempFit():
             spectra,
             templates,
             rv_fit,
+            ebv_fit=None,
             a_fit=None,
             match=None,
             apply_correction=True):
@@ -2322,6 +2419,8 @@ class TempFit():
             Synthetic stellar templates for each arm
         rv_fit : float
             Best fit radial velocity
+        ebv_fit : float
+            Best fit E(B-V)
         a_fit : ndarray
             Best fit correction model parameters
         match : str or None
@@ -2339,7 +2438,7 @@ class TempFit():
         spectra = safe_deep_copy(spectra)
 
         # Evaluate the correction model at the best fit parameters
-        pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(spectra, templates, rv_fit, a=a_fit)
+        pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(spectra, templates, rv_fit, ebv=ebv_fit, a=a_fit)
 
         # At this point spectra.flux is in physical, observed units,
         # pp_spec.flux is observed flux scaled to unity and pp_temp.flux is scaled to unity.

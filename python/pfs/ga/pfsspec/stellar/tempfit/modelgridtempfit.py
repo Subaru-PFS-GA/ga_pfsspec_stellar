@@ -41,12 +41,23 @@ class ModelGridTempFit(TempFit):
         Step sizes for MCMC and numerical differentiation of the template parameters
     """
 
-    def __init__(self, trace=None, correction_model=None, orig=None):
+    def __init__(
+            self,
+            trace=None,
+            correction_model=None,
+            extinction_model=None,
+            orig=None
+    ):
+        
         """
         Initialize the template fitting problem.
         """
         
-        super().__init__(trace=trace, correction_model=correction_model, orig=orig)
+        super().__init__(
+            trace=trace,
+            correction_model=correction_model,
+            extinction_model=extinction_model,
+            orig=orig)
 
         if not isinstance(orig, ModelGridTempFit):
             self.template_grids = None       # Model grids for each spectrograph arm
@@ -55,7 +66,7 @@ class ModelGridTempFit(TempFit):
             self.params_fixed = None         # List of names of template params not fitted
             self.params_bounds = None        # Template parameter bounds
             self.params_priors = None        # Dict of callables for each parameter
-            self.params_steps = None          # Spec size for each parameter
+            self.params_steps = None         # Spec size for each parameter
         else:
             self.template_grids = orig.template_grids
 
@@ -77,10 +88,15 @@ class ModelGridTempFit(TempFit):
         # Look up template parameters from the command-line. Figure out the ones that
         # are sampled randomly and ones that are fixed
         params = {}
+
         grid = self.template_grids[list(self.template_grids.keys())[0]]
         for i, p, ax in grid.enumerate_axes():
             params[p] = Parameter(p)
             params[p].init_from_args(args)
+
+        if self.extinction_model is not None:
+            params['ebv'] = Parameter('ebv')
+            params['ebv'].init_from_args(args)
 
         self.params_0 = {}
         self.params_fixed = {}
@@ -100,9 +116,6 @@ class ModelGridTempFit(TempFit):
 
             if params[p].has_dist():
                 self.params_priors[p] = params[p].get_dist()
-
-    def create_trace(self):
-        return ModelGridTempFitTrace()
 
     def reset(self):
         super().reset()
@@ -215,14 +228,22 @@ class ModelGridTempFit(TempFit):
             else:
                 raise Exception(msg)
         else:
+            ebv = params['ebv'] if 'ebv' in params else None
+            ebv = params_fixed['ebv'] if params_fixed is not None and 'ebv' in params_fixed else ebv
+            ebv_prior = params_priors['ebv'] if params_priors is not None and 'ebv' in params_priors else None
+
             log_L = super().calculate_log_L(spectra, templates,
-                                            rv, rv_prior=rv_prior, a=a,
+                                            rv, rv_prior=rv_prior,
+                                            ebv=ebv, ebv_prior=ebv_prior,
+                                            a=a,
                                             pp_spec=pp_spec)
             
             if params_priors is not None:
                 for p in params_priors.keys():
                     if p in params:
                         log_L += self.eval_prior(params_priors[p], params[p])
+
+            # TODO: add flux constraints
 
         return log_L
         
@@ -243,6 +264,7 @@ class ModelGridTempFit(TempFit):
 
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds=rv_bounds)
+        self.init_extinction_curves(spectra)
 
         # Generate the map axes
         def get_axis(name, value, bounds, prior):
@@ -316,14 +338,15 @@ class ModelGridTempFit(TempFit):
 
         bounds = {}
         for p in params_free:
-            # Use grid bounds if params_bounds is None
-            if params_bounds is None or p not in params_bounds or params_bounds[p] is None:
-                # Use axis limits from the grid
-                bounds[p] = (grid.get_axis(p).values.min(), grid.get_axis(p).values.max())
-            else:
-                # Override bounds if outside the grid
-                bounds[p] = (max(params_bounds[p][0], grid.get_axis(p).values.min()),
-                             min(params_bounds[p][1], grid.get_axis(p).values.max()))
+            if grid.has_axis(p):
+                # Use grid bounds if params_bounds is None
+                if params_bounds is None or p not in params_bounds or params_bounds[p] is None:
+                    # Use axis limits from the grid
+                    bounds[p] = (grid.get_axis(p).values.min(), grid.get_axis(p).values.max())
+                else:
+                    # Override bounds if outside the grid
+                    bounds[p] = (max(params_bounds[p][0], grid.get_axis(p).values.min()),
+                                min(params_bounds[p][1], grid.get_axis(p).values.max()))
 
         return bounds
     
@@ -333,7 +356,12 @@ class ModelGridTempFit(TempFit):
 
         for k, grid in self.template_grids.items():
             params_free = [p for i, p, ax in grid.enumerate_axes() if params_fixed is None or p not in params_fixed]
-            return params_free  # return from loop after very first iter!
+            break  # return from loop after very first iter!
+
+        if self.extinction_model is not None and (params_fixed is None or 'ebv' not in params_fixed):
+            params_free.append('ebv')
+
+        return params_free
             
     def get_param_packing_functions(self, params_free, mode='full'):
         # Correction model packing functions
@@ -527,17 +555,16 @@ class ModelGridTempFit(TempFit):
         super().check_bounds_edge(state, eps=eps)
 
         for p in state.params_free:
-            if state.params_fit is not None and p in state.params_fit:
-                if state.params_bounds is not None and p in state.params_bounds and state.params_bounds[p] is not None:
-                    if state.params_bounds[p][0] is not None and np.abs(state.params_fit[p] - state.params_bounds[p][0]) < eps:
-                        logger.warning(f"Parameter {p} {state.params_fit[p]} is at the lower bound {state.params_bounds[p][0]}.")
-                        state.params_flags[p] |= TempFitFlag.PARAMEDGE
-                    if state.params_bounds[p][1] is not None and np.abs(state.params_fit[p] - state.params_bounds[p][1]) < eps:
-                        logger.warning(f"Parameter {p} {state.params_fit[p]} is at the upper bound {state.params_bounds[p][1]}.")
-                        state.params_flags[p] |= TempFitFlag.PARAMEDGE
-
-            if state.params_flags[p] != 0:
-                state.flags |= TempFitFlag.BADCONVERGE
+            state.params_flags[p], state.flags = self._check_param_bounds_edge(
+                param_name=p,
+                param_fixed=False,
+                param_fit=state.params_fit[p],
+                param_bounds=state.params_bounds[p] if state.params_bounds is not None and p in state.params_bounds else None,
+                param_prior=state.params_priors[p] if state.params_priors is not None and p in state.params_priors else None,
+                params_flags=state.params_flags[p],
+                flags=state.flags,
+                eps=eps
+            )
 
     def check_prior_unlikely(self, state, lp_limit=-5):
         """
@@ -548,11 +575,14 @@ class ModelGridTempFit(TempFit):
         
         if state.params_fit is not None and state.params_priors is not None:
             for p in state.params_fit:
-                if state.params_fit[p] is not None and p in state.params_priors:
-                    lp = self.eval_prior(state.params_priors[p], state.params_fit[p])
-                    if lp is not None and lp / np.log(10) < lp_limit:
-                        logger.warning(f"Prior for parameter {p} {state.params_fit[p]} is very unlikely with lp {lp}.")
-                        state.params_flags[p] |= TempFitFlag.UNLIKELYPRIOR
+                state.params_flags[p], state.flags = self._check_param_prior_unlikely(
+                    param_name=p,
+                    param_fixed=False,
+                    param_fit=state.params_fit[p],
+                    param_prior=state.params_priors[p] if state.params_priors is not None and p in state.params_priors else None,
+                    param_flags=state.params_flags[p],
+                    flags=state.flags,
+                    lp_limit=lp_limit)
 
     def calculate_F(self, spectra,
                     rv_0, params_0,
@@ -582,9 +612,6 @@ class ModelGridTempFit(TempFit):
         
         params_bounds = params_bounds if params_bounds is not None else self.params_bounds
         params_bounds = self.determine_grid_bounds(self.params_bounds, params_free)
-
-        params_count = (0 if rv_fixed else 1) + len(params_free)
-        logger.info(f"Calculating the fisher matrix for {params_count} parameters with mode `{mode}` using method `{method}`.")
         
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
@@ -593,6 +620,11 @@ class ModelGridTempFit(TempFit):
             params_0, params_priors, params_free, params_fixed=params_fixed,
             mode=mode,
             pp_spec=pp_spec)
+
+        mode_parts = mode.split('_')
+
+        params_count = (0 if rv_fixed or 'rv' not in mode_parts else 1) + len(params_free)
+        logger.info(f"Calculating the fisher matrix for {params_count} parameters with mode `{mode}` using method `{method}`.")
         
         if mode == 'full' or mode == 'a_params_rv':
             # Calculate a_0
@@ -787,6 +819,7 @@ class ModelGridTempFit(TempFit):
         params_fixed = params_fixed if params_fixed is not None else self.params_fixed
 
         self.init_correction_models(spectra, rv_bounds)
+        self.init_extinction_curves(spectra)
 
         if templates is None:
             # Look up the templates from the grid and pass those to the the parent class
@@ -928,6 +961,12 @@ class ModelGridTempFit(TempFit):
         # Make sure all randomly generated parameters are within the grid
         # TODO: this doesn't account for any possible holes
         bounds = self.determine_grid_bounds(state.params_bounds, state.params_free)
+        
+        # Add the rest of the bounds
+        for p in state.params_free:
+            if p not in bounds and p in state.params_bounds:
+                bounds[p] = state.params_bounds[p]
+
         bounds = state.pack_bounds(bounds, state.rv_bounds)
         state.bounds = self.get_bounds_array(bounds)
 
@@ -991,6 +1030,7 @@ class ModelGridTempFit(TempFit):
 
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds=rv_bounds)
+        self.init_extinction_curves(spectra)
         
         state = self.prepare_fit(
                 spectra,
@@ -1078,9 +1118,11 @@ class ModelGridTempFit(TempFit):
         templates, missing = self.get_templates(spectra, state.params_fit)
         state.a_fit, _, _ = self.calculate_coeffs(spectra, templates,
                                                   state.rv_fit,
+                                                  ebv=state.params_fit['ebv'] if 'ebv' in state.params_fit else None,
                                                   pp_spec=state.pp_spec)
         
         # TODO: flags for error and covariance
+        # TODO: factor out everything as a function below this
 
         if calculate_error:
             state.rv_err, state.params_err = self.ml_calculate_error(spectra, state)
@@ -1102,7 +1144,9 @@ class ModelGridTempFit(TempFit):
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit parameters for each exposure
             ss, tt = self.append_corrections_and_templates(spectra, templates,
-                                                           state.rv_fit, a_fit=state.a_fit,
+                                                           state.rv_fit,
+                                                           params_fit=state.params_fit,
+                                                           a_fit=state.a_fit,
                                                            match='template',
                                                            apply_correction=True)
 
@@ -1214,9 +1258,15 @@ class ModelGridTempFit(TempFit):
                                     mode='params', method='hessian',
                                     pp_spec=state.pp_spec)
 
-            with np.errstate(invalid='warn'):
+            # If the Hessian is singular or negative, we cannot determine the error
+            if C is None or C.item() is np.nan or C.item() <= 0:
+                params_err[p] = np.nan
+                logger.warning(f"Could not calculate the error for parameter {p}, possibly singular Hessian.")
+            else:
                 params_err[p] = np.sqrt(C).item()
-
+                logger.debug(f"Error for the parameter {p} is {params_err[p]}")
+                
+        # Fixed parameters have zero error
         for i, p in enumerate(state.params_fixed):
             params_err[p] =  0.0
 
@@ -1238,16 +1288,18 @@ class ModelGridTempFit(TempFit):
                                 pp_spec=state.pp_spec)
 
         # Check if the covariance matrix is positive definite
-        with np.errstate(all='raise'):
-            try:
-                np.linalg.cholesky(C)
-            except LinAlgError as ex:
-                # Matrix is not positive definite
-                F = C = np.full_like(C, np.nan)
+        if C is None or np.any(np.isnan(C)):
+            C = np.full_like(F, np.nan)
+            logger.warning(f"Could not calculate the covariance of the parameters {list(state.params_fit.keys())}, possibly singular Hessian.")
+        else:
+            with np.errstate(all='raise'):
+                try:
+                    np.linalg.cholesky(C)
+                except LinAlgError as ex:
+                    # Matrix is not positive definite
+                    C = np.full_like(F, np.nan)
+                    logger.warning(f"Covariance matrix for parameters {list(state.params_fit.keys())} is not positive definite.")
                 
-        # with np.errstate(invalid='warn'):
-        #     err = np.sqrt(np.diag(C)) # sigma
-
         return C
     
     def randomize_init_params(self, spectra, rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
@@ -1392,6 +1444,7 @@ class ModelGridTempFit(TempFit):
 
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds=rv_bounds)
+        self.init_extinction_curves(spectra)
 
         state = self.prepare_fit(
                 spectra,
@@ -1451,12 +1504,14 @@ class ModelGridTempFit(TempFit):
             pp_spec = self.preprocess_spectra(spectra)
             a_fit, _, _ = self.calculate_coeffs(spectra, templates,
                                                 rv_fit,
+                                                ebv=params_fit['ebv'] if 'ebv' in params_fit else None,
                                                 pp_spec=pp_spec)
 
         return super().append_corrections_and_templates(
             spectra,
             templates,
             rv_fit,
+            ebv_fit=params_fit['ebv'] if params_fit is not None and 'ebv' in params_fit else None,
             a_fit=a_fit,
             match=match,
             apply_correction=apply_correction)
