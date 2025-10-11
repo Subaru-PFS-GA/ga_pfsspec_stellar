@@ -99,3 +99,12 @@ class ExtinctionModel():
         for arm in templates:
             for i in range(len(templates[arm])):
                 templates[arm][i].apply_extinction(self.curves[arm][i], ebv)
+
+    def eval_extinction_single(self, spectrum):
+        """
+        Calculate the extinction curve for a single spectrum
+        """
+        return self.__eval(spectrum.wave, 1.0)
+
+    def apply_extinction_single(self, template, ebv, ext_curve):
+        template.apply_extinction(ext_curve, ebv)

@@ -1829,11 +1829,16 @@ class TempFit():
 
         return pp, pcov
 
-    def calculate_log_L(self, spectra, templates,
-                        rv, /, rv_prior=None,
-                        ebv=None, ebv_prior=None,
-                        a=None,
-                        pp_spec=None):
+    def calculate_log_L(
+        self,
+        spectra,
+        templates,
+        rv, /, rv_prior=None,
+        ebv=None,
+        a=None,
+        pp_spec=None
+    ):
+        
         """
         Calculate the logarithm of the likelihood at the given values of RV.
 
@@ -1891,7 +1896,6 @@ class TempFit():
             # Add the priors
             # TODO: factor this into a function that can be overridden
             lp += self.eval_prior(rv_prior, rvv[i])
-            lp += self.eval_prior(ebv_prior, ebv)
 
             log_L[i] = lp
 
@@ -2129,6 +2133,7 @@ class TempFit():
         return self.run_ml(spectra, templates, **kwargs)
 
     def run_ml(self, spectra, templates,
+               fluxes=None,
                rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
                method='bounded', max_iter=None,
                calculate_error=True):
