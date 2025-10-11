@@ -2481,6 +2481,7 @@ class TempFit():
             for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
                 if spec is not None:
                     spec.flux_model = pp_temp[arm][ei].flux
+                    spec.cont = pp_temp[arm][ei].cont
 
         return spectra, pp_temp
     
