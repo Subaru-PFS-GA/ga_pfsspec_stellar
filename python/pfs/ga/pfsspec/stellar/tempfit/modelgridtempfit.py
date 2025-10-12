@@ -722,9 +722,6 @@ class ModelGridTempFit(TempFit):
 
         mode_parts = mode.split('_')
 
-        params_count = (0 if rv_fixed or 'rv' not in mode_parts else 1) + len(params_free)
-        logger.info(f"Calculating the fisher matrix for {params_count} parameters with mode `{mode}` using method `{method}`.")
-        
         if mode == 'full' or mode == 'a_params_rv':
             # Calculate a_0
             templates, missing = self.get_templates(spectra, params_0)
@@ -745,8 +742,9 @@ class ModelGridTempFit(TempFit):
 
         bounds = self.get_bounds_array(bounds)
 
-        # TODO: count function evaluations
+        logger.info(f"Calculating the fisher matrix for {x_0.size} parameter(s) with mode `{mode}` using method `{method}`.")
 
+        # TODO: count function evaluations to record in the trace
         F, C = self.eval_F_dispatch(x_0, log_L, step, method, bounds)
 
         return F, C
@@ -1294,7 +1292,7 @@ class ModelGridTempFit(TempFit):
             xx_0 = None
             flags |= TempFitFlag.BADINIT
 
-        with Timer("Starting Nelder-Mead optimization", logger=logger, level=logging.INFO):
+        with Timer(f'Starting Nelder-Mead optimization with {x_0.size} parameter(s).', logger=logger, level=logging.INFO):
             out = minimize(llh,
                            x0=x_0, bounds=bounds, method=method, callback=callback,
                            options=dict(maxiter=max_iter, initial_simplex=xx_0))
