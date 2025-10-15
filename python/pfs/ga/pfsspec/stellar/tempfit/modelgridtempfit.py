@@ -742,10 +742,12 @@ class ModelGridTempFit(TempFit):
 
         bounds = self.get_bounds_array(bounds)
 
-        logger.info(f"Calculating the fisher matrix for {x_0.size} parameter(s) with mode `{mode}` using method `{method}`.")
+        with Timer(f"Calculating the fisher matrix for {x_0.size} parameter(s) with mode `{mode}` using method `{method}`.",
+                   logger=logger,
+                   level=logging.INFO):
 
-        # TODO: count function evaluations to record in the trace
-        F, C = self.eval_F_dispatch(x_0, log_L, step, method, bounds)
+            # TODO: count function evaluations to record in the trace
+            F, C = self.eval_F_dispatch(x_0, log_L, step, method, bounds)
 
         return F, C
     
@@ -1368,7 +1370,7 @@ class ModelGridTempFit(TempFit):
                 logger.warning(f"Could not calculate the error for parameter {p}, possibly singular Hessian.")
             else:
                 params_err[p] = np.sqrt(C).item()
-                logger.debug(f"Error for the parameter {p} is {params_err[p]}")
+                logger.info(f"Uncorrelated error for the parameter {p} around {state.params_fit[p]} is {params_err[p]}")
                 
         # Fixed parameters have zero error
         for i, p in enumerate(state.params_fixed):
