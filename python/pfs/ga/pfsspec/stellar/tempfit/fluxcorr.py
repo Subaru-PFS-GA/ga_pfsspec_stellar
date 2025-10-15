@@ -44,6 +44,8 @@ class FluxCorr(CorrectionModel):
         self.flux_corr_basis_cache = None
         self.param_count_cache = None
         self.masked_spectrum_cache = None
+        self.einsum_path_info_cache = None
+        self.tensor_cache = {}
 
     def add_args(self, config, parser):
         super().add_args(config, parser)
@@ -350,12 +352,26 @@ class FluxCorr(CorrectionModel):
                     pp /= sigma2
                     cc /= sigma2
 
-            mm = model_mask
-            mmx = np.ix_(mm, mm)
-            
-            bb = basis[np.ix_(wave_mask, mm)]
             pp = pp[wave_mask]
             cc = cc[wave_mask]
+
+            # Calculate the model mask, this is somewhat expensive, so we cache it
+            mm = model_mask
+            key = (arm, ei, 'mmx')
+            if key in self.tensor_cache:
+                mmx = self.tensor_cache[key]
+            else:
+                mmx = np.ix_(mm, mm)
+                self.tensor_cache[key] = mmx
+
+            # Although wave_mask might depend on the template, it currently does not
+            # We cache the bb matrix here because it's expensive to calculate.
+            key = (arm, ei, 'bb')
+            if key in self.tensor_cache:
+                bb = self.tensor_cache[key]
+            else:
+                bb = basis[np.ix_(wave_mask, mm)]
+                self.tensor_cache[key] = bb
             
             # When we have a different basis for each arm or exposure, most of the
             # bb matrix would be 0 because the coefficients of the rest of the arms
@@ -363,11 +379,20 @@ class FluxCorr(CorrectionModel):
             # slicing down the arrays to the rows and columns that have non-zero
             # contribution to phi and chi
 
-            # phi[mm] += np.matmul(pp, bb)
+            # This is without einsum, calculating phi this way is much faster
+            phi[mm] += np.matmul(pp, bb)
             # chi[mmx] += np.sum(cc[:, None, None] * bb[:, :, None] * bb[:, None, :], axis=0)
 
-            phi[mm] += np.einsum('i,ij->j', pp, bb, optimize=True)
-            chi[mmx] += np.einsum('i,ij,ik->jk', cc, bb, bb, optimize=True)
+            # Cache einsum path info, this shaves off about 10% of the time
+            if self.einsum_path_info_cache is None:
+                self.einsum_path_info_cache = {    
+                    'phi': np.einsum_path('i,ij->j', pp, bb, optimize=True)[0],
+                    'chi': np.einsum_path('i,ij,ik->jk', cc, bb, bb, optimize=True)[0]
+                }
+
+            # With einsum, calculating chi is about 15% faster
+            # phi[mm] += np.einsum('i,ij->j', pp, bb, optimize=self.einsum_path_info_cache['phi'])
+            chi[mmx] += np.einsum('i,ij,ik->jk', cc, bb, bb, optimize=self.einsum_path_info_cache['chi'])
 
         if not self.use_flux_corr:
             ndf -= 1
