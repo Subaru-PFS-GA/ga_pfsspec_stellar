@@ -43,7 +43,7 @@ class PhoenixSpectrum(ModelSpectrum):
 
     def normalize_to_mag(self, filt, mag):
         try:
-            m = self.synthmag(filt)
+            m = self.synth_mag(filt)
             # if m <= -10:
             #     # Checking that not really negative number, which happens when flux is from
             #     # Phoenix but isn't properly re-scaled - i.e. flux is ~1e8 too big
