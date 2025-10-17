@@ -63,7 +63,7 @@ class ModelGridTempFitTrace(TempFitTrace):
     def on_fit_rv_finish(self, spectra, templates,
                          rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                          params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
-                         cov,
+                         cov, cov_params,
                          log_L_0, log_L_fit, log_L_fun):
         
         for p in params_fit:
@@ -80,7 +80,7 @@ class ModelGridTempFitTrace(TempFitTrace):
             # Corner plot of parameters
             self._plot_fit_results(rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                                       params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
-                                      cov)
+                                      cov, cov_params)
 
         # Plot the convergence of template params, if available
         if (self.plot_params_convergence is None and self.plot_level >= Trace.PLOT_LEVEL_TRACE \
@@ -110,7 +110,7 @@ class ModelGridTempFitTrace(TempFitTrace):
     def _plot_fit_results(self,
                           rv_0, rv_fit, rv_err, rv_bounds, rv_prior, rv_step, rv_fixed,
                           params_0, params_fit, params_err, params_bounds, params_priors, params_steps, params_free,
-                          cov):
+                          cov, cov_params):
 
         # TODO: move it to a function and remove duplicate lines
         # Plot corner plot of parameters
@@ -138,18 +138,24 @@ class ModelGridTempFitTrace(TempFitTrace):
         # limits = rv_bounds
         if not rv_fixed:
             limits = (rv_fit - 10 * rv_err, rv_fit + 10 * rv_err)
-            axes.append(DiagramAxis(limits, label='RV'))
+            axes.append(DiagramAxis(limits, label='v_los'))
             priors.append((rv_prior, limits, None, None))
 
         cc = CornerPlot(f, axes)
 
-        # Plot the covariance contours
-        all_params = [ params_fit[p] for p in params_free ]
-        if not rv_fixed:
-            all_params.append(rv_fit)
-        mu = np.array(all_params)
+        # Plot the covariance contours. Skip params missing from the covariance matrix
+        mu = []
+        idx = []
+        for p in cov_params:
+            if p == 'v_los':
+                mu.append(rv_fit)
+                idx.append(len(params_free))
+            else:
+                mu.append(params_fit[p])
+                idx.append(params_free.index(p))
+        mu = np.array(mu)
         if cov is not None and not np.any(np.isnan(cov)):
-            cc.plot_covariance(mu, cov, sigma=[1, 2, 3])
+            cc.plot_covariance(mu, cov, idx, sigma=[1, 2, 3])
         
         # Plot the best fit values with error bars
         all_params = [ (params_fit[p], params_err[p]) for p in params_free ]

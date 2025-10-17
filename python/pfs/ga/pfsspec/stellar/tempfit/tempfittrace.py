@@ -112,7 +112,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         if self.guess_rv_results is not None:
             rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov = self.guess_rv_results
         else:
-            rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov = None, None, None, None, None, None, None
+            rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov = None, None, None, None, None, None, None, None
 
         if self.plot_rv_fit is None and self.plot_level >= Trace.PLOT_LEVEL_INFO \
             or self.plot_rv_fit:

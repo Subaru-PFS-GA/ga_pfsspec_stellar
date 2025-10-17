@@ -1354,7 +1354,7 @@ class TempFit():
                 if isinstance(rv, np.ndarray) and np.size(rv) == 1:
                     rv = rv.item()
 
-                a = up_a(a_rv[..., :-2])
+                a = up_a(a_rv[..., :-1])
 
                 return a, rv
 
@@ -2135,8 +2135,7 @@ class TempFit():
     def run_ml(self, spectra, templates,
                fluxes=None,
                rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
-               method='bounded', max_iter=None,
-               calculate_error=True):
+               method='bounded', max_iter=None):
         """
         Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
         Spectra are assumed to be of the same object in different wavelength ranges, with multiple
@@ -2161,8 +2160,6 @@ class TempFit():
             Optimization method to use: 'bounded' or 'grid'
         max_iter: int
             Maximum number of iterations for the optimization
-        calculate_error : bool
-            If True, calculate the error of the RV from the Fisher matrix.
 
         Returns
         -------
@@ -2215,13 +2212,17 @@ class TempFit():
         if state.rv_fixed:
             # Only calculate the flux correction or continuum model coefficients at rv_0
             results = self._fit_rv_fixed(spectra, templates,
-                                        state)
+                                         state)
         else:
             # Optimize for RV
             results = self._fit_rv_optimize(spectra, templates,
-                                           state,
-                                           method, calculate_error)
+                                            state,
+                                            method)
 
+        return results
+
+    def finish_ml(self, spectra, templates, state, fluxes=None):
+        
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit RV.
             ss, tt = self.append_corrections_and_templates(spectra, templates,
@@ -2237,7 +2238,25 @@ class TempFit():
                                         state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, False,
                                         state.log_L_0, state.log_L_fit, log_L_fun)
 
-        return results
+        return TempFitResults.from_state(state), state
+
+
+    def calculate_error_ml(self, spectra, templates, state, fluxes=None):
+        if not state.rv_fixed:
+            # Calculate the error only when the RV is not fixed
+            state.cov_params = [0]   # RV is the only parameter
+            _, state.cov = self.calculate_F(spectra, templates,
+                                    state.rv_fit, rv_bounds=state.rv_bounds, rv_prior=state.rv_prior,
+                                    mode='rv', method='hessian')
+            state.cov_params = ['v_los']
+
+            with np.errstate(invalid='warn'):
+                state.rv_err = np.sqrt(state.cov[-1, -1])         # sigma
+
+        return TempFitResults.from_state(state), state
+
+    def calculate_cov_ml(self, spectra, templates, state, fluxes=None):
+        return TempFitResults.from_state(state), state
 
     def _fit_rv_fixed(self, spectra, templates, state):
         """
@@ -2267,25 +2286,23 @@ class TempFit():
         
         # Calculate log_L in a single step, this won't provide the flux correction or
         # continuum fit parameters
-        a_fit = None
-        a_err = None
-        log_L_fit = self.calculate_log_L(spectra, templates, state.rv_0, rv_prior=state.rv_prior, pp_spec=state.pp_spec)
+        state.rv_fit = state.rv_0
+        state.rv_err = 0.0
+        state.rv_flags = TempFitFlag.OK
+        state.a_fit = None
+        state.a_err = None
+        state.cov = None
+        state.cov_params = None
+        state.log_L_fit = self.calculate_log_L(spectra, templates, state.rv_0, rv_prior=state.rv_prior, pp_spec=state.pp_spec)
 
-        results = TempFitResults(rv_fit=state.rv_0, rv_err=np.nan,
-                                 a_fit=a_fit, a_err=a_err,
-                                 log_L_fit=log_L_fit,
-                                 cov=None,
-                                 flags=state.flags, rv_flags=state.rv_flags)
-
-        return results
+        return TempFitResults.from_state(state), state
         
     def _fit_rv_optimize(
             self,
             spectra,
             templates,
             state,
-            method,
-            calculate_error):
+            method):
 
         """
         Optimize for the RV. This function is called when the RV is not fixed.
@@ -2300,8 +2317,6 @@ class TempFit():
             State of the fit containing all parameters
         method : str
             Optimization method to use: 'grid', otherwise scalar
-        calculate_error : bool
-            If True, calculate the error of the RV from the Fisher matrix.
         """
                 
         # Cost function
@@ -2343,24 +2358,14 @@ class TempFit():
         state.a_fit, _, _ = self.calculate_coeffs(spectra, templates,
                                                   state.rv_fit,
                                                   pp_spec=state.pp_spec)
-
-        # Calculate the error from the Fisher matrix
-        if calculate_error:
-            _, state.C = self.calculate_F(spectra, templates,
-                                    state.rv_fit, rv_bounds=state.rv_bounds, rv_prior=state.rv_prior,
-                                    mode='rv', method='hessian')
-
-            with np.errstate(invalid='warn'):
-                state.rv_err = np.sqrt(state.C[-1, -1])         # sigma
-        else:
-            state.rv_err = None
-            state.C = None
         
-        return TempFitResults(rv_fit=state.rv_fit, rv_err=state.rv_err, rv_flags=state.rv_flags,
-                              a_fit=state.a_fit, a_err=np.full_like(state.a_fit, np.nan),
-                              log_L_fit=state.log_L_fit,
-                              cov=state.C,
-                              flags=state.flags)
+        # Set the errors to NaN for now
+        state.rv_err = np.nan
+        state.a_err = None
+        state.cov = None
+        state.cov_params = None
+        
+        return TempFitResults.from_state(state), state
 
     def eval_correction(self, spectra, templates, rv, ebv=None, a=None):
         """

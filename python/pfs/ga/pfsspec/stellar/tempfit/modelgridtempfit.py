@@ -327,7 +327,7 @@ class ModelGridTempFit(TempFit):
                 obs_flux_err = {}
                 for i, (band, temp) in enumerate(templates.items()):
                     filter = self.synthmag_filters[instrument][band]
-                    synth_flux[band] = filter.synth_flux(temp.wave, temp.flux)
+                    synth_flux[band], _ = filter.synth_flux(temp.wave, temp.flux)
                     obs_flux[band], obs_flux_err[band] = fluxes[instrument][band]
 
                 # Calculate the flux ratios and errors, assume no covariance
@@ -720,8 +720,6 @@ class ModelGridTempFit(TempFit):
             mode=mode,
             pp_spec=pp_spec)
 
-        mode_parts = mode.split('_')
-
         if mode == 'full' or mode == 'a_params_rv':
             # Calculate a_0
             templates, missing = self.get_templates(spectra, params_0)
@@ -1085,8 +1083,7 @@ class ModelGridTempFit(TempFit):
                fluxes=None,
                rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
-               method="Nelder-Mead", max_iter=None,
-               calculate_error=True, calculate_cov=True):
+               method="Nelder-Mead", max_iter=None):
         """
         Given a set of spectra and template grid, find the best fit RV, as well as template
         parameters by maximizing the likelihood function. Spectra are assumed to be of the same
@@ -1207,6 +1204,18 @@ class ModelGridTempFit(TempFit):
         # Unpack the optimized parameters
         state.params_fit, state.rv_fit = state.unpack_params(x_fit)
         state.params_fit = { **state.params_fit, **state.params_fixed }
+        state.a_fit = None
+
+        # Set the errors to NaN for now
+        state.rv_err = np.nan
+        state.params_err = {}
+        for p in state.params_free:
+            state.params_err[p] = np.nan
+        for p in state.params_fixed:
+            state.params_err[p] = np.nan
+        state.a_err = None
+        state.cov = None
+        state.cov_params = None
 
         # Check if the fit is not at the edge of the bounds or priors and
         # that the results are not very unlikely by the priors
@@ -1215,33 +1224,18 @@ class ModelGridTempFit(TempFit):
         self.check_prior_unlikely(state)
 
         # TODO: check if log_L decreased
-                
+        # TODO: flags for error and covariance
+
+        return ModelGridTempFitResults.from_state(state), state
+        
+    def finish_ml(self, spectra, fluxes, state):
         # Calculate the flux correction or continuum fit coefficients at best fit values
         templates, missing = self.get_templates(spectra, state.params_fit)
         state.a_fit, _, _ = self.calculate_coeffs(spectra, templates,
                                                   state.rv_fit,
                                                   ebv=state.params_fit['ebv'] if 'ebv' in state.params_fit else None,
                                                   pp_spec=state.pp_spec)
-        
-        # TODO: flags for error and covariance
-        # TODO: factor out everything as a function below this
-
-        if calculate_error:
-            state.rv_err, state.params_err = self.ml_calculate_error(spectra, fluxes, state)
-        else:
-            # TODO: add flag that marks if error is not calculated
-            state.rv_err = np.nan
-            state.params_err = {}
-            for i, p in enumerate(state.params_free):
-                state.params_err[p] = np.nan
-            for i, p in enumerate(state.params_fixed):
-                state.params_err[p] = np.nan
-
-        if calculate_cov:
-            # TODO: pass in state
-            state.C = self.ml_calculate_cov(spectra, fluxes, state)
-        else:
-            state.C = None
+        state.a_err = np.full_like(state.a_fit, np.nan)
 
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit parameters for each exposure
@@ -1263,15 +1257,11 @@ class ModelGridTempFit(TempFit):
             self.trace.on_fit_rv_finish(ss, tt,
                                         state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, state.rv_fixed,
                                         state.params_0, state.params_fit, state.params_err, state.params_bounds, state.params_priors, state.params_steps, state.params_free,
-                                        state.C,
+                                        state.cov, state.cov_params,
                                         state.log_L_0, log_L_fun(state.rv_fit), log_L_fun)
 
-        return ModelGridTempFitResults(rv_fit=state.rv_fit, rv_err=state.rv_err, rv_flags=state.rv_flags,
-                                       params_free=state.params_free, params_fit=state.params_fit, params_err=state.params_err, params_flags=state.params_flags,
-                                       a_fit=state.a_fit, a_err=np.full_like(state.a_fit, np.nan),
-                                       cov=state.C,
-                                       flags=state.flags)
-    
+        return ModelGridTempFitResults.from_state(state), state
+
     def optimize_nelder_mead(self, x_0, steps, bounds,
                              llh,
                              method,
@@ -1323,18 +1313,16 @@ class ModelGridTempFit(TempFit):
         else:
             raise Exception(f"Could not fit RV using `{method}`, reason: {out.message}")
 
-    def ml_calculate_error(self, spectra, fluxes, state):
-        
+    def calculate_error_ml(self, spectra, fluxes, state):
         """
         Given the best fit parameters, calculate the errors of the RV and
         template parameters using the Fisher matrix.
         """
         
         if state.rv_fixed:
-            rv_err = np.nan
+            state.rv_err = np.nan
         else:
             # Error of RV only!
-            # TODO: pass in state
             F, C = self.calculate_F(
                 spectra, fluxes, 
                 state.rv_fit, state.params_fit,
@@ -1345,11 +1333,19 @@ class ModelGridTempFit(TempFit):
                 pp_spec=state.pp_spec)
             
             with np.errstate(invalid='warn'):
-                rv_err = np.sqrt(C).item()
+                state.rv_err = np.sqrt(C).item()
 
         # Error of the parameters one by one
-        params_err = {}
+        state.params_err = {}
         for i, p in enumerate(state.params_free):
+
+            # In case the parameter is on the edge of the parameter range (or the grid)
+            # we skip the error calculation
+            if (state.params_flags[p] & TempFitFlag.PARAMEDGE) != 0:
+                state.params_err[p] = np.nan
+                logger.warning(f"Skipping error calculation for parameter {p} at the edge of the bounds.")
+                continue
+
             pp = { p: state.params_fit[p] }
             pf = { s: state.params_fit[s] for j, s in enumerate(state.params_free) if j != i }
             pf.update({ s: state.params_fixed[s] for j, s in enumerate(state.params_fixed) })
@@ -1366,49 +1362,87 @@ class ModelGridTempFit(TempFit):
 
             # If the Hessian is singular or negative, we cannot determine the error
             if C is None or C.item() is np.nan or C.item() <= 0:
-                params_err[p] = np.nan
+                state.params_err[p] = np.nan
                 logger.warning(f"Could not calculate the error for parameter {p}, possibly singular Hessian.")
             else:
-                params_err[p] = np.sqrt(C).item()
-                logger.info(f"Uncorrelated error for the parameter {p} around {state.params_fit[p]} is {params_err[p]}")
+                state.params_err[p] = np.sqrt(C).item()
+                logger.info(f"Uncorrelated error for the parameter {p} around {state.params_fit[p]} is {state.params_err[p]}")
                 
         # Fixed parameters have zero error
         for i, p in enumerate(state.params_fixed):
-            params_err[p] =  0.0
+            state.params_err[p] =  0.0
 
-        return rv_err, params_err
+        return ModelGridTempFitResults.from_state(state), state
 
-    def ml_calculate_cov(self, spectra, fluxes, state):
+    def calculate_cov_ml(self, spectra, fluxes, state):
         """
         Given the best fit parameters, calculate the covariance matrix of the RV and
         template parameters using the Fisher matrix.
         """
         
         # Calculate the correlated errors from the Fisher matrix
-        F, C = self.calculate_F(
+        # Collect the parameters that aren't on the edge or have very unlikely priors
+        # as it they would make the Hessian singular or Nan
+
+        # Index of the parameter within the covariance matrix
+        state.cov_params = []
+
+        # Only include the other parameters if they are not fixed and not on the edge
+        params_0 = {}
+        params_fixed = { p: state.params_fixed[p] for p in state.params_fixed }
+        for i, p in enumerate(state.params_free):
+            if (state.params_flags[p] & (TempFitFlag.PARAMEDGE | TempFitFlag.UNLIKELYPRIOR)) != 0:
+                params_fixed[p] = state.params_fit[p]
+                logger.info(f"Excluding parameter {p} from the covariance matrix because it's at the edge of the bounds or with very unlikely prior.")
+            else:
+                params_0[p] = state.params_fit[p]
+                state.cov_params.append(p)
+
+        # Only include rv if it's not fixed and not on the edge or very unlikely
+        if state.rv_fixed:
+            rv_fixed = True
+            rv_0 = state.rv_0
+            mode = 'params'
+        elif (state.rv_flags & (TempFitFlag.PARAMEDGE | TempFitFlag.UNLIKELYPRIOR)) != 0:
+            rv_fixed = True
+            rv_0 = state.rv_fit
+            mode = 'params'
+        else:
+            rv_fixed = False
+            rv_0 = state.rv_fit
+            mode = 'params_rv'
+            state.cov_params.append('v_los')
+
+        keys = list(params_0.keys())
+        if not rv_fixed:
+            keys = keys + ['RV']
+
+        logger.info(f"Calculating the covariance matrix for parameters {keys} with mode `{mode}`.")
+
+        state.F, state.cov = self.calculate_F(
             spectra, fluxes,
-            rv_0=state.rv_fit, rv_bounds=None, rv_prior=None, rv_fixed=state.rv_fixed,
-            params_0=state.params_fit, params_fixed=state.params_fixed,
+            rv_0=rv_0, rv_bounds=state.rv_bounds, rv_prior=state.rv_prior, rv_fixed=rv_fixed,
+            params_0=params_0, params_fixed=params_fixed,
             params_bounds=state.params_bounds, params_priors=state.params_priors,
             step=1e-3,
-            mode='params_rv', method='hessian',
+            mode=mode, method='hessian',
             pp_spec=state.pp_spec)
 
         # Check if the covariance matrix is positive definite
-        if C is None or np.any(np.isnan(C)):
-            C = np.full_like(F, np.nan)
-            logger.warning(f"Could not calculate the covariance of the parameters {list(state.params_fit.keys())}, possibly singular Hessian.")
+        if state.cov is None or np.any(np.isnan(state.cov)):
+            state.cov = np.full_like(state.F, np.nan)
+            logger.warning(f"Could not calculate the covariance of the parameters {keys}, possibly singular Hessian.")
         else:
             with np.errstate(all='raise'):
                 try:
-                    np.linalg.cholesky(C)
+                    np.linalg.cholesky(state.cov)
                 except LinAlgError as ex:
                     # Matrix is not positive definite
-                    C = np.full_like(F, np.nan)
-                    logger.warning(f"Covariance matrix for parameters {list(state.params_fit.keys())} is not positive definite.")
-                
-        return C
-    
+                    state.cov = np.full_like(state.F, np.nan)
+                    logger.warning(f"Covariance matrix for parameters {keys} is not positive definite.")
+
+        return ModelGridTempFitResults.from_state(state), state
+
     def randomize_init_params(
         self,
         spectra, fluxes,

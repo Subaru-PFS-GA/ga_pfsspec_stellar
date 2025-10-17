@@ -4,7 +4,7 @@ class TempFitResults():
                  a_fit=None, a_err=None, a_mcmc=None,
                  log_L_fit=None, log_L_mcmc=None,
                  accept_rate=None,
-                 cov=None,
+                 cov=None, cov_params=None,
                  flags=None,
                  orig=None):
         
@@ -20,6 +20,7 @@ class TempFitResults():
             self.log_L_mcmc = log_L_mcmc                # log likelihood at MC samples
             self.accept_rate = accept_rate              # MC acceptance rate
             self.cov = cov                              # Covariance matrix
+            self.cov_params = cov_params          # Indexes of parameters in the covariance matrix
             self.flags = flags                          # Flags for the fit
         else:
             self.rv_fit = rv_fit if rv_fit is not None else orig.rv_fit
@@ -33,4 +34,14 @@ class TempFitResults():
             self.log_L_mcmc = log_L_mcmc if log_L_mcmc is not None else orig.log_L_mcmc
             self.accept_rate = accept_rate if accept_rate is not None else orig.accept_rate
             self.cov = cov if cov is not None else orig.cov
+            self.cov_params = cov_params if cov_params is not None else orig.cov_params
             self.flags = flags if flags is not None else orig.flags
+
+    @staticmethod
+    def from_state(state):
+        return TempFitResults(
+            rv_fit=state.rv_fit, rv_err=state.rv_err, rv_flags=state.rv_flags,
+            a_fit=state.a_fit, a_err=state.a_err,
+            log_L_fit=state.log_L_fit,
+            cov=state.cov, cov_params=state.cov_params,
+            flags=state.flags)

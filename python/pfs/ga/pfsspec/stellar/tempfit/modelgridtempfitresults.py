@@ -20,3 +20,12 @@ class ModelGridTempFitResults(TempFitResults):
             self.params_err = params_err if params_err is not None else orig.params_err
             self.params_mcmc = params_mcmc if params_mcmc is not None else orig.params_mcmc
             self.params_flags = params_flags if params_flags is not None else orig.params_flags
+
+    @staticmethod
+    def from_state(state):
+        return ModelGridTempFitResults(
+            rv_fit=state.rv_fit, rv_err=state.rv_err, rv_flags=state.rv_flags,
+            params_free=state.params_free, params_fit=state.params_fit, params_err=state.params_err, params_flags=state.params_flags,
+            a_fit=state.a_fit, a_err=state.a_err,
+            cov=state.cov, cov_params=state.cov_params,
+            flags=state.flags)
