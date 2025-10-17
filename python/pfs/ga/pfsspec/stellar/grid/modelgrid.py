@@ -585,17 +585,24 @@ class ModelGrid(PfsObject):
         if s is None:
             s = self.get_wave_slice() or slice(None)
 
-        # Wave edge vectors are one item longer than the wave vector
-        if isinstance(s, slice):
-            se = slice(s.start, s.stop + 1 if s.stop is not None else None, s.step)
-        elif s is not None:
-            logger.warning("Cannot apply slicing to wavelength edges.")
-            se = None
-
         wave, wave_edges = self.get_wave_vectors()
             
         wave = wave[s]
-        wave_edges = wave_edges[se] if se is not None and wave_edges is not None else None
+
+        if wave_edges is not None and s is not None:
+            # Wave edge vectors are one item longer than the wave vector
+            if isinstance(s, slice):
+                if wave_edges.ndim == 1:
+                    se = slice(s.start, s.stop + 1 if s.stop is not None else None, s.step)
+                elif wave_edges.ndim == 2:
+                    se = (slice(None), s)
+                else:
+                    raise NotImplementedError()
+            elif s is not None:
+                logger.warning("Cannot apply slicing to wavelength edges.")
+                se = None
+
+            wave_edges = wave_edges[se]
         
         return wave, wave_edges, None
 
