@@ -679,7 +679,7 @@ class ModelGridTempFit(TempFit):
                     param_fixed=False,
                     param_fit=state.params_fit[p],
                     param_prior=state.params_priors[p] if state.params_priors is not None and p in state.params_priors else None,
-                    param_flags=state.params_flags[p],
+                    param_flags=state.params_flags[p] if state.params_flags is not None and p in state.params_flags else TempFitFlag.OK,
                     flags=state.flags,
                     lp_limit=lp_limit)
 
