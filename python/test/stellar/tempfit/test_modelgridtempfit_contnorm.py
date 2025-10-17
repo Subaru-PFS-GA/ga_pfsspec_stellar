@@ -268,11 +268,15 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
 
         ax.axvline(rv_real, color='r', label='rv real')
 
-        res = tempfit.fit_rv(specs,
-                             rv_0=rv_real + 10,
-                             rv_bounds=(rv_real - 100, rv_real + 100),
-                             rv_fixed=rv_fixed,
-                             params_0=params_0)
+        res, state = tempfit.fit_rv(specs,
+                                    rv_0=rv_real + 10,
+                                    rv_bounds=(rv_real - 100, rv_real + 100),
+                                    rv_fixed=rv_fixed,
+                                    params_0=params_0)
+        
+        res, state = tempfit.calculate_error_ml(specs, None, state)
+        res, state = tempfit.calculate_cov_ml(specs, None, state)
+        res, state = tempfit.finish_ml(specs, None, state)
                 
         ax.axvline(res.rv_fit, color='b', label='rv fit')
         ax.axvline(res.rv_fit - res.rv_err, color='b')
@@ -393,7 +397,10 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
 
             tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
             
-            res = tempfit.fit_rv(specs, rv_0=rv_real)
+            res, state = tempfit.fit_rv(specs, rv_0=rv_real)
+            res, state = tempfit.calculate_error_ml(specs, None, state)
+            res, state = tempfit.calculate_cov_ml(specs, None, state)
+            res, state = tempfit.finish_ml(specs, None, state)
             
             F = {}
             C = {}
@@ -413,7 +420,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
                     # 'emcee',
                     # 'sampling',
                 ]):
-                FF, CC = tempfit.calculate_F(specs, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
+                FF, CC = tempfit.calculate_F(specs, None, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])

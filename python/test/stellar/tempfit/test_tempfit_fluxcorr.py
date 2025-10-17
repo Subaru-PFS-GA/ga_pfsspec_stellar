@@ -280,7 +280,9 @@ class TestTempFitFluxCorr(TempFitTestBase):
                 multiple_exp=multiple_exp,
                 use_priors=use_priors
             )
-        res = tempfit.fit_rv(specs, temps)
+        res, state = tempfit.run_ml(specs, temps)
+        res, state = tempfit.calculate_error_ml(specs, temps, state)
+        res, state = tempfit.calculate_cov_ml(specs, temps, state)
 
         ax.axvline(rv_real, color='r', label='rv real')
         ax.axvline(res.rv_fit, color='b', label='rv fit')
@@ -333,7 +335,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
 
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
-        res = tempfit.fit_rv(specs, temps)
+        res, state = tempfit.fit_rv(specs, temps)
 
         ax.axvline(rv_real, color='r', label='rv real')
         ax.axvline(res.rv_fit, color='b', label='rv fit')
@@ -371,7 +373,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
         # Only fit the continuum correction
-        res = tempfit.fit_rv(specs, temps, rv_fixed=True)
+        res, state = tempfit.fit_rv(specs, temps, rv_fixed=True)
 
         ax.axvline(rv_real, color='r', label='rv real')
         ax.axvline(res.rv_fit, color='b', label='rv fit')
@@ -439,7 +441,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
             tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
                 self.get_initialized_tempfit(**config)
             
-            res = tempfit.fit_rv(specs, temps)
+            res, state = tempfit.fit_rv(specs, temps)
             F = {}
             C = {}
             err = {}

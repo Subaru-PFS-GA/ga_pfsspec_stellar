@@ -147,7 +147,7 @@ class TestSpectrum(StellarTestBase):
         spec = self.get_test_spectrum()
         filter = self.get_hsc_filter('r')
 
-        flux = spec.synthflux(filter)
+        flux, flux_err = spec.synth_flux(filter)
 
         #self.assertEqual(161746063.0325128, flux)
         self.assertEqual(5.0050577532662006e+19, flux)
@@ -156,7 +156,7 @@ class TestSpectrum(StellarTestBase):
         spec = self.get_test_spectrum()
         filter = self.get_hsc_filter('r')
 
-        flux = spec.synthmag(filter)
+        flux = spec.synth_mag(filter)
 
         #self.assertEqual(-11.622084296395686, flux)
         self.assertEqual(-40.34852273290004, flux)

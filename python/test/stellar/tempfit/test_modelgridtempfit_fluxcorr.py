@@ -225,7 +225,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
 
         self.save_fig(f)
 
-    def rvfit_fit_rv_test_helper(self,
+    def tempfit_run_ml_test_helper(self,
                                  ax,
                                  flux_correction, normalize, convolve_template,
                                  multiple_arms, multiple_exp,
@@ -243,11 +243,15 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
 
         ax.axvline(rv_real, color='r', label='rv real')
 
-        res = rvfit.fit_rv(specs,
+        res, state = rvfit.run_ml(specs,
                            rv_0=rv_real + 10,
                            rv_bounds=(rv_real - 100, rv_real + 100),
                            rv_fixed=rv_fixed,
                            params_0=params_0)
+
+        res, state = rvfit.calculate_error_ml(specs, None, state=state)
+        res, state = rvfit.calculate_cov_ml(specs, None, state=state)
+        res, state = rvfit.finish_ml(specs, None, state=state)
                 
         ax.axvline(res.rv_fit, color='b', label='rv fit')
         ax.axvline(res.rv_fit - res.rv_err, color='b')
@@ -273,7 +277,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            self.rvfit_fit_rv_test_helper(ax, **config)
+            self.tempfit_run_ml_test_helper(ax, **config)
 
         self.save_fig(f)
 
@@ -287,7 +291,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            self.rvfit_fit_rv_test_helper(ax, rv_fixed=True, **config)
+            self.tempfit_run_ml_test_helper(ax, rv_fixed=True, **config)
 
         self.save_fig(f)
 
@@ -346,7 +350,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
                 self.get_initialized_tempfit(**config)
             
-            res = rvfit.fit_rv(specs, rv_0=rv_real)
+            res, state = rvfit.run_ml(specs, rv_0=rv_real)
             
             F = {}
             C = {}
@@ -366,7 +370,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                     # 'emcee',
                     # 'sampling',
                 ]):
-                FF, CC = rvfit.calculate_F(specs, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
+                FF, CC = rvfit.calculate_F(specs, None, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])

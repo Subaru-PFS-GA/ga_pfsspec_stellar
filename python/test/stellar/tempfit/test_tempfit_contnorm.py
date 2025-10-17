@@ -236,7 +236,10 @@ class TestTempFitContNorm(TempFitTestBase):
 
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
 
-        res = tempfit.fit_rv(specs, temps)
+        res, state = tempfit.run_ml(specs, temps)
+        res, state = tempfit.calculate_error_ml(specs, temps, state)
+        res, state = tempfit.calculate_cov_ml(specs, temps, state)
+        res, state = tempfit.finish_ml(specs, temps, state)
 
         ax.axvline(rv_real, color='r', label='rv real')
         ax.axvline(res.rv_fit, color='b', label='rv fit')
@@ -289,7 +292,10 @@ class TestTempFitContNorm(TempFitTestBase):
 
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
-        res = tempfit.fit_rv(specs, temps)
+        res, state = tempfit.run_ml(specs, temps)
+        res, state = tempfit.calculate_error_ml(specs, temps, state)
+        res, state = tempfit.calculate_cov_ml(specs, temps, state)
+        res, state = tempfit.finish_ml(specs, temps, state)
 
         ax.axvline(rv_real, color='r', label='rv real')
         ax.axvline(res.rv_fit, color='b', label='rv fit')
@@ -329,7 +335,10 @@ class TestTempFitContNorm(TempFitTestBase):
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
         # Only fit the continuum correction
-        res = tempfit.fit_rv(specs, temps, rv_fixed=True)
+        res, state = tempfit.run_ml(specs, temps, rv_fixed=True)
+        res, state = tempfit.calculate_error_ml(specs, temps, state)
+        res, state = tempfit.calculate_cov_ml(specs, temps, state)
+        res, state = tempfit.finish_ml(specs, temps, state)
 
         ax.axvline(rv_real, color='r', label='rv real')
         ax.axvline(res.rv_fit, color='b', label='rv fit')
@@ -411,7 +420,8 @@ class TestTempFitContNorm(TempFitTestBase):
 
             tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
-            res = tempfit.fit_rv(specs, temps)
+            res, state = tempfit.fit_rv(specs, temps)
+
             F = {}
             C = {}
             err = {}
