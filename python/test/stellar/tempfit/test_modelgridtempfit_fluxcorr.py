@@ -249,9 +249,9 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                            rv_fixed=rv_fixed,
                            params_0=params_0)
 
-        res, state = rvfit.calculate_error_ml(specs, None, state=state)
-        res, state = rvfit.calculate_cov_ml(specs, None, state=state)
-        res, state = rvfit.finish_ml(specs, None, state=state)
+        res, state = rvfit.calculate_error_ml(state)
+        res, state = rvfit.calculate_cov_ml(state)
+        res, state = rvfit.finish_ml(state)
                 
         ax.axvline(res.rv_fit, color='b', label='rv fit')
         ax.axvline(res.rv_fit - res.rv_err, color='b')

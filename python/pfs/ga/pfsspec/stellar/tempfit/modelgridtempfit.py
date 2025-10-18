@@ -979,7 +979,10 @@ class ModelGridTempFit(TempFit):
             State object that contains all the information needed to run the fitting
         """
 
-        state = SimpleNamespace()
+        state = SimpleNamespace(
+            spectra=spectra,
+            fluxes=fluxes
+        )
 
         state.rv_0 = rv_0 if rv_0 is not None else self.rv_0
         state.rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
@@ -1076,8 +1079,29 @@ class ModelGridTempFit(TempFit):
         return state
 
     @deprecated("Use `run_ml` instead.")
-    def fit_rv(self, spectra, **kwargs):
-        return self.run_ml(spectra, **kwargs)
+    def fit_rv(self, spectra, /,
+               fluxes=None,
+               rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
+               params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
+               method="Nelder-Mead", max_iter=None,
+               calculate_error=True,
+               calculate_cov=True):
+        
+        res, state = self.run_ml(
+            spectra, fluxes=fluxes,
+            rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
+            params_0=params_0, params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed,
+            method=method, max_iter=max_iter)
+
+        if calculate_error:
+            res, state = self.calculate_error_ml(state)
+
+        if calculate_cov:
+            res, state = self.calculate_cov_ml(state)
+
+        res, state = self.finish_ml(state)
+
+        return res
 
     def run_ml(self, spectra, /,
                fluxes=None,
@@ -1228,10 +1252,10 @@ class ModelGridTempFit(TempFit):
 
         return ModelGridTempFitResults.from_state(state), state
         
-    def finish_ml(self, spectra, fluxes, state):
+    def finish_ml(self, state):
         # Calculate the flux correction or continuum fit coefficients at best fit values
-        templates, missing = self.get_templates(spectra, state.params_fit)
-        state.a_fit, _, _ = self.calculate_coeffs(spectra, templates,
+        templates, missing = self.get_templates(state.spectra, state.params_fit)
+        state.a_fit, _, _ = self.calculate_coeffs(state.spectra, templates,
                                                   state.rv_fit,
                                                   ebv=state.params_fit['ebv'] if 'ebv' in state.params_fit else None,
                                                   pp_spec=state.pp_spec)
@@ -1239,7 +1263,7 @@ class ModelGridTempFit(TempFit):
 
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit parameters for each exposure
-            ss, tt = self.append_corrections_and_templates(spectra, templates,
+            ss, tt = self.append_corrections_and_templates(state.spectra, templates,
                                                            state.rv_fit,
                                                            params_fit=state.params_fit,
                                                            a_fit=state.a_fit,
@@ -1249,7 +1273,7 @@ class ModelGridTempFit(TempFit):
             # Wrap log_L_fun to expect a single parameter only and use the best fit model parameters
             # This is for plptting purposes only
             def log_L_fun(rv):
-                return self.calculate_log_L(spectra, templates, fluxes=fluxes,
+                return self.calculate_log_L(state.spectra, templates, fluxes=state.fluxes,
                                             rv=rv, rv_prior=state.rv_prior, params=state.params_fit,
                                             params_priors=state.params_priors,
                                             pp_spec=state.pp_spec)
@@ -1313,7 +1337,7 @@ class ModelGridTempFit(TempFit):
         else:
             raise Exception(f"Could not fit RV using `{method}`, reason: {out.message}")
 
-    def calculate_error_ml(self, spectra, fluxes, state):
+    def calculate_error_ml(self, state):
         """
         Given the best fit parameters, calculate the errors of the RV and
         template parameters using the Fisher matrix.
@@ -1324,7 +1348,7 @@ class ModelGridTempFit(TempFit):
         else:
             # Error of RV only!
             F, C = self.calculate_F(
-                spectra, fluxes, 
+                state.spectra, state.fluxes, 
                 state.rv_fit, state.params_fit,
                 rv_bounds=state.rv_bounds, rv_prior=state.rv_prior, rv_fixed=state.rv_fixed,
                 params_fixed=state.params_fixed,
@@ -1352,7 +1376,7 @@ class ModelGridTempFit(TempFit):
 
             # TODO: pass in state
             F, C = self.calculate_F(
-                spectra, fluxes,
+                state.spectra, state.fluxes,
                 state.rv_fit, pp,
                 rv_bounds=state.rv_bounds, rv_prior=state.rv_prior, rv_fixed=state.rv_fixed,
                 params_bounds=state.params_bounds, params_priors=state.params_priors, params_fixed=pf,
@@ -1374,7 +1398,7 @@ class ModelGridTempFit(TempFit):
 
         return ModelGridTempFitResults.from_state(state), state
 
-    def calculate_cov_ml(self, spectra, fluxes, state):
+    def calculate_cov_ml(self, state):
         """
         Given the best fit parameters, calculate the covariance matrix of the RV and
         template parameters using the Fisher matrix.
@@ -1420,7 +1444,7 @@ class ModelGridTempFit(TempFit):
         logger.info(f"Calculating the covariance matrix for parameters {keys} with mode `{mode}`.")
 
         state.F, state.cov = self.calculate_F(
-            spectra, fluxes,
+            state.spectra, state.fluxes,
             rv_0=rv_0, rv_bounds=state.rv_bounds, rv_prior=state.rv_prior, rv_fixed=rv_fixed,
             params_0=params_0, params_fixed=params_fixed,
             params_bounds=state.params_bounds, params_priors=state.params_priors,

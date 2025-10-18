@@ -268,15 +268,15 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
 
         ax.axvline(rv_real, color='r', label='rv real')
 
-        res, state = tempfit.fit_rv(specs,
+        res, state = tempfit.run_ml(specs,
                                     rv_0=rv_real + 10,
                                     rv_bounds=(rv_real - 100, rv_real + 100),
                                     rv_fixed=rv_fixed,
                                     params_0=params_0)
         
-        res, state = tempfit.calculate_error_ml(specs, None, state)
-        res, state = tempfit.calculate_cov_ml(specs, None, state)
-        res, state = tempfit.finish_ml(specs, None, state)
+        res, state = tempfit.calculate_error_ml(state)
+        res, state = tempfit.calculate_cov_ml(state)
+        res, state = tempfit.finish_ml(state)
                 
         ax.axvline(res.rv_fit, color='b', label='rv fit')
         ax.axvline(res.rv_fit - res.rv_err, color='b')
@@ -397,10 +397,10 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
 
             tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
             
-            res, state = tempfit.fit_rv(specs, rv_0=rv_real)
-            res, state = tempfit.calculate_error_ml(specs, None, state)
-            res, state = tempfit.calculate_cov_ml(specs, None, state)
-            res, state = tempfit.finish_ml(specs, None, state)
+            res, state = tempfit.run_ml(specs, rv_0=rv_real)
+            res, state = tempfit.calculate_error_ml(state)
+            res, state = tempfit.calculate_cov_ml(state)
+            res, state = tempfit.finish_ml(state)
             
             F = {}
             C = {}

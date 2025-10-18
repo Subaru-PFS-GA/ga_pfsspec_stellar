@@ -2037,7 +2037,7 @@ class TempFit():
 
         return rv, log_L, rv_guess, log_L_guess
     
-    def prepare_fit(self, spectra, templates, /,
+    def prepare_fit(self, spectra, templates, /, fluxes=None,
                     rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                     pp_spec=None):
         """
@@ -2068,7 +2068,11 @@ class TempFit():
             Tuple of parameters to be used in the optimization
         """
 
-        state = SimpleNamespace()
+        state = SimpleNamespace(
+            spectra=spectra,
+            templates=templates,
+            fluxes=fluxes
+        )
         
         state.rv_0 = rv_0 if rv_0 is not None else self.rv_0
         state.rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
@@ -2129,8 +2133,34 @@ class TempFit():
         return state
 
     @deprecated("Use `run_ml` instead.")
-    def fit_rv(self, spectra, templates, **kwargs):
-        return self.run_ml(spectra, templates, **kwargs)
+    def fit_rv(self, spectra, templates,
+               fluxes=None,
+               rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
+               method='bounded', max_iter=None,
+               calculate_error=True,
+               calculate_cov=True):
+
+        """
+        Given a set of spectra and templates, find the best fit RV by maximizing the log likelihood.
+
+        This function is kept for backward compatibility. Use `run_ml` instead.
+        """
+        
+        res, state = self.run_ml(
+            spectra, templates,
+            fluxes=fluxes,
+            rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
+            method=method, max_iter=max_iter)
+
+        if calculate_error:
+            res, state = self.calculate_error_ml(state)
+
+        if calculate_cov:
+            res, state = self.calculate_cov_ml(state)
+
+        res, state = self.finish_ml(state)
+
+        return res
 
     def run_ml(self, spectra, templates,
                fluxes=None,
@@ -2181,6 +2211,7 @@ class TempFit():
 
         state = self.prepare_fit(
                 spectra, templates,
+                fluxes=fluxes,
                 rv_0=rv_0,
                 rv_fixed=rv_fixed,
                 rv_bounds=rv_bounds,
@@ -2221,18 +2252,18 @@ class TempFit():
 
         return results
 
-    def finish_ml(self, spectra, templates, state, fluxes=None):
+    def finish_ml(self, state):
         
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit RV.
-            ss, tt = self.append_corrections_and_templates(spectra, templates,
+            ss, tt = self.append_corrections_and_templates(state.spectra, state.templates,
                                                            state.rv_fit, a_fit=state.a_fit,
                                                            match='spectrum',
                                                            apply_correction=False)
 
             # Pass the log likelihood function to the trace
             def log_L_fun(rv):
-                return self.calculate_log_L(spectra, templates, rv, rv_prior=state.rv_prior)
+                return self.calculate_log_L(state.spectra, state.templates, rv, rv_prior=state.rv_prior)
 
             self.trace.on_fit_rv_finish(ss, tt, 
                                         state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, False,
@@ -2241,13 +2272,14 @@ class TempFit():
         return TempFitResults.from_state(state), state
 
 
-    def calculate_error_ml(self, spectra, templates, state, fluxes=None):
+    def calculate_error_ml(self, state):
         if not state.rv_fixed:
             # Calculate the error only when the RV is not fixed
             state.cov_params = [0]   # RV is the only parameter
-            _, state.cov = self.calculate_F(spectra, templates,
-                                    state.rv_fit, rv_bounds=state.rv_bounds, rv_prior=state.rv_prior,
-                                    mode='rv', method='hessian')
+            _, state.cov = self.calculate_F(
+                state.spectra, state.templates,
+                state.rv_fit, rv_bounds=state.rv_bounds, rv_prior=state.rv_prior,
+                mode='rv', method='hessian')
             state.cov_params = ['v_los']
 
             with np.errstate(invalid='warn'):
@@ -2255,7 +2287,7 @@ class TempFit():
 
         return TempFitResults.from_state(state), state
 
-    def calculate_cov_ml(self, spectra, templates, state, fluxes=None):
+    def calculate_cov_ml(self, state):
         return TempFitResults.from_state(state), state
 
     def _fit_rv_fixed(self, spectra, templates, state):
@@ -2572,6 +2604,7 @@ class TempFit():
         return rv, rv_err
 
     def run_mcmc(self, spectra, templates, *,
+                 fluxes=None,
                  rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                  cov=None,
                  walkers=None, burnin=None, samples=None, thin=None, gamma=None):
@@ -2625,6 +2658,7 @@ class TempFit():
 
         state = self.prepare_fit(
                 spectra, templates,
+                fluxes=fluxes,
                 rv_0=rv_0, rv_bounds=rv_bounds,
                 rv_prior=rv_prior, rv_step=rv_step,
                 rv_fixed=rv_fixed)
