@@ -91,14 +91,18 @@ class ExtinctionModel():
 
         for arm in spectra:
             for i in range(len(spectra[arm])):
-                ext_curve[arm].append(self.__eval(spectra[arm][i].wave, 1.0))
+                if spectra[arm][i] is not None:
+                    ext_curve[arm].append(self.__eval(spectra[arm][i].wave, 1.0))
+                else:
+                    ext_curve[arm].append(None)
 
         return ext_curve
     
     def apply_extinction(self, templates, ebv):
         for arm in templates:
             for i in range(len(templates[arm])):
-                templates[arm][i].apply_extinction(self.curves[arm][i], ebv)
+                if templates[arm][i] is not None:
+                    templates[arm][i].apply_extinction(self.curves[arm][i], ebv)
 
     def eval_extinction_single(self, spectrum):
         """
