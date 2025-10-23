@@ -83,17 +83,17 @@ class TempFitTrace(Trace, SpectrumTrace):
                              title='Prior on RV - {id}')
             self.flush_figures()
 
-    def on_guess_rv(self, rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov):
+    def on_guess_rv(self, rv, log_L, rv_guess, log_L_guess, log_L_curve, function, pp, pcov):
         # Called when the RV guess is made
 
         # Save results for later plotting
-        self.guess_rv_results = (rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov)
+        self.guess_rv_results = (rv, log_L, rv_guess, log_L_guess, log_L_curve, function, pp, pcov)
 
         if self.plot_rv_guess is None and self.plot_level >= Trace.PLOT_LEVEL_DEBUG \
             or self.plot_rv_guess:
 
             self._plot_rv_fit('pfsGA-tempfit-rv-guess-{id}',
-                              rv=rv, log_L=log_L, log_L_fit=log_L_fit,
+                              rv=rv, log_L=log_L, log_L_curve=log_L_curve,
                               rv_guess=rv_guess,
                               title='RV guess - {id}')
     
@@ -110,9 +110,9 @@ class TempFitTrace(Trace, SpectrumTrace):
 
         # Plot RV guess and fit
         if self.guess_rv_results is not None:
-            rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov = self.guess_rv_results
+            rv, log_L, rv_guess, log_L_guess, log_L_curve, function, pp, pcov = self.guess_rv_results
         else:
-            rv, log_L, rv_guess, log_L_guess, log_L_fit, function, pp, pcov = None, None, None, None, None, None, None, None
+            rv, log_L, rv_guess, log_L_guess, log_L_curve, function, pp, pcov = None, None, None, None, None, None, None, None
 
         if self.plot_rv_fit is None and self.plot_level >= Trace.PLOT_LEVEL_INFO \
             or self.plot_rv_fit:
@@ -120,7 +120,7 @@ class TempFitTrace(Trace, SpectrumTrace):
             # Plot the QA plot of the rv fit that shows log L vs RV
             self._plot_rv_fit(
                 'pfsGA-tempfit-rv-fit-{id}',
-                rv=rv, log_L=log_L, log_L_fit=log_L_fit,
+                rv=rv, log_L=log_L, log_L_curve=log_L_curve,
                 rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
                 rv_guess=rv_guess, rv_fit=rv_fit, rv_err=rv_err,
                 title='TempFit results - {id}')
@@ -133,7 +133,7 @@ class TempFitTrace(Trace, SpectrumTrace):
 
                 self._plot_rv_fit(
                     'pfsGA-tempfit-rv-fit-zoom-{id}',
-                    rv=rv, log_L=log_L, log_L_fit=log_L_fit,
+                    rv=rv, log_L=log_L,
                     rv_guess=rv_guess, rv_0=rv_0,
                     rv_fit=rv_fit, rv_err=rv_err,
                     title='TempFit results zoom-in - {id}')
@@ -285,7 +285,7 @@ class TempFitTrace(Trace, SpectrumTrace):
         p.plot_prior(param_prior, param_bounds, param_0, param_step)
 
     def _plot_rv_fit(self, key, /,
-                     rv=None, log_L=None, log_L_fit=None,
+                     rv=None, log_L=None, log_L_curve=None,
                      rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
                      rv_fit=None, rv_err=None,  
                      rv_guess=None,
@@ -302,6 +302,8 @@ class TempFitTrace(Trace, SpectrumTrace):
             RV values where log L is calculated
         log_L : array-like
             Log likelihood values at RV
+        log_L_curve : array-like
+            When the best log L is found via curve fitting, this is the fitted curve
         rv_0 : float
             Initial value of RV
         rv_bounds : array-like
@@ -332,8 +334,8 @@ class TempFitTrace(Trace, SpectrumTrace):
             b = np.min(log_L[m])
             ax.plot(rv, (log_L - b) / (a - b), '.')
 
-            if log_L_fit is not None:
-                ax.plot(rv, (log_L_fit - b) / (a - b), **styles.solid_line())
+            if log_L_curve is not None:
+                ax.plot(rv, (log_L_curve - b) / (a - b), **styles.solid_line())
 
         if rv_guess is not None:
             ax.axvline(rv_guess, **styles.blue_line(**styles.solid_line()))

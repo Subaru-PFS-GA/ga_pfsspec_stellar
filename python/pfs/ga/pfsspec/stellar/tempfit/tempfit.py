@@ -2159,37 +2159,50 @@ class TempFit():
             pp, pcov = self.fit_lorentz(rv[mask], log_L[mask])
             rv_guess = pp[1]
             log_L_guess = self.lorentz(rv_guess, *pp)
-
-            # The maximum of the Lorentz curve might be outside the bounds
-            outside = False
-            if state.rv_bounds is not None and state.rv_bounds[0] is not None:
-                rv_guess = max(rv_guess, state.rv_bounds[0])
-                outside = True
-            if state.rv_bounds is not None and state.rv_bounds[1] is not None:
-                rv_guess = min(rv_guess, state.rv_bounds[1])
-                outside = True
-
-            if outside:
-                logger.warning(f"RV guess from method `{method}` is {rv_guess:0.3f} km/s, "
-                               f"which is outside the search bounds {state.rv_bounds}.")
-                
-            if self.trace is not None:
-                self.trace.on_guess_rv(rv, log_L, rv_guess, log_L_guess, self.lorentz(rv, *pp), 'lorentz', pp, pcov)
+            log_L_curve = self.lorentz(rv, *pp)
         elif method == 'max':
+            pp, pcov = None, None
             imax = np.argmax(log_L)
             rv_guess = rv[imax]
             log_L_guess = log_L[imax]
-
-            if imax == 0 or imax == log_L.size - 1:
-                logger.warning(f"RV guess form method `{method}` is {rv_guess:0.3f} km/s, "
-                               f"which is at the edge of the search bounds {state.rv_bounds}.")
-          
-            if self.trace is not None:
-                self.trace.on_guess_rv(rv, log_L, rv_guess, log_L_guess, None, 'max', None, None)
+            log_L_curve = None
         else:
             raise NotImplementedError()
-        
-        logger.info(f"Initial guess for RV using the method `{method}` is {rv_guess:0.3f} km/s.")
+
+        # Check if the guess is within the bounds
+        outside = False
+        edge = False
+
+        if state.rv_bounds is not None and state.rv_bounds[0] is not None:
+            if np.abs(rv_guess - state.rv_bounds[0]) < 1e-5:
+                edge = True
+            elif rv_guess < state.rv_bounds[0]:
+                outside = True
+
+        if state.rv_bounds is not None and state.rv_bounds[1] is not None:
+            if np.abs(state.rv_bounds[1] - rv_guess) < 1e-5:
+                edge = True
+            elif rv_guess > state.rv_bounds[1]:
+                outside = True
+
+        if outside:
+            logger.warning(f"RV guess from method `{method}` is {rv_guess:0.3f} km/s, "
+                            f"which is outside the search bounds {state.rv_bounds}.")
+        elif edge:
+            logger.warning(f"RV guess from method `{method}` is {rv_guess:0.3f} km/s, "
+                            f"which is at the edge of the search bounds {state.rv_bounds}.")
+
+        # Move guess inside the bounds if necessary
+        if state.rv_bounds is not None and state.rv_bounds[0] is not None:
+            rv_guess = max(rv_guess, state.rv_bounds[0])
+
+        if state.rv_bounds is not None and state.rv_bounds[1] is not None:
+            rv_guess = min(rv_guess, state.rv_bounds[1])
+            
+        logger.info(f"Final guess for RV using the method `{method}` is {rv_guess:0.3f} km/s.")
+
+        if self.trace is not None:
+            self.trace.on_guess_rv(rv, log_L, rv_guess, log_L_guess, log_L_curve, method, pp, pcov)
 
         state.rv_guess = rv_guess
         state.log_L_guess = log_L_guess
