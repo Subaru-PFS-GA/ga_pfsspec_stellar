@@ -268,6 +268,8 @@ class TempFit():
         parser.add_argument('--no-mask', action='store_false', dest='use_mask', help='Do not use mask from spectra.\n')
         parser.add_argument('--mask-bits', type=int, help='Bit mask.\n')
 
+        parser.add_argument('--max-iter', type=int, help='Maximum number of iterations of the optimization algorithm.\n')
+
         parser.add_argument('--mcmc-walkers', type=int, help='Number of MCMC walkers (min number of params + 1).\n')
         parser.add_argument('--mcmc-burnin', type=int, help='Number of MCMC burn-in samples.\n')
         parser.add_argument('--mcmc-samples', type=int, help='Number of MCMC samples.\n')
@@ -327,6 +329,8 @@ class TempFit():
         self.mask_bits = get_arg('mask_bits', self.mask_bits, args)
         self.use_error = get_arg('use_error', self.use_error, args)
         self.use_weight = get_arg('use_weight', self.use_weight, args)
+
+        self.max_iter = get_arg('max_iter', self.max_iter, args)
 
         self.mcmc_walkers = get_arg('mcmc_walkers', self.mcmc_walkers, args)
         self.mcmc_burnin = get_arg('mcmc_burnin', self.mcmc_burnin, args)
@@ -2073,7 +2077,7 @@ class TempFit():
     def fit_rv(self, spectra, templates,
                fluxes=None,
                rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
-               method='bounded', max_iter=None,
+               method='bounded',
                calculate_error=True,
                calculate_cov=True):
 

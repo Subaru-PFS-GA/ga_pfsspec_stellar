@@ -1120,7 +1120,7 @@ class ModelGridTempFit(TempFit):
                fluxes=None,
                rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
                params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
-               method="Nelder-Mead", max_iter=None,
+               method="Nelder-Mead",
                calculate_error=True,
                calculate_cov=True):
 
@@ -1134,13 +1134,12 @@ class ModelGridTempFit(TempFit):
                 params_fixed=params_fixed)
 
         state, _, _ = self.guess_ml(state, method='max')
-
         
         res, state = self.run_ml(
             spectra, fluxes=fluxes,
             rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
             params_0=params_0, params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed,
-            method=method, max_iter=max_iter)
+            method=method)
 
         if calculate_error:
             res, state = self.calculate_error_ml(state)
@@ -1182,7 +1181,7 @@ class ModelGridTempFit(TempFit):
 
         return orig_state, rv, log_L
 
-    def run_ml(self, state, method="Nelder-Mead", max_iter=None):
+    def run_ml(self, state, method="Nelder-Mead"):
         """
         Given a set of spectra and template grid, find the best fit RV, as well as template
         parameters by maximizing the likelihood function. Spectra are assumed to be of the same
@@ -1194,8 +1193,6 @@ class ModelGridTempFit(TempFit):
             State initialized by `init_state`
         method : str
             Optimization method to use: 'bounded' or 'grid'
-        max_iter: int
-            Maximum number of iterations for the optimization
 
         Returns
         -------
@@ -1206,8 +1203,6 @@ class ModelGridTempFit(TempFit):
         `True`, the radial velocity is not fitted. If a template parameter is specified in
         `params_fixed`, no optimization is performed for that parameter.
         """
-                
-        max_iter = max_iter if max_iter is not None else self.max_iter
                 
         # TODO: If no free parameters, fall back to superclass implementation
         if len(state.params_free) == 0:
@@ -1259,7 +1254,7 @@ class ModelGridTempFit(TempFit):
         
             x_fit, fl = self.optimize_nelder_mead(state.x_0, state.steps, state.bounds,
                                                   llh,
-                                                  max_iter,
+                                                  self.max_iter,
                                                   callback=callback)
             state.flags |= fl
         else:
