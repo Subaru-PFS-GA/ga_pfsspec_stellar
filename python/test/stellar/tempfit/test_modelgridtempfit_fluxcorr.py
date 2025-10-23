@@ -225,6 +225,44 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
 
         self.save_fig(f)
 
+    def tempfit_fit_rv_test_helper(self,
+                                 ax,
+                                 flux_correction, normalize, convolve_template,
+                                 multiple_arms, multiple_exp,
+                                 use_priors, rv_fixed=False):
+        
+        (rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+            self.get_initialized_tempfit(
+                flux_correction=flux_correction,
+                normalize=normalize,
+                convolve_template=convolve_template,
+                multiple_arms=multiple_arms,
+                multiple_exp=multiple_exp,
+                use_priors=use_priors
+            )
+
+        ax.axvline(rv_real, color='r', label='rv real')
+
+        res = rvfit.fit_rv(specs,
+                           rv_0=rv_real + 10,
+                           rv_bounds=(rv_real - 100, rv_real + 100),
+                           rv_fixed=rv_fixed,
+                           params_0=params_0)
+                
+        ax.axvline(res.rv_fit, color='b', label='rv fit')
+        ax.axvline(res.rv_fit - res.rv_err, color='b')
+        ax.axvline(res.rv_fit + res.rv_err, color='b')
+
+        # TODO: create a log_L map instead?
+        # # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
+        # rvv = np.linspace(rv - 0.001, rv + 0.001, 101)
+        # log_L, phi, chi, ndf = rvfit.calculate_log_L(specs, temps, rvv)
+        # ax.plot(rvv, log_L, '.')
+        # ax.set_xlim(rvv[0], rvv[-1])
+
+        ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
+        # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
+
     def tempfit_run_ml_test_helper(self,
                                  ax,
                                  flux_correction, normalize, convolve_template,
@@ -277,11 +315,25 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
+            self.tempfit_fit_rv_test_helper(ax, **config)
+
+        self.save_fig(f)
+
+    def test_run_ml(self):
+        configs = [
+            dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(flux_correction=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        ]
+
+        f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
+
+        for ax, config in zip(axs[:, 0], configs):
             self.tempfit_run_ml_test_helper(ax, **config)
 
         self.save_fig(f)
 
-    def test_fit_rv_rv_fixed(self):
+    def test_run_ml_rv_fixed(self):
         configs = [
             dict(flux_correction=False, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
             dict(flux_correction=True, use_priors=False, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),

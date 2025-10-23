@@ -50,7 +50,7 @@ class TempFitState():
             self.rv_fixed = safe_deep_copy(orig.rv_fixed)
             self.rv_guess = safe_deep_copy(orig.rv_guess)
             self.rv_bounds = safe_deep_copy(orig.rv_bounds)
-            self.rv_prior = safe_deep_copy(orig.rv_prior)
+            self.rv_prior = orig.rv_prior
             self.rv_step = safe_deep_copy(orig.rv_step)
             self.rv_fit = safe_deep_copy(orig.rv_fit)
             self.rv_err = safe_deep_copy(orig.rv_err)

@@ -29,7 +29,7 @@ class ModelGridTempFitState(TempFitState):
             self.params_fixed = safe_deep_copy(orig.params_fixed)
             self.params_guess = safe_deep_copy(orig.params_guess)
             self.params_bounds = safe_deep_copy(orig.params_bounds)
-            self.params_priors = safe_deep_copy(orig.params_priors)
+            self.params_priors = orig.params_priors
             self.params_steps = safe_deep_copy(orig.params_steps)
             self.params_free = safe_deep_copy(orig.params_free)
             self.params_fit = safe_deep_copy(orig.params_fit)

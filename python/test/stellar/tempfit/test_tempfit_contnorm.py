@@ -236,6 +236,48 @@ class TestTempFitContNorm(TempFitTestBase):
 
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
 
+        res = tempfit.fit_rv(specs, temps, fluxes=None)
+
+        ax.axvline(rv_real, color='r', label='rv real')
+        ax.axvline(res.rv_fit, color='b', label='rv fit')
+        ax.axvline(res.rv_fit - res.rv_err, color='b')
+        ax.axvline(res.rv_fit + res.rv_err, color='b')
+
+        # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
+        rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
+        log_L = tempfit.calculate_log_L(specs, temps, rvv)
+        if tempfit.rv_prior is not None:
+            log_L += tempfit.rv_prior(rvv)
+        ax.plot(rvv, log_L, '.')
+        ax.set_xlim(rvv[0], rvv[-1])
+
+        ax.set_title(f'RV={rv_real:.2f}, RF_fit={res.rv_fit:.3f}+/-{res.rv_err:.3f}')
+        # ax.set_xlim(rv_real - 50 * rv_err, rv_real + 50 * rv_err)
+
+    def tempfit_run_ml_test_helper(self,
+                                   ax,
+                                   continuum_fit, continuum_per_arm, continuum_per_exp,
+                                   normalize,
+                                   convolve_template,
+                                   multiple_arms, multiple_exp,
+                                   use_priors):
+
+        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+            self.get_initialized_tempfit(
+                continuum_fit=continuum_fit,
+                normalize=normalize,
+                convolve_template=convolve_template,
+                multiple_arms=multiple_arms,
+                multiple_exp=multiple_exp,
+                use_priors=use_priors
+            )
+
+        tempfit.correction_model.use_cont_norm = continuum_fit
+        tempfit.correction_model.cont_per_arm = continuum_per_arm
+        tempfit.correction_model.cont_per_exp = continuum_per_exp
+
+        tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
+
         state = tempfit.init_state(specs, temps)
         res, state = tempfit.run_ml(state)
         res, state = tempfit.calculate_error_ml(state)
@@ -268,6 +310,19 @@ class TestTempFitContNorm(TempFitTestBase):
 
         for ax, config in zip(axs[:, 0], configs):
             self.tempfit_fit_rv_test_helper(ax, **config)
+
+        self.save_fig(f)
+
+    def test_run_ml(self):
+        configs = [
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=True, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True),
+            dict(continuum_fit=True, continuum_per_arm=True, continuum_per_exp=False, use_priors=True, normalize=True, convolve_template=True, multiple_arms=True, multiple_exp=True)
+        ]
+
+        f, axs = plt.subplots(len(configs), 1, figsize=(6, 4 * len(configs)), squeeze=False)
+
+        for ax, config in zip(axs[:, 0], configs):
+            self.tempfit_run_ml_test_helper(ax, **config)
 
         self.save_fig(f)
 

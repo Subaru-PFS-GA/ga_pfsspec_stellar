@@ -1135,11 +1135,7 @@ class ModelGridTempFit(TempFit):
 
         state, _, _ = self.guess_ml(state, method='max')
         
-        res, state = self.run_ml(
-            spectra, fluxes=fluxes,
-            rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_fixed=rv_fixed,
-            params_0=params_0, params_bounds=params_bounds, params_priors=params_priors, params_fixed=params_fixed,
-            method=method)
+        res, state = self.run_ml(state)
 
         if calculate_error:
             res, state = self.calculate_error_ml(state)
