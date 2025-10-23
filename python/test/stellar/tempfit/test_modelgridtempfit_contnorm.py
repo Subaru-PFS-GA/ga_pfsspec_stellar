@@ -268,12 +268,13 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
 
         ax.axvline(rv_real, color='r', label='rv real')
 
-        res, state = tempfit.run_ml(specs,
+        state = tempfit.init_state(specs,
                                     rv_0=rv_real + 10,
                                     rv_bounds=(rv_real - 100, rv_real + 100),
                                     rv_fixed=rv_fixed,
                                     params_0=params_0)
-        
+
+        res, state = tempfit.run_ml(state)
         res, state = tempfit.calculate_error_ml(state)
         res, state = tempfit.calculate_cov_ml(state)
         res, state = tempfit.finish_ml(state)
@@ -395,9 +396,9 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
             tempfit.correction_model.cont_per_arm = True
             tempfit.correction_model.cont_per_exp = True
 
-            tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
             
-            res, state = tempfit.run_ml(specs, rv_0=rv_real)
+            state = tempfit.init_state(specs, rv_0=rv_real)
+            res, state = tempfit.run_ml(state)
             res, state = tempfit.calculate_error_ml(state)
             res, state = tempfit.calculate_cov_ml(state)
             res, state = tempfit.finish_ml(state)

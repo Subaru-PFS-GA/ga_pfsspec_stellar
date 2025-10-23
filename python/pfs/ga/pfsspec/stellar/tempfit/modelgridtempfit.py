@@ -14,6 +14,7 @@ from pfs.ga.pfsspec.core.sampling import Parameter, Distribution
 from pfs.ga.pfsspec.core.util.timer import Timer
 from .tempfit import TempFit
 from .tempfitflag import TempFitFlag
+from .modelgridtempfitstate import ModelGridTempFitState
 from .modelgridtempfitresults import ModelGridTempFitResults
 from .modelgridtempfittrace import ModelGridTempFitTrace
 
@@ -896,46 +897,7 @@ class ModelGridTempFit(TempFit):
                 v = min(v, bounds[p][1])
         return v
     
-    def guess_rv(self, spectra, templates=None, /,
-                 rv_bounds=None, rv_prior=None, rv_step=None,
-                 params_0=None, params_fixed=None,
-                 steps=None,
-                 method='lorentz',
-                 pp_spec=None):
-        
-        """
-        Guess an initial state to close best RV, either using the supplied set of templates or
-        initial model parameters.
-        """
-
-        # TODO: Maybe extend this to do a grid search in model parameters
-
-        assert isinstance(spectra, dict)
-
-        params_0 = params_0 if params_0 is not None else self.params_0
-        params_fixed = params_fixed if params_fixed is not None else self.params_fixed
-
-        self.init_correction_models(spectra, rv_bounds)
-        self.init_extinction_curves(spectra)
-
-        if templates is None:
-            # Look up the templates from the grid and pass those to the the parent class
-            params = params_0.copy()
-            if params_fixed is not None:
-                params.update(params_fixed)
-            templates, missing = self.get_templates(spectra, params)
-            if missing:
-                raise Exception('Cannot find an initial matching template to start TempFit.')
-            
-            logger.info(f"Using template with parameters {params} to guess RV.")
-
-        return super().guess_rv(spectra, templates,
-                                     rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step,
-                                     steps=steps,
-                                     method=method,
-                                     pp_spec=pp_spec)
-    
-    def prepare_fit(self, spectra, /,
+    def init_state(self, spectra, /,
                     fluxes=None,
                     rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
                     params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None,
@@ -975,18 +937,20 @@ class ModelGridTempFit(TempFit):
 
         Returns
         -------
-        state : SimpleNamespace
+        state : ModelGridTempFitState
             State object that contains all the information needed to run the fitting
         """
 
-        state = SimpleNamespace(
+        assert isinstance(spectra, dict)
+
+        state = ModelGridTempFitState(
             spectra=spectra,
             fluxes=fluxes
         )
 
         state.rv_0 = rv_0 if rv_0 is not None else self.rv_0
         state.rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
-        state.rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
+        state.rv_bounds = rv_bounds if rv_bounds is not None else (self.rv_bounds if self.rv_bounds is not None else (-500, 500))
         state.rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         state.rv_step = rv_step if rv_step is not None else self.rv_step
         
@@ -996,25 +960,19 @@ class ModelGridTempFit(TempFit):
         state.params_priors = params_priors if params_priors is not None else self.params_priors
         state.params_steps = params_steps if params_steps is not None else self.params_steps
 
-        # Determine the list of free parameters
-        state.params_free = self.determine_free_params(state.params_fixed)
-
-        # Determine the (buffered) wavelength limit in which the templates will be convolved
-        # with the PSF. This should be slightly larger than the observed wavelength range.
-        # TODO: this has side-effect, add template_wlim to the state instead?
-        if self.template_wlim is None:
-            # Use different template wlim for each arm but same for each exposure
-            self.template_wlim = {}
-            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False, rv_bounds=rv_bounds)
-            for mi, arm in enumerate(spectra):
-                self.template_wlim[arm] = wlim[mi]
-
         if state.params_0 is None:
             # TODO
             raise NotImplementedError()
-                    
+
         if state.params_fixed is None:
             state.params_fixed = []
+
+        # Determine the list of free parameters
+        state.params_free = self.determine_free_params(state.params_fixed)
+
+        # Initialize flux correction or continuum models for each arm and exposure
+        self.init_correction_models(spectra, rv_bounds=rv_bounds)
+        self.init_extinction_curves(spectra)
 
         # Calculate the pre-normalization constants. This is only here to make sure that the
         # matrix elements during calculations stay around unity
@@ -1026,20 +984,43 @@ class ModelGridTempFit(TempFit):
                 params_0=state.params_0,
                 params_fixed=state.params_fixed)
 
+        # Determine the (buffered) wavelength limit in which the templates will be convolved
+        # with the PSF. This should be slightly larger than the observed wavelength range.
+        # TODO: this has side-effect, add template_wlim to the state instead?
+        if self.template_wlim is None:
+            # Use different template wlim for each arm but same for each exposure
+            self.template_wlim = {}
+            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False, rv_bounds=rv_bounds)
+            for mi, arm in enumerate(spectra):
+                self.template_wlim[arm] = wlim[mi]
+
+        for mi, arm in enumerate(spectra):
+            logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
+
         # Preprocess the spectra
         if pp_spec is not None:
             state.pp_spec = pp_spec
         else:
             state.pp_spec = self.preprocess_spectra(spectra)
         
-        # Get objective function
+        # Get objective function, etc
         state.log_L_fun, state.pack_params, state.unpack_params, state.pack_bounds = self.get_objective_function(
             spectra, fluxes,
             state.rv_0, state.rv_fixed, state.rv_prior,
             state.params_0, state.params_priors, state.params_free, params_fixed=state.params_fixed,
             mode='params_rv',
             pp_spec=state.pp_spec)
-        
+
+        self._pack_everything(state)
+
+        # Set default values of the flags
+        state.flags = TempFitFlag.OK
+        state.rv_flags = TempFitFlag.OK
+        state.params_flags = { p: TempFitFlag.OK for p in state.params_0 }
+
+        return state
+
+    def _pack_everything(self, state):
         # Initial values
         if state.params_0 is not None and state.rv_0 is not None:
             state.x_0 = state.pack_params(state.params_0, state.rv_0)[0]
@@ -1071,12 +1052,68 @@ class ModelGridTempFit(TempFit):
         bounds = state.pack_bounds(bounds, state.rv_bounds)
         state.bounds = self.get_bounds_array(bounds)
 
-        # Set default values of the flags
-        state.flags = TempFitFlag.OK
-        state.rv_flags = TempFitFlag.OK
-        state.params_flags = { p: TempFitFlag.OK for p in state.params_0 }
+    @deprecated("Use `guess_ml` instead.")
+    def guess_rv(self, spectra, templates=None, /,
+                rv_bounds=None, rv_prior=None, rv_step=None,
+                params_0=None, params_fixed=None,
+                steps=None,
+                method='lorentz',
+                pp_spec=None):
 
-        return state
+        """
+        Guess an initial RV to close best RV, either using the supplied set of templates or
+        initial model parameters.
+
+        Parameters
+        ----------
+        spectra : dict or dict of list
+            Dictionary of spectra for each arm and exposure
+        templates : dict or dict of list
+            Dictionary of templates for each arm and exposure
+        rv_bounds : tuple
+            Tuple of bounds for the RV
+        rv_prior : callable or Distribution
+            Callable that returns the prior for the RV
+        rv_step : float
+            Step size for the RV
+        params_0 : dict
+            Dictionary of initial values for the template parameters
+        params_fixed : dict
+            Dictionary of fixed parameter values
+        steps : int
+            Number of steps to use for the RV guess
+        method : str
+            Method to use for the RV guess: 'lorentz' or 'max'
+        pp_spec : dict of list
+            Preprocessed spectra
+
+        Returns
+        -------
+        float
+            Guessed radial velocity
+        float
+            Log likelihood at the guessed radial velocity
+        float
+            Internal state guessed radial velocity
+        float
+            Internal state log likelihood at the guessed radial velocity
+        """
+
+        state = self.init_state(
+                spectra,
+                rv_bounds=rv_bounds, rv_prior=rv_prior,
+                params_0=params_0,
+                params_fixed=params_fixed,
+                pp_spec=pp_spec)
+
+        state.templates = templates
+
+        state, rv, log_L = self.guess_ml(
+            state,
+            steps=steps,
+            method=method)
+        
+        return rv, log_L, state.rv_guess, state.log_L_guess
 
     @deprecated("Use `run_ml` instead.")
     def fit_rv(self, spectra, /,
@@ -1086,6 +1123,18 @@ class ModelGridTempFit(TempFit):
                method="Nelder-Mead", max_iter=None,
                calculate_error=True,
                calculate_cov=True):
+
+        state = self.init_state(
+                spectra,
+                fluxes=fluxes,
+                rv_0=rv_0, rv_fixed=rv_fixed,
+                rv_bounds=rv_bounds, rv_prior=rv_prior,
+                params_0=params_0, params_bounds=params_bounds,
+                params_priors=params_priors, params_steps=None,
+                params_fixed=params_fixed)
+
+        state, _, _ = self.guess_ml(state, method='max')
+
         
         res, state = self.run_ml(
             spectra, fluxes=fluxes,
@@ -1103,11 +1152,37 @@ class ModelGridTempFit(TempFit):
 
         return res
 
-    def run_ml(self, spectra, /,
-               fluxes=None,
-               rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
-               params_0=None, params_bounds=None, params_priors=None, params_fixed=None,
-               method="Nelder-Mead", max_iter=None):
+    def guess_ml(self, state, steps=None, method='lorentz'):    
+        """
+        Guess an initial state to close best RV, either using the supplied set of templates or
+        initial model parameters.
+        """
+
+        # TODO: Maybe extend this to do a grid search in model parameters
+
+        # Make a copy of the state because we will override some parameters
+        orig_state = state
+        state = ModelGridTempFitState(orig=orig_state)
+
+        if state.templates is None:
+            # Look up the templates from the grid and pass those to the the parent class
+            if state.params_fixed is not None:
+                state.params_0.update(state.params_fixed)
+            state.templates, missing = self.get_templates(state.spectra, state.params_0)
+            if missing:
+                raise Exception('Cannot find an initial matching template to start TempFit.')
+
+            logger.info(f"Using template with parameters {state.params_0} to guess RV.")
+
+        state, rv, log_L = super().guess_ml(state, steps=steps, method=method)
+        
+        orig_state.rv_guess = state.rv_guess
+        orig_state.params_guess = state.params_guess
+        orig_state.log_L_guess = state.log_L_guess
+
+        return orig_state, rv, log_L
+
+    def run_ml(self, state, method="Nelder-Mead", max_iter=None):
         """
         Given a set of spectra and template grid, find the best fit RV, as well as template
         parameters by maximizing the likelihood function. Spectra are assumed to be of the same
@@ -1115,87 +1190,52 @@ class ModelGridTempFit(TempFit):
 
         Parameters
         ----------
-        spectra : dict of Spectrum or dict of list of Spectrum
-            Observed spectra
-        rv_0 : float
-            Initial guess for the RV
-        rv_bounds : tuple
-            RV bounds to limit the search for initial RV if not provided as well as
-            limits to the fit.
-        rv_prior : Distribution or callable
-            Prior distribution for the RV
-        rv_fixed : bool
-            If True, the RV is fixed and no optimization is performed.
-        params_0 : dict
-            Initial guess for the template parameters
-        params_bounds : dict
-            Bounds for the template parameters
-        params_priors : dict
-            Prior distributions for the template parameters
-        params_fixed : dict
-            Fixed template parameters with values.
+        state: TempFitState
+            State initialized by `init_state`
         method : str
             Optimization method to use: 'bounded' or 'grid'
         max_iter: int
             Maximum number of iterations for the optimization
-        calculate_error : bool
-            If True, calculate the error of the RV from the Fisher matrix.
+
+        Returns
+        -------
+        results : ModelGridTempFitResults
+            Object containing the fitting results
 
         If no initial guess is provided, `rv_0` is determined automatically. If `rv_fixed` is
         `True`, the radial velocity is not fitted. If a template parameter is specified in
         `params_fixed`, no optimization is performed for that parameter.
         """
-        
-        assert isinstance(spectra, dict)
                 
         max_iter = max_iter if max_iter is not None else self.max_iter
-
-        # Initialize flux correction or continuum models for each arm and exposure
-        self.init_correction_models(spectra, rv_bounds=rv_bounds)
-        self.init_extinction_curves(spectra)
-        
-        state = self.prepare_fit(
-                spectra,
-                fluxes=fluxes,
-                rv_0=rv_0, rv_fixed=rv_fixed,
-                rv_bounds=rv_bounds, rv_prior=rv_prior,
-                params_0=params_0, params_bounds=params_bounds,
-                params_priors=params_priors, params_steps=None,
-                params_fixed=params_fixed)
                 
         # TODO: If no free parameters, fall back to superclass implementation
         if len(state.params_free) == 0:
             raise NotImplementedError()
         
         # If rv_0 is not provided, guess it
-        if state.rv_0 is None and spectra is not None:
-            _, _, state.rv_0, state.log_L_0 = self.guess_rv(
-                spectra,
-                None, 
-                rv_bounds=state.rv_bounds, rv_prior=state.rv_prior, rv_step=state.rv_step,
-                params_0=state.params_0, params_fixed=state.params_fixed,
-                method='max',
-                pp_spec=state.pp_spec)
+        if state.rv_0 is None:
+            state, rv, log_L = self.guess_ml(state, method='max')
+            state.rv_0 = state.rv_guess
+            state.params_0 = state.params_guess
             
-            # Update initial values
-            if state.params_0 is not None and state.rv_0 is not None:
-                state.x_0 = state.pack_params(state.params_0, state.rv_0)[0]
-
             if state.rv_fixed:
                 logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
+
+        self._pack_everything(state)
 
         if self.trace is not None:
             # When tracing, create a full list of included and excluded wavelengths, independent
             # of any masks defines by the spectra. This is for visualization purposes only.
             wave_include, wave_exclude = self.get_wave_include_exclude()
-            self.trace.on_fit_rv_start(spectra, None,
+            self.trace.on_fit_rv_start(state.spectra, None,
                                        state.rv_0, state.rv_bounds, state.rv_prior, state.rv_step,
                                        state.params_0, state.params_bounds, state.params_priors, state.params_steps,
                                        state.log_L_0, state.log_L_fun,
                                        wave_include=wave_include, wave_exclude=wave_exclude)
 
         # Cost function - here we don't have to distinguish between the two cases of `rv_fixed`
-        # because `prepare_fit` already returns the right function.
+        # because `init_state` already returns the right function.
         def llh(params_rv):
             return -state.log_L_fun(params_rv)
         
@@ -1219,7 +1259,7 @@ class ModelGridTempFit(TempFit):
         
             x_fit, fl = self.optimize_nelder_mead(state.x_0, state.steps, state.bounds,
                                                   llh,
-                                                  method, max_iter,
+                                                  max_iter,
                                                   callback=callback)
             state.flags |= fl
         else:
@@ -1288,7 +1328,6 @@ class ModelGridTempFit(TempFit):
 
     def optimize_nelder_mead(self, x_0, steps, bounds,
                              llh,
-                             method,
                              max_iter,
                              callback=None):
         
@@ -1308,34 +1347,41 @@ class ModelGridTempFit(TempFit):
             xx_0 = None
             flags |= TempFitFlag.BADINIT
 
-        with Timer(f'Starting Nelder-Mead optimization with {x_0.size} parameter(s).', logger=logger, level=logging.INFO):
+        with Timer(f'Starting optimization with Nelder-Mead and {x_0.size} parameter(s).', logger=logger, level=logging.INFO):
             out = minimize(llh,
-                           x0=x_0, bounds=bounds, method=method, callback=callback,
+                           x0=x_0, bounds=bounds, method='Nelder-Mead', callback=callback,
                            options=dict(maxiter=max_iter, initial_simplex=xx_0))
 
-        if out.success:
-            # Calculate the volume of the initial and final simplex
-            def vol(xx):
-                if xx is not None:
-                    return np.linalg.det(xx[:-1] - xx[-1]) / factorial(xx.shape[1])
-                else:
-                    return np.nan
-            
+        # Calculate the volume of the initial and final simplex
+        def vol(xx):
+            if xx is not None:
+                return np.linalg.det(xx[:-1] - xx[-1]) / factorial(xx.shape[1])
+            else:
+                return np.nan
+
+        try:
             vol_0 = vol(xx_0)
             vol_f = vol(out.final_simplex[0])
-
-            logger.info(f"Nelder-Mead message: {out.message}")
-            logger.info(f"Nelder-Mead number of iterations: {out.nit}, "
-                         f"number of function evaluations: {out.nfev}")
-            logger.info(f"Nelder-Mead initial simplex volume: {vol_0:0.3f}, final simplex volume: {vol_f:0.3f}")
+        except Exception:
+            vol_0 = np.nan
+            vol_f = np.nan
+    
+        logger.info(f"Nelder-Mead initial simplex volume: {vol_0:0.3f}, final simplex volume: {vol_f:0.3f}")
+        
+        if out.success or out.nit == max_iter:
+            # Even if the number of max iterations reached, we should have a somewhat valid result
+            logger.info(f"Optimize message: {out.message}")
+            logger.info(f"Optimizer number of iterations: {out.nit}, "
+                        f"number of function evaluations: {out.nfev}")
 
             if max_iter == out.nit:
-                logger.warning("Nelder-Mead optimization reached the maximum number of iterations.")
+                logger.warning("Optimization reached the maximum number of iterations.")
                 flags |= TempFitFlag.MAXITER
-                
-            return out.x, flags
         else:
-            raise Exception(f"Could not fit RV using `{method}`, reason: {out.message}")
+            logger.error(f"Optimization failed, optimizer message: {out.message}")
+            flags |= TempFitFlag.NOCONVERGE
+
+        return out.x, flags
 
     def calculate_error_ml(self, state):
         """
@@ -1615,7 +1661,7 @@ class ModelGridTempFit(TempFit):
         self.init_correction_models(spectra, rv_bounds=rv_bounds)
         self.init_extinction_curves(spectra)
 
-        state = self.prepare_fit(
+        state = self.init_state(
                 spectra,
                 rv_0=rv_0, rv_bounds=rv_bounds, rv_prior=rv_prior, rv_step=rv_step, rv_fixed=rv_fixed,
                 params_0=params_0, params_bounds=params_bounds,

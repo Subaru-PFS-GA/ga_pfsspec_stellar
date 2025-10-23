@@ -236,7 +236,8 @@ class TestTempFitContNorm(TempFitTestBase):
 
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500), force=True)
 
-        res, state = tempfit.run_ml(specs, temps)
+        state = tempfit.init_state(specs, temps)
+        res, state = tempfit.run_ml(state)
         res, state = tempfit.calculate_error_ml(state)
         res, state = tempfit.calculate_cov_ml(state)
         res, state = tempfit.finish_ml(state)
@@ -292,7 +293,8 @@ class TestTempFitContNorm(TempFitTestBase):
 
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
-        res, state = tempfit.run_ml(specs, temps)
+        state = tempfit.init_state(specs, temps)
+        res, state = tempfit.run_ml(state)
         res, state = tempfit.calculate_error_ml(state)
         res, state = tempfit.calculate_cov_ml(state)
         res, state = tempfit.finish_ml(state)
@@ -335,7 +337,9 @@ class TestTempFitContNorm(TempFitTestBase):
         tempfit.init_correction_models(specs, rv_bounds=(-500, 500))
 
         # Only fit the continuum correction
-        res, state = tempfit.run_ml(specs, temps, rv_fixed=True)
+        state = tempfit.init_state(specs, temps, rv_fixed=True)
+        state, _, _ = tempfit.guess_ml(state)
+        res, state = tempfit.run_ml(state)
         res, state = tempfit.calculate_error_ml(state)
         res, state = tempfit.calculate_cov_ml(state)
         res, state = tempfit.finish_ml(state)

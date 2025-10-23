@@ -280,7 +280,9 @@ class TestTempFitFluxCorr(TempFitTestBase):
                 multiple_exp=multiple_exp,
                 use_priors=use_priors
             )
-        res, state = tempfit.run_ml(specs, temps)
+
+        state = tempfit.init_state(specs, temps)
+        res, state = tempfit.run_ml(state)
         res, state = tempfit.calculate_error_ml(state)
         res, state = tempfit.calculate_cov_ml(state)
         res, state = tempfit.finish_ml(state)

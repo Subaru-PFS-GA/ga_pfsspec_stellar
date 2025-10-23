@@ -243,12 +243,12 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
 
         ax.axvline(rv_real, color='r', label='rv real')
 
-        res, state = rvfit.run_ml(specs,
+        state = rvfit.init_state(specs,
                            rv_0=rv_real + 10,
                            rv_bounds=(rv_real - 100, rv_real + 100),
                            rv_fixed=rv_fixed,
                            params_0=params_0)
-
+        res, state = rvfit.run_ml(state)
         res, state = rvfit.calculate_error_ml(state)
         res, state = rvfit.calculate_cov_ml(state)
         res, state = rvfit.finish_ml(state)
@@ -350,8 +350,9 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
                 self.get_initialized_tempfit(**config)
             
-            res, state = rvfit.run_ml(specs, rv_0=rv_real)
-            
+            state = rvfit.init_state(specs, rv_0=rv_real)
+            res, state = rvfit.run_ml(state)
+
             F = {}
             C = {}
             err = {}
