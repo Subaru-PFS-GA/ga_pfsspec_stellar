@@ -970,10 +970,6 @@ class ModelGridTempFit(TempFit):
         # Determine the list of free parameters
         state.params_free = self.determine_free_params(state.params_fixed)
 
-        # Initialize flux correction or continuum models for each arm and exposure
-        self.init_correction_models(spectra, rv_bounds=rv_bounds)
-        self.init_extinction_curves(spectra)
-
         # Calculate the pre-normalization constants. This is only here to make sure that the
         # matrix elements during calculations stay around unity
         # TODO: this has side effect, should add spec_norm and temp_norm to the state instead?
@@ -984,24 +980,24 @@ class ModelGridTempFit(TempFit):
                 params_0=state.params_0,
                 params_fixed=state.params_fixed)
 
+        # Preprocess the spectra
+        state.pp_spec = self.preprocess_spectra(spectra)
+
+        # Initialize flux correction or continuum models for each arm and exposure
+        self.init_correction_models(state.pp_spec, rv_bounds=rv_bounds)
+        self.init_extinction_curves(state.pp_spec)
+
         # Determine the (buffered) wavelength limit in which the templates will be convolved
         # with the PSF. This should be slightly larger than the observed wavelength range.
         # TODO: this has side-effect, add template_wlim to the state instead?
         if self.template_wlim is None:
             # Use different template wlim for each arm but same for each exposure
             self.template_wlim = {}
-            wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False, rv_bounds=rv_bounds)
-            for mi, arm in enumerate(spectra):
-                self.template_wlim[arm] = wlim[mi]
-
-        for mi, arm in enumerate(spectra):
-            logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
-
-        # Preprocess the spectra
-        if pp_spec is not None:
-            state.pp_spec = pp_spec
-        else:
-            state.pp_spec = self.preprocess_spectra(spectra)
+            wlim = self.determine_wlim(state.pp_spec, per_arm=True, per_exp=False, rv_bounds=rv_bounds)
+            for ai, arm in enumerate(state.pp_spec):
+                self.template_wlim[arm] = wlim[ai]
+                
+                logger.debug(f"Template wavelength limits for {arm}: {wlim[ai]}")
         
         # Get objective function, etc
         state.log_L_fun, state.pack_params, state.unpack_params, state.pack_bounds = self.get_objective_function(
@@ -1292,6 +1288,19 @@ class ModelGridTempFit(TempFit):
                                                   pp_spec=state.pp_spec)
         state.a_err = np.full_like(state.a_fit, np.nan)
 
+        def log_L_fun(rv):
+            return self.calculate_log_L(state.spectra, templates, fluxes=state.fluxes,
+                                        rv=rv, rv_prior=state.rv_prior, params=state.params_fit,
+                                        params_priors=state.params_priors,
+                                        pp_spec=state.pp_spec)
+
+        # Check if log L around the best fit RV is multimodal
+        multimodal = self.test_rv(state, log_L_fun=log_L_fun)
+
+        if multimodal:
+            state.flags |= TempFitFlag.RVFITMULTIMODAL
+            logger.warning("Log likelihood around the best fit RV is multimodal.")
+
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit parameters for each exposure
             ss, tt = self.append_corrections_and_templates(state.spectra, templates,
@@ -1300,14 +1309,6 @@ class ModelGridTempFit(TempFit):
                                                            a_fit=state.a_fit,
                                                            match='template',
                                                            apply_correction=True)
-
-            # Wrap log_L_fun to expect a single parameter only and use the best fit model parameters
-            # This is for plptting purposes only
-            def log_L_fun(rv):
-                return self.calculate_log_L(state.spectra, templates, fluxes=state.fluxes,
-                                            rv=rv, rv_prior=state.rv_prior, params=state.params_fit,
-                                            params_priors=state.params_priors,
-                                            pp_spec=state.pp_spec)
 
             self.trace.on_fit_rv_finish(ss, tt,
                                         state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, state.rv_fixed,

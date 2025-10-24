@@ -30,6 +30,7 @@ class TempFitTrace(Trace, SpectrumTrace):
 
         self.plot_priors = None
         self.plot_rv_guess = None
+        self.plot_rv_test = None
         self.plot_rv_fit = None
         self.plot_rv_convergence = None
 
@@ -58,6 +59,7 @@ class TempFitTrace(Trace, SpectrumTrace):
 
         self.plot_priors = get_arg('plot_priors', self.plot_priors, args)
         self.plot_rv_guess = get_arg('plot_rv_guess', self.plot_rv_guess, args)
+        self.plot_rv_test = get_arg('plot_rv_test', self.plot_rv_test, args)
         self.plot_rv_fit = get_arg('plot_rv_fit', self.plot_rv_fit, args)
         self.plot_rv_convergence = get_arg('plot_rv_convergence', self.plot_rv_convergence, args)
 
@@ -96,6 +98,17 @@ class TempFitTrace(Trace, SpectrumTrace):
                               rv=rv, log_L=log_L, log_L_curve=log_L_curve,
                               rv_guess=rv_guess,
                               title='RV guess - {id}')
+
+    def on_test_rv(self, rv, log_L, rv_fit, rv_err, peaks):
+        # Called when the distribution is tested
+
+        if self.plot_rv_test is None and self.plot_level >= Trace.PLOT_LEVEL_INFO \
+            or self.plot_rv_test:
+
+            self._plot_rv_fit('pfsGA-tempfit-rv-test-{id}',
+                              rv=rv, log_L=log_L,
+                              rv_fit=rv_fit, rv_err=rv_err,
+                              title='RV test - {id}')
     
     def on_fit_rv_iter(self, rv, log_L, log_L_fun):
         self.rv_iter.append(rv)
@@ -129,6 +142,7 @@ class TempFitTrace(Trace, SpectrumTrace):
             if log_L_fun is not None and rv_fit is not None and rv_err is not None:
 
                 rv = np.linspace(rv_fit - 3 * rv_err, rv_fit + 3 * rv_err, 100)
+                rv_lim = (rv_fit - 5 * rv_err, rv_fit + 5 * rv_err)
                 log_L = log_L_fun(rv)
 
                 self._plot_rv_fit(
@@ -136,6 +150,7 @@ class TempFitTrace(Trace, SpectrumTrace):
                     rv=rv, log_L=log_L,
                     rv_guess=rv_guess, rv_0=rv_0,
                     rv_fit=rv_fit, rv_err=rv_err,
+                    rv_lim=rv_lim,
                     title='TempFit results zoom-in - {id}')
 
         # Plot the convergence of RV, if available
@@ -289,6 +304,7 @@ class TempFitTrace(Trace, SpectrumTrace):
                      rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None,
                      rv_fit=None, rv_err=None,  
                      rv_guess=None,
+                     rv_lim=(None, None),
                      title=None):
         
         """
@@ -363,6 +379,7 @@ class TempFitTrace(Trace, SpectrumTrace):
                 text += f'$v_\\mathrm{{los, fit}} = {rv_fit:0.2f}$ km s$^{{-1}}$\n'
 
         ax.text(0.95, 0.95, text, transform=ax.transAxes, ha='right', va='top')
+        ax.set_xlim(*rv_lim)
         ax.set_xlabel(R'$v_\mathrm{los}$ [km s$^{-1}$]')
         ax.set_ylabel('normalized log-posterior')
 

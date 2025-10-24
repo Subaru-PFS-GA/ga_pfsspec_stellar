@@ -5,6 +5,7 @@ from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 from scipy.ndimage import binary_dilation
 from scipy.interpolate import interp1d
+from scipy.signal import find_peaks
 from sklearn.preprocessing import PolynomialFeatures
 import numdifftools as nd
 
@@ -390,9 +391,6 @@ class TempFit():
         def is_good(spec):
             if spec is None:
                 raise ValueError("Spectrum is None")
-            elif include_masked:
-                # Include spectra that may be completely masked
-                return True
             elif spec.mask is None:
                 # No mask, assume the spectrum is good
                 return True
@@ -439,6 +437,10 @@ class TempFit():
                         elif spec is not None and is_good(spec):
                             yield arm, ei, mi, spec
                             mi += 1
+                        elif include_masked:
+                            yield arm, ei, None, None
+                        else:
+                            pass
             else:
                 # Increase index for each arm but not for exposures
                 # Count only arms where at least one spectrum is good
@@ -451,6 +453,10 @@ class TempFit():
                         elif spec is not None and is_good(spec):
                             found = True
                             yield arm, ei, mi, spec
+                        elif include_masked:
+                            yield arm, ei, None, None
+                        else:
+                            pass
 
                     if found:
                         mi += 1
@@ -474,6 +480,10 @@ class TempFit():
                             yield arm, ei, None, None
                         elif spec is not None and is_good(spec):
                             yield arm, ei, mi, spec
+                        elif include_masked:
+                            yield arm, ei, None, None
+                        else:
+                            pass
 
                         # This will increse the model index even if the spectrum is None
                         # or not good but there is at least one good spectrum in some arm
@@ -488,6 +498,10 @@ class TempFit():
                             yield arm, ei, None, None
                         elif spec is not None and is_good(spec):
                             yield arm, ei, mi, spec
+                        elif include_masked:
+                            yield arm, ei, None, None
+                        else:
+                            pass
 
     def get_wave_include_exclude(self):
         wave_include = []
@@ -566,7 +580,12 @@ class TempFit():
         # Enumerate every spectra in each arm and determine the wavelength limits for each correction model,
         # determined by the model index `mi`.
         wlim = {}
-        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=per_arm, per_exp=per_exp, include_none=False):
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra,
+                                                        per_arm=per_arm, per_exp=per_exp,
+                                                        include_none=False,
+                                                        include_masked=False,
+                                                        mask_bits=self.mask_bits):
+            
             wmin, wmax = spec.wave[~np.isnan(spec.wave)][[0, -1]]
             wmin, wmax = buffer_limits(wmin, wmax)
             
@@ -578,7 +597,12 @@ class TempFit():
 
         return wlim
 
-    def init_correction_models(self, spectra, rv_bounds=None, force=False):
+    def init_correction_models(
+            self,
+            pp_spec,
+            rv_bounds=None,
+            force=False):
+        
         """
         Initialize the models for flux correction or continuum fitting
 
@@ -598,11 +622,19 @@ class TempFit():
             self.correction_model.trace = self.trace
             self.correction_model.tempfit = self
 
-            self.correction_model.init_models(spectra, rv_bounds=rv_bounds, force=force)
+            self.correction_model.init_models(
+                pp_spec,
+                rv_bounds=rv_bounds,
+                force=force)
 
-    def init_correction_model(self, spectra, /, per_arm=True, per_exp=True,
-                   rv_bounds=None, wlim_buffer=None, round_to=None,
-                   create_model_func=None):
+    def init_correction_model(
+            self,
+            pp_spec, /,
+            per_arm=True, per_exp=True,
+            rv_bounds=None,
+            wlim_buffer=None,
+            round_to=None,
+            create_model_func=None):
         """
         Create model instances for flux correction or continuum fitting for each arm
         and exposure, depending on the settings.
@@ -626,6 +658,10 @@ class TempFit():
             Round the wavelength limits to this quantum
         create_model_func : callable
             Function to create the model instance
+        include_masked : bool
+            Include spectra that are completely masked in the enumeration
+        mask_bits : int
+            Mask bits to observe when converting spectrum flags to a boolean mask (None means any)
 
         Returns
         -------
@@ -634,13 +670,21 @@ class TempFit():
         """
 
         # Determine the wavelength limits for each model
-        wlim = self.determine_wlim(spectra, per_arm=per_arm, per_exp=per_exp,
+        wlim = self.determine_wlim(pp_spec, per_arm=per_arm, per_exp=per_exp,
                                    rv_bounds=rv_bounds, wlim_buffer=wlim_buffer, round_to=round_to)
         
         # Initialize the correction models
         models = {}
-        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=per_arm, per_exp=per_exp, include_none=False):
+        for arm, ei, mi, spec in self.enumerate_spectra(pp_spec,
+                                                        per_arm=per_arm,
+                                                        per_exp=per_exp,
+                                                        include_none=False,
+                                                        include_masked=False,
+                                                        mask_bits=self.mask_bits):
+            
             models[mi] = create_model_func(wlim[mi])
+
+        logger.info(f'Initialized {len(models)} correction models (per_arm={per_arm}, per_exp={per_exp})')
 
         return models
 
@@ -731,7 +775,12 @@ class TempFit():
         s = []
         t = []
 
-        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=False, per_exp=False, include_none=False):
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra,
+                                                        per_arm=False, per_exp=False,
+                                                        include_none=False,
+                                                        include_masked=False,
+                                                        mask_bits=self.mask_bits):
+            
             spec = self.process_spectrum(arm, ei, spec)
             s.append(spec.flux[spec.mask & (spec.flux > 0)])
             
@@ -810,11 +859,22 @@ class TempFit():
         # These are independent of RV 
         pp_spec = { arm: [] for arm in spectra }
 
-        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=False, per_exp=False, include_none=True):
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra,
+                                                        per_arm=False, per_exp=False,
+                                                        include_none=True,
+                                                        include_masked=True,
+                                                        mask_bits=self.mask_bits):
+            
             if spec is not None:
                 pp_spec[arm].append(self.process_spectrum(arm, ei, spec))
             else:
                 pp_spec[arm].append(None)
+
+        num_total = len([ s for a in pp_spec for s in pp_spec[a] ])
+        num_not_none = sum(s is not None for a in pp_spec for s in pp_spec[a])
+        num_not_masked = sum(s is not None and s.mask_as_bool().sum() != 0 for a in pp_spec for s in pp_spec[a])
+
+        logger.info(f'Preprocessed {num_total} spectra, {num_not_none} are not None, {num_not_masked} are not fully masked.')
 
         return pp_spec
     
@@ -963,7 +1023,7 @@ class TempFit():
 
         return temp
 
-    def preprocess_templates(self, spectra, templates, rv, ebv=None):
+    def preprocess_templates(self, pp_spec, templates, rv, ebv=None):
         """
         Preprocess the templates to match the observations. This is basically simulating
         and observation.
@@ -985,9 +1045,14 @@ class TempFit():
 
         # Pre-process each exposure in each arm and pass them to the log L calculator
         # function of the flux correction or continuum fit model.
-        pp_temp = { arm: [] for arm in spectra }
+        pp_temp = { arm: [] for arm in pp_spec }
 
-        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=False, per_exp=False, include_none=True):
+        for arm, ei, mi, spec in self.enumerate_spectra(pp_spec,
+                                                        per_arm=False, per_exp=False,
+                                                        include_none=True,
+                                                        include_masked=True,
+                                                        mask_bits=self.mask_bits):
+            
             if spec is not None:
                 temp = self.process_template(arm, templates[arm], spec, rv)
                 pp_temp[arm].append(temp)
@@ -999,7 +1064,12 @@ class TempFit():
             self.extinction_model.apply_extinction(pp_temp, ebv)
 
         if self.trace is not None:
-            for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=False, per_exp=False, include_none=True):
+            for arm, ei, mi, spec in self.enumerate_spectra(pp_spec,
+                                                            per_arm=False, per_exp=False,
+                                                            include_none=True,
+                                                            include_masked=True,
+                                                            mask_bits=self.mask_bits):
+                
                 temp = pp_temp[arm][ei] if spec is not None else None
                 if temp is not None:
                     self.trace.on_extinction_template(arm, rv, ebv, templates[arm], temp)
@@ -1058,7 +1128,7 @@ class TempFit():
 
         return wave, dfdlogl
     
-    def get_amp_count(self, spectra: dict):
+    def get_amp_count(self, pp_spec: dict):
         """
         Calculate the number of different amplitudes to be fitted.
 
@@ -1086,7 +1156,13 @@ class TempFit():
         # Enumerate the spectra and count the unique model indices `mi`
         # to determine the number of amplitudes to be fitted.
         mmi = []
-        for arm, ei, mi, spec in self.enumerate_spectra(spectra, per_arm=self.amplitude_per_arm, per_exp=self.amplitude_per_exp, include_none=False):
+        for arm, ei, mi, spec in self.enumerate_spectra(pp_spec,
+                                                        per_arm=self.amplitude_per_arm,
+                                                        per_exp=self.amplitude_per_exp,
+                                                        include_none=False,
+                                                        include_masked=False,
+                                                        mask_bits=self.mask_bits):
+            
             mmi.append(mi)
 
         amp_count = np.unique(mmi).size
@@ -1886,7 +1962,7 @@ class TempFit():
 
             # Pre-process each exposure in each arm and pass them to the log L calculator
             # function of the flux correction or continuum fit model.
-            pp_temp = self.preprocess_templates(spectra, templates, rvv[i], ebv)
+            pp_temp = self.preprocess_templates(pp_spec, templates, rvv[i], ebv)
 
             # Save everything to the trace
             if self.trace is not None:
@@ -2149,6 +2225,13 @@ class TempFit():
     
         rv = np.linspace(*state.rv_bounds, steps)
         log_L = self.calculate_log_L(state.spectra, state.templates, rv, rv_prior=state.rv_prior, pp_spec=state.pp_spec)
+
+        # Check if log L around the best guess multimodal
+        multimodal = self.test_rv(state, rv=rv, log_L=log_L)
+
+        if multimodal:
+            state.flags |= TempFitFlag.RVGUESSMULTIMODAL
+            logger.warning("Log likelihood around the best guess RV is multimodal.")
         
         # Mask out infs here in case the prior is very narrow
         mask = (~np.isnan(log_L) & ~np.isinf(log_L))
@@ -2257,6 +2340,16 @@ class TempFit():
         return results, state
 
     def finish_ml(self, state):
+
+        def log_L_fun(rv):
+            return self.calculate_log_L(state.spectra, state.templates, rv, rv_prior=state.rv_prior)
+
+        # Check if log L around the best fit RV is multimodal
+        multimodal = self.test_rv(state, log_L_fun=log_L_fun)
+
+        if multimodal:
+            state.flags |= TempFitFlag.RVFITMULTIMODAL
+            logger.warning("Log likelihood around the best fit RV is multimodal.")
         
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit RV.
@@ -2266,8 +2359,7 @@ class TempFit():
                                                            apply_correction=False)
 
             # Pass the log likelihood function to the trace
-            def log_L_fun(rv):
-                return self.calculate_log_L(state.spectra, state.templates, rv, rv_prior=state.rv_prior)
+            
 
             self.trace.on_fit_rv_finish(ss, tt, 
                                         state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, False,
@@ -2275,6 +2367,31 @@ class TempFit():
 
         return TempFitResults.from_state(state), state
 
+    def test_rv(self, state, rv=None, log_L=None, sigma=3.0, steps=31, log_L_fun=None):
+        """
+        Calculate log_L around the best fit RV and test if it is multimodal.
+        """
+
+        if rv is None and state.rv_fit is not None:
+            if state.rv_err is not None:
+                rv = np.linspace(state.rv_fit - sigma * state.rv_err, state.rv_fit + sigma * state.rv_err, steps)
+            elif state.rv_step is not None:
+                rv = np.linspace(state.rv_fit - state.rv_step, state.rv_fit + state.rv_step, steps)
+            elif state.rv_bounds is not None and state.rv_bounds[0] is not None and state.rv_bounds[1] is not None:
+                rv = np.linspace(state.rv_bounds[0], state.rv_bounds[1], steps)
+            else:
+                return False
+            
+        if log_L is None:
+            log_L = log_L_fun(rv)
+
+        peaks, properties = find_peaks(log_L)
+        multimodal = peaks.size > 1
+
+        if self.trace is not None:
+            self.trace.on_test_rv(rv, log_L, state.rv_fit, state.rv_err, peaks)
+
+        return multimodal
 
     def calculate_error_ml(self, state):
         if not state.rv_fixed:

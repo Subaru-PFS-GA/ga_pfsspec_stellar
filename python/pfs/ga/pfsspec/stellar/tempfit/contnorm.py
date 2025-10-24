@@ -124,7 +124,7 @@ class ContNorm(CorrectionModel):
             
         return 0
 
-    def eval_log_L(self, spectra, templates, /, a=None):
+    def eval_log_L(self, pp_spec, pp_temp, /, a=None):
         """
         Calculate the value of the likelihood function at a given value of RV.
 
@@ -135,20 +135,23 @@ class ContNorm(CorrectionModel):
         """
 
         if a is not None:
-            a = self.split_coeffs(spectra, a)
-            continua = self.eval_continuum_fit(spectra, templates, a)
+            a = self.split_coeffs(pp_spec, a)
+            continua = self.eval_continuum_fit(pp_spec, pp_temp, a)
         else:
             # If the coefficients are not supplied, we have to fit the continuum
             # to the ratio of the observed flux and the templates
-            coeffs, continua, masks = self.fit_continuum(spectra, templates)
+            coeffs, continua, masks = self.fit_continuum(pp_spec, pp_temp)
 
         # Sum up the log likelihoods for each arm and exposure
         log_L = 0
-        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(spectra,
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec,
                                                                 per_arm=self.cont_per_arm,
                                                                 per_exp=self.cont_per_exp,
-                                                                include_none=False):
-            temp = templates[arm][ei]
+                                                                include_none=False,
+                                                                include_masked=False,
+                                                                mask_bits=self.tempfit.mask_bits):
+            
+            temp = pp_temp[arm][ei]
             cont = continua[arm][ei]
             mask = masks[arm][ei] & spec.mask & temp.mask
 
@@ -251,7 +254,9 @@ class ContNorm(CorrectionModel):
         for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec,
                                                                 per_arm=self.cont_per_arm,
                                                                 per_exp=self.cont_per_exp,
-                                                                include_none=False):
+                                                                include_none=False,
+                                                                include_masked=False,
+                                                                mask_bits=self.tempfit.mask_bits):
             
             key[mi].append((arm, ei))
 
@@ -275,7 +280,10 @@ class ContNorm(CorrectionModel):
         masks = { arm: [] for arm in pp_spec }
         for arm, ei, _, _ in self.tempfit.enumerate_spectra(pp_spec,
                                                             per_arm=False, per_exp=False,
-                                                            include_none=True):
+                                                            include_none=True,
+                                                            include_masked=True,
+                                                            mask_bits=self.tempfit.mask_bits):
+            
             continua[arm].append(None)
             masks[arm].append(None)
 
@@ -294,7 +302,7 @@ class ContNorm(CorrectionModel):
 
         return coeffs, continua, masks
     
-    def eval_continuum_fit(self, spectra, templates, coeffs):
+    def eval_continuum_fit(self, pp_spec, pp_temp, coeffs):
         """
         Evaluate the continuum fit for each exposure in each arm. Templates
         are assumed to be Doppler shifted to a certain RV and resampled to
@@ -304,13 +312,15 @@ class ContNorm(CorrectionModel):
         if not self.cont_per_arm:
             raise Exception('Continuum fitting using a single model for all arms is not supported yet.')
 
-        continua = { arm: [] for arm in spectra }
-        masks = { arm: [] for arm in spectra }
+        continua = { arm: [] for arm in pp_spec }
+        masks = { arm: [] for arm in pp_spec }
 
-        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(spectra,
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec,
                                                                 per_arm=self.cont_per_arm,
                                                                 per_exp=self.cont_per_exp,
-                                                                include_none=True):
+                                                                include_none=True,
+                                                                include_masked=True,
+                                                                mask_bits=self.tempfit.mask_bits):
             
             if spec is not None:
                 model = self.cont_model[mi]

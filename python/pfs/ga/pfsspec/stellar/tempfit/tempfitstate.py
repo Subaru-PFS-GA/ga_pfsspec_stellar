@@ -63,7 +63,7 @@ class TempFitState():
             self.temp_norm = orig.temp_norm
             self.template_wlim = safe_deep_copy(orig.template_wlim)
 
-            self.pp_spec = None
+            self.pp_spec = orig.pp_spec if spectra is None else None
             self.log_L_fun = orig.log_L_fun
             self.pack_params = orig.pack_params
             self.unpack_params = orig.unpack_params

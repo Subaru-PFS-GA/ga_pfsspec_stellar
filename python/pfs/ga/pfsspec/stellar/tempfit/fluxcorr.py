@@ -73,13 +73,17 @@ class FluxCorr(CorrectionModel):
 
         return self.flux_corr_type(degree=self.flux_corr_degree, wlim=wlim)
 
-    def init_models(self, spectra, rv_bounds=None, force=False):
+    def init_models(
+            self,
+            pp_spec,
+            rv_bounds=None,
+            force=False):
         """
         Initialize the flux correction model for each arm and exposure.
         """
 
         if self.use_flux_corr and (self.flux_corr is None or force):
-            self.flux_corr = self.tempfit.init_correction_model(spectra,
+            self.flux_corr = self.tempfit.init_correction_model(pp_spec,
                                                                 per_arm=self.flux_corr_per_arm,
                                                                 per_exp=self.flux_corr_per_exp,
                                                                 rv_bounds=rv_bounds,
@@ -106,7 +110,7 @@ class FluxCorr(CorrectionModel):
 
         return coeff_count
     
-    def eval_flux_corr_basis(self, spectra):
+    def eval_flux_corr_basis(self, pp_spec):
         """
         Evaluate the basis functions for each exposure of each arm on the wavelength
         grid of the actual exposure. The basis will have the size of the total number of
@@ -146,7 +150,7 @@ class FluxCorr(CorrectionModel):
         """
 
         # Calculate the total number of amplitudes and linear coefficients
-        amp_count = self.tempfit.get_amp_count(spectra)
+        amp_count = self.tempfit.get_amp_count(pp_spec)
         
         if self.use_flux_corr:
             coeff_count = [ model.get_coeff_count() for mi, model in self.flux_corr.items() ]
@@ -154,19 +158,24 @@ class FluxCorr(CorrectionModel):
             basis_size = amp_count + np.sum(coeff_count)
         else:
             basis_size = amp_count
+
+        logger.info(f'Flux correction basis size: {basis_size}')
         
-        basis = { arm: [] for arm in spectra}       # dict of lists of basis vectors for each spectrum
-        wave_mask = { arm: [] for arm in spectra}   # mask for each spectrum along the wavelength axis
-        model_mask = { arm: [] for arm in spectra}  # mask that selects the coefficients belonging to the arm/exposure
+        basis = { arm: [] for arm in pp_spec}       # dict of lists of basis vectors for each spectrum
+        wave_mask = { arm: [] for arm in pp_spec}   # mask for each spectrum along the wavelength axis
+        model_mask = { arm: [] for arm in pp_spec}  # mask that selects the coefficients belonging to the arm/exposure
         
         # Fill in the basis vectors belonging to the amplitudes first.
         # Since the correction is multiplicative, the basis vectors corresponding
         # to amplitudes are then constant.
-        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(spectra,
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec,
                                                                 per_arm=self.tempfit.amplitude_per_arm,
                                                                 per_exp=self.tempfit.amplitude_per_exp,
-                                                                include_none=True):
-            # `mi` now indexes the different models
+                                                                include_none=True,
+                                                                include_masked=True,
+                                                                mask_bits=self.tempfit.mask_bits):
+            # `ei` indexes the exposures
+            # `mi` indexes the different models
 
             if spec is not None:
                 # Basis function for the amplitude
@@ -188,12 +197,15 @@ class FluxCorr(CorrectionModel):
 
         # Fill in the basis vectors for the flux correction coefficients
         if self.use_flux_corr:
-            for arm, ei, mi, spec in self.tempfit.enumerate_spectra(spectra,
+            for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec,
                                                                     per_arm=self.flux_corr_per_arm,
                                                                     per_exp=self.flux_corr_per_exp,
-                                                                    include_none=True):
+                                                                    include_none=True,
+                                                                    include_masked=True,
+                                                                    mask_bits=self.tempfit.mask_bits):
                 
-                # `mi` now indexes the different flux correction models
+                # `ei` indexes the exposures
+                # `mi` indexes the different flux correction models
 
                 if spec is not None:
                     bb = basis[arm][ei]
@@ -234,6 +246,8 @@ class FluxCorr(CorrectionModel):
             coeff_count = amp_count + param_count
 
             self.param_count_cache = amp_count, param_count, coeff_count
+
+            logger.info(f'Flux correction parameter counts: amp_count={amp_count}, param_count={param_count}, coeff_count={coeff_count}')
 
         amp_count, param_count, coeff_count = self.param_count_cache
         return amp_count, param_count, coeff_count
@@ -311,7 +325,12 @@ class FluxCorr(CorrectionModel):
         chi = np.zeros((coeff_count, coeff_count))
         ndf = np.zeros((1,))
     
-        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec, per_arm=False, per_exp=False, include_none=False):
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec,
+                                                                per_arm=False, per_exp=False,
+                                                                include_none=False,
+                                                                include_masked=False,
+                                                                mask_bits=self.tempfit.mask_bits):
+            
             temp = pp_temp[arm][ei]
             basis = bases[arm][ei]
             model_mask = model_masks[arm][ei]
@@ -683,7 +702,7 @@ class FluxCorr(CorrectionModel):
 
         for arm in pp_specs:
             for ei, (spec, temp) in enumerate(zip(pp_specs[arm], pp_temps[arm])):
-                if spec is not None:
+                if spec is not None and bases[arm][ei] is not None:
                     corr, mask = eval_flux_corr(temp, bases[arm][ei], wave_mask[arm][ei], a)
                     corrections[arm].append(corr)
                     correction_masks[arm].append(mask)
@@ -702,7 +721,8 @@ class FluxCorr(CorrectionModel):
             spec.flux_corr = corr
 
     def _apply_correction_impl(self, spec, template=False):
-        if not template:
-            spec.multiply(1.0 / spec.flux_corr)
-        else:
-            spec.multiply(spec.flux_corr)
+        if spec.flux_corr is not None:
+            if not template:
+                spec.multiply(1.0 / spec.flux_corr)
+            else:
+                spec.multiply(spec.flux_corr)

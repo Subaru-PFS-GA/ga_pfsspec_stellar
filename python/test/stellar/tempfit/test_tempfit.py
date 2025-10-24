@@ -107,7 +107,9 @@ class TestTempFit(TempFitTestBase):
                 single_exp, single_exp_list, missing_exp, missing_all_exp, missing_arm = k2
                 
                 specs = self.get_dummy_spectra(single_exp, single_exp_list, missing_exp, missing_all_exp, missing_arm)
-                spec_list = list(tempfit.enumerate_spectra(specs, per_arm=per_arm, per_exp=per_exp, include_none=include_none))
+                spec_list = list(tempfit.enumerate_spectra(specs,
+                                                           per_arm=per_arm, per_exp=per_exp,
+                                                           include_none=include_none))
 
                 self.assertEqual(gt['count'], len(spec_list))
                 for i, (arm, ei, mi, spec) in enumerate(spec_list):
