@@ -2084,8 +2084,8 @@ class TempFit():
             for mi, arm in enumerate(spectra):
                 self.template_wlim[arm] = wlim[mi]
 
-        for mi, arm in enumerate(spectra):
-            logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
+            for mi, arm in enumerate(spectra):
+                logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
 
         # Preprocess the spectra
         if pp_spec is not None:
