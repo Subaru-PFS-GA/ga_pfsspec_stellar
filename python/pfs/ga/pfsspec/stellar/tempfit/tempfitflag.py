@@ -5,6 +5,8 @@ class TempFitFlag(IntFlag):
     Class to hold the flags for the TempFit algorithm.
     """
 
+    # NOTE: Keep this consistent with the flags in datamodel.ga.TempFitFlag
+
     OK = 0                          # No flags
     BADINIT = 1 << 0                # Initial values are outside bounds or other problems
     NOCONVERGE = 1 << 1             # No convergence
@@ -16,3 +18,4 @@ class TempFitFlag(IntFlag):
     UNLIKELYPRIOR = 1 << 7          # Unlikely prior
     RVGUESSMULTIMODAL = 1 << 8      # "log L(RV) during guess is multimodal"
     RVFITMULTIMODAL = 1 << 9        # "log L(RV) around best fit is multimodal"
+    NODATA = 1 << 10                # No data to fit, possibly missing 2d output
