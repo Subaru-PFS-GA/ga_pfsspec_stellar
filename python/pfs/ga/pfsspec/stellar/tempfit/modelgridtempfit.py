@@ -258,7 +258,7 @@ class ModelGridTempFit(TempFit):
             # Do it instrument by instrument and only take into account colors calculated
             # from adjacent filters, only when the corresponding observed fluxes are available
             if self.synthmag_filters is not None and fluxes is not None:
-                log_L += self.eval_synth_flux(
+                log_L += self.eval_synth_flux_log_L(
                     fluxes,
                     rv,
                     params['ebv'] if 'ebv' in params else None,
@@ -266,7 +266,7 @@ class ModelGridTempFit(TempFit):
 
         return log_L
 
-    def eval_synth_flux(self, fluxes, rv, ebv, params):
+    def eval_synth_flux_log_L(self, fluxes, rv, ebv, params):
         """
         Calculate the log-likelihood of the observed fluxes
         """
@@ -343,7 +343,7 @@ class ModelGridTempFit(TempFit):
                     # Calculate the contribution to log L
                     log_L += np.log(0.5 * (obs_ratio - synth_ratio) ** 2 / obs_ratio_err)
                     
-        assert np.isfinite(log_L), "log_L is not finite in eval_synth_flux"
+        assert np.isfinite(log_L), "log_L is not finite in eval_synth_flux_log_L"
 
         return log_L
         
