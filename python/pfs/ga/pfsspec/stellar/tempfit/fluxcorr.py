@@ -293,13 +293,13 @@ class FluxCorr(CorrectionModel):
         masked_wave, masked_flux, masked_sigma2, masked_bases = self.masked_spectrum_cache
         return masked_wave, masked_flux, masked_sigma2, masked_bases
 
-    def calculate_phi_chi(self, spectra, templates, rv):
+    def calculate_phi_chi(self, state, spectra, templates, rv):
         """
         Calculate the log-likelihood of an observed spectrum for a template with RV.
         """
 
-        pp_specs = self.tempfit.preprocess_spectra(spectra)
-        pp_temps = self.tempfit.preprocess_templates(spectra, templates, rv)
+        pp_specs = self.tempfit.preprocess_spectra(state, spectra)
+        pp_temps = self.tempfit.preprocess_templates(state, spectra, templates, rv)
         phi_0, chi_0, ndf_0 = self.eval_phi_chi(pp_specs, pp_temps)
         return self.eval_phi_chi(pp_specs, pp_temps)
 
@@ -501,7 +501,7 @@ class FluxCorr(CorrectionModel):
         else:
             return log_L
 
-    def calculate_coeffs(self, pp_spec, pp_temp, a=None):
+    def calculate_coeffs(self, state, pp_spec, pp_temp, a=None):
         """
         Given a set of spectra and preprocessed templates, calculate the
         flux correction coefficients.
@@ -541,7 +541,7 @@ class FluxCorr(CorrectionModel):
 
         return flux_corr
 
-    def calculate_F_full_phi_chi(self, spectra, templates, rv_0, step=None):
+    def calculate_F_full_phi_chi(self, state, spectra, templates, rv_0, step=None):
         # Evaluate the Fisher matrix from the first and second derivatives of
         # phi and chi around rv_0, based on the flux correction formulate
 
@@ -555,11 +555,11 @@ class FluxCorr(CorrectionModel):
             return phi_chi[:size], phi_chi[size:].reshape((size, size))
 
         def phi_chi(rv):
-            phi, chi, ndf = self.calculate_phi_chi(spectra, templates, rv)
+            phi, chi, ndf = self.calculate_phi_chi(state, spectra, templates, rv)
             return pack_phi_chi(phi, chi)
 
         # Calculate a_0
-        phi_0, chi_0, ndf_0 = self.calculate_phi_chi(spectra, templates, rv_0)
+        phi_0, chi_0, ndf_0 = self.calculate_phi_chi(state, spectra, templates, rv_0)
         a_0 = self.eval_a(phi_0, chi_0)
 
         # First and second derivatives of the matrix elements by RV
@@ -588,7 +588,7 @@ class FluxCorr(CorrectionModel):
 
         return F, np.linalg.inv(F)
     
-    def calculate_F_full_alex(self, spectra, templates, rv, step=None):
+    def calculate_F_full_alex(self, state, spectra, templates, rv, step=None):
         # Calculate the Fisher matrix numerically from a local finite difference
         # around `rv` in steps of `step`.
 
@@ -614,11 +614,11 @@ class FluxCorr(CorrectionModel):
         for arm in spectra:
             temp = templates[arm]
             for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
-                spec = self.tempfit.process_spectrum(arm, ei, spec)
+                spec = self.tempfit.process_spectrum(state, arm, ei, spec)
 
-                temp0 = self.tempfit.process_template(arm, temp, spec, rv)
-                temp1 = self.tempfit.process_template(arm, temp, spec, rv + step)
-                temp2 = self.tempfit.process_template(arm, temp, spec, rv - step)
+                temp0 = self.tempfit.process_template(state, arm, temp, spec, rv)
+                temp1 = self.tempfit.process_template(state, arm, temp, spec, rv + step)
+                temp2 = self.tempfit.process_template(state, arm, temp, spec, rv - step)
 
                 # Calculate the centered diffence of the flux
                 d1 = 0.5 * (temp2.flux - temp1.flux) / step
@@ -644,19 +644,19 @@ class FluxCorr(CorrectionModel):
 
         return -F, np.linalg.inv(F)
        
-    def calculate_F(self, spectra, templates,
+    def calculate_F(self, state, spectra, templates,
                     rv_0, rv_fixed=None,
                     step=None, mode='full', method='hessian'):
                     
         # Calculate the Fisher matrix using different methods
 
         if mode == 'full' and method == 'phi_chi':
-            return self.calculate_F_full_phi_chi(spectra, templates, rv_0, step=step)
+            return self.calculate_F_full_phi_chi(state, spectra, templates, rv_0, step=step)
         elif mode == 'full' and method == 'alex':
-            return self.calculate_F_full_alex(spectra, templates, rv_0, step=step)
+            return self.calculate_F_full_alex(state, spectra, templates, rv_0, step=step)
         else:
             # Revert back to numeric differentiation
-            return self.tempfit.calculate_F(spectra, templates,
+            return self.tempfit.calculate_F(state, spectra, templates,
                                             rv_0, rv_fixed=rv_fixed,
                                             step=step, mode=mode, method=method)
 
@@ -678,7 +678,7 @@ class FluxCorr(CorrectionModel):
 
         return -1.0 / (nu_0 * dd_nu_0)
     
-    def eval_correction(self, pp_specs, pp_temps, a=None):
+    def eval_correction(self, state, pp_specs, pp_temps, a=None):
 
         def eval_flux_corr(temp, basis, mask, a):
             # Evaluate the flux correction model
@@ -693,7 +693,7 @@ class FluxCorr(CorrectionModel):
             return corr, mask
 
         if a is None:
-            a = self.calculate_coeffs(pp_specs, pp_temps)
+            a = self.calculate_coeffs(state, pp_specs, pp_temps)
 
         bases, basis_size, basis_mask, wave_mask = self.get_flux_corr_basis(pp_specs)
 

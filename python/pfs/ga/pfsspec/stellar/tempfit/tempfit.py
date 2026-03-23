@@ -736,7 +736,7 @@ class TempFit():
 
             self.extinction_model.init_curves(spectra, force=force)
 
-    def get_normalization(self, spectra, templates, rv_0=None):
+    def get_normalization(self, state, spectra, templates, rv_0=None):
         """
         Calculate a normalization factor for the spectra, as well as
         the templates assuming an RV=0 from the median flux.
@@ -767,10 +767,10 @@ class TempFit():
         """
 
         # Do not allow recalculating the normalization when it has already been done
-        assert self.spec_norm is None 
-        assert self.temp_norm is None
+        assert state.spec_norm is None
+        assert state.temp_norm is None
 
-        rv_0 = rv_0 if rv_0 is not None else (self.rv_0 if self.rv_0 is not None else 0.0)
+        rv_0 = rv_0 if rv_0 is not None else (state.rv_0 if state.rv_0 is not None else 0.0)
 
         s = []
         t = []
@@ -781,12 +781,12 @@ class TempFit():
                                                         include_masked=False,
                                                         mask_bits=self.mask_bits):
             
-            spec = self.process_spectrum(arm, ei, spec)
+            spec = self.process_spectrum(state, arm, ei, spec)
             s.append(spec.flux[spec.mask & (spec.flux > 0)])
             
             psf = self.template_psf[arm] if self.template_psf is not None else None
             wlim = self.template_wlim[arm] if self.template_wlim is not None else None    
-            temp = self.process_template(arm, templates[arm], spec, rv_0, psf=psf, wlim=wlim)
+            temp = self.process_template(state, arm, templates[arm], spec, rv_0, psf=psf, wlim=wlim)
             t.append(temp.flux[temp.mask])
 
         if len(s) == 0 or len(t) == 0:
@@ -797,7 +797,7 @@ class TempFit():
 
         return np.median(spec_flux), np.median(temp_flux)
 
-    def process_spectrum(self, arm, i, spectrum):
+    def process_spectrum(self, state, arm, i, spectrum):
         """
         Preprocess the spectrum for the purposes of evaluating likelihood function.
 
@@ -822,8 +822,8 @@ class TempFit():
         spec = spectrum.copy()
 
         # Normalize flux and flux_err
-        if self.spec_norm is not None:
-            spec.multiply(1.0 / self.spec_norm)
+        if state.spec_norm is not None:
+            spec.multiply(1.0 / state.spec_norm)
 
         # Determine the binary mask used for template fitting
         spec.mask = self.get_full_mask(spec)
@@ -840,7 +840,7 @@ class TempFit():
 
         return spec
 
-    def preprocess_spectra(self, spectra):
+    def preprocess_spectra(self, state, spectra):
         """
         Preprocess the observed spectra for the purposes of evaluating the likelihood function.
 
@@ -866,7 +866,7 @@ class TempFit():
                                                         mask_bits=self.mask_bits):
             
             if spec is not None:
-                pp_spec[arm].append(self.process_spectrum(arm, ei, spec))
+                pp_spec[arm].append(self.process_spectrum(state, arm, ei, spec))
             else:
                 pp_spec[arm].append(None)
 
@@ -878,7 +878,7 @@ class TempFit():
 
         return pp_spec
     
-    def process_template_impl(self, arm, template, spectrum, rv, psf=None, wlim=None):
+    def process_template_impl(self, state, arm, template, spectrum, rv, psf=None, wlim=None):
         """
         Preprocesses a template for the purposes of evaluting the likelihood function.
 
@@ -920,14 +920,14 @@ class TempFit():
             t.convolve_psf(psf, wlim=wlim)
 
         # 4. Normalize by a factor
-        if self.temp_norm is not None:
-            t.multiply(1.0 / self.temp_norm)
+        if state.temp_norm is not None:
+            t.multiply(1.0 / state.temp_norm)
 
         # TODO: calculate weight vector from the template
             
         return t
 
-    def process_template(self, arm, template, spectrum, rv, psf=None, wlim=None, resample=True):
+    def process_template(self, state, arm, template, spectrum, rv, psf=None, wlim=None, resample=True):
         """
         Preprocess the template to match the observation.
 
@@ -991,7 +991,7 @@ class TempFit():
                 if self.trace is not None:
                     self.trace.on_template_cache_hit(template, rv_q, rv)
             else:
-                temp = self.process_template_impl(arm, template, spectrum, rv_q, psf=psf, wlim=wlim)
+                temp = self.process_template_impl(state, arm, template, spectrum, rv_q, psf=psf, wlim=wlim)
                 self.template_cache.push(key, temp)
 
                 if self.trace is not None:
@@ -1003,7 +1003,7 @@ class TempFit():
             temp.apply_redshift(Physics.vel_to_z(rv))
         else:
             # Compute convolved template from scratch
-            temp = self.process_template_impl(arm, template, spectrum, rv, psf=psf, wlim=wlim)
+            temp = self.process_template_impl(state, arm, template, spectrum, rv, psf=psf, wlim=wlim)
 
         if self.trace is not None:
             self.trace.on_process_template(arm, rv, template, temp)
@@ -1023,7 +1023,7 @@ class TempFit():
 
         return temp
 
-    def preprocess_templates(self, pp_spec, templates, rv, ebv=None):
+    def preprocess_templates(self, state, pp_spec, templates, rv, ebv=None):
         """
         Preprocess the templates to match the observations. This is basically simulating
         and observation.
@@ -1054,7 +1054,7 @@ class TempFit():
                                                         mask_bits=self.mask_bits):
             
             if spec is not None:
-                temp = self.process_template(arm, templates[arm], spec, rv)
+                temp = self.process_template(state, arm, templates[arm], spec, rv)
                 pp_temp[arm].append(temp)
             else:
                 pp_temp[arm].append(None)
@@ -1508,6 +1508,7 @@ class TempFit():
         return pack_params, unpack_params, pack_bounds
     
     def get_objective_function(self,
+                               state,
                                spectra, templates,
                                /,
                                rv_prior=None,
@@ -1544,12 +1545,18 @@ class TempFit():
         if mode == 'full' or mode == 'a_rv':
             def log_L(a_rv):
                 a, rv = unpack_params(a_rv)
-                log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, a=a, pp_spec=pp_spec)
+                log_L = self.calculate_log_L(state,
+                                             spectra, templates,
+                                             rv, rv_prior=rv_prior, a=a,
+                                             pp_spec=pp_spec)
                 return log_L
         elif mode == 'rv':
             def log_L(rv):
                 rv = unpack_params(rv)
-                log_L = self.calculate_log_L(spectra, templates, rv, rv_prior=rv_prior, pp_spec=pp_spec)
+                log_L = self.calculate_log_L(state,
+                                             spectra, templates,
+                                             rv, rv_prior=rv_prior,
+                                             pp_spec=pp_spec)
                 return log_L
         elif mode == 'a':
             raise NotImplementedError()
@@ -1671,7 +1678,9 @@ class TempFit():
     # _hessian depend on the numerical evaluation of the Hessian with respect
     # to the parameters of the fitted model.
 
-    def calculate_F(self, spectra, templates,
+    def calculate_F(self,
+                    state,
+                    spectra, templates,
                     rv_0=None, rv_fixed=None, rv_bounds=None, rv_prior=None,
                     step=None, mode='full', method='hessian',
                     pp_spec=None):
@@ -1707,6 +1716,7 @@ class TempFit():
 
         # Get objective function
         log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            state,
             spectra, templates,
             rv_prior,
             mode=mode,
@@ -1715,7 +1725,7 @@ class TempFit():
         if mode == 'full' or mode == 'a_rv':
             # Determine the flux correction or continuum fit parameters at the
             # optimum RV
-            a_0, _, _ = self.calculate_coeffs(spectra, templates, rv_0, pp_spec=pp_spec)
+            a_0, _, _ = self.calculate_coeffs(state, spectra, templates, rv_0, pp_spec=pp_spec)
             x_0 = pack_params(a_0, rv_0)[0]
             bounds = pack_bounds(np.size(a_0) * [(-np.inf, np.inf)], rv_bounds)
         elif mode == 'rv':
@@ -1911,6 +1921,7 @@ class TempFit():
 
     def calculate_log_L(
         self,
+        state,
         spectra,
         templates,
         rv, /, rv_prior=None,
@@ -1952,7 +1963,7 @@ class TempFit():
             trace_state = TempFitTraceState()
 
         if pp_spec is None:
-            pp_spec = self.preprocess_spectra(spectra)
+            pp_spec = self.preprocess_spectra(state, spectra)
 
         # Calculate log L at each RV
         log_L = np.full(rvv.shape, np.nan)
@@ -1962,7 +1973,7 @@ class TempFit():
 
             # Pre-process each exposure in each arm and pass them to the log L calculator
             # function of the flux correction or continuum fit model.
-            pp_temp = self.preprocess_templates(pp_spec, templates, rvv[i], ebv)
+            pp_temp = self.preprocess_templates(state, pp_spec, templates, rvv[i], ebv)
 
             # Save everything to the trace
             if self.trace is not None:
@@ -1988,13 +1999,15 @@ class TempFit():
 
         return log_L
 
-    def calculate_coeffs(self, spectra, templates, rv, ebv=None, pp_spec=None):
+    def calculate_coeffs(self, state, spectra, templates, rv, ebv=None, pp_spec=None):
         """
         Given a set of observed spectra and templates, evaluate the correction model
         to determine the correction model parameters at the given RV.
 
         Parameters
         ----------
+        state : TempFitState
+            State object that contains all the information needed to run the fitting
         spectra : dict of Spectrum or dict of list of Spectrum
             Observed spectra
         templates : dict of Spectrum
@@ -2011,9 +2024,9 @@ class TempFit():
         """
 
         if pp_spec is None:
-            pp_spec = self.preprocess_spectra(spectra)
-        pp_temp = self.preprocess_templates(spectra, templates, rv, ebv)
-        a = self.correction_model.calculate_coeffs(pp_spec, pp_temp)
+            pp_spec = self.preprocess_spectra(state, spectra)
+        pp_temp = self.preprocess_templates(state, spectra, templates, rv, ebv)
+        a = self.correction_model.calculate_coeffs(state, pp_spec, pp_temp)
         
         return a, pp_spec, pp_temp
     
@@ -2072,7 +2085,10 @@ class TempFit():
         # matrix elements during calculations stay around unity
         # TODO: this has side effect, should add spec_norm and temp_norm to the state instead?
         if self.spec_norm is None or self.temp_norm is None:
-            self.spec_norm, self.temp_norm = self.get_normalization(spectra, templates, state.rv_0)
+            state.spec_norm, state.temp_norm = self.get_normalization(state, spectra, templates, state.rv_0)
+        else:
+            state.spec_norm = self.spec_norm
+            state.temp_norm = self.temp_norm
 
         # Determine the (buffered) wavelength limit in which the templates will be convolved
         # with the PSF. This should be slightly larger than the observed wavelength range.
@@ -2091,10 +2107,11 @@ class TempFit():
         if pp_spec is not None:
             state.pp_spec = pp_spec
         else:
-            state.pp_spec = self.preprocess_spectra(spectra)
+            state.pp_spec = self.preprocess_spectra(state, spectra)
 
         # Get objective function, etc
         state.log_L_fun, state.pack_params, state.unpack_params, state.pack_bounds = self.get_objective_function(
+            state,
             spectra, templates,
             rv_prior=state.rv_prior,
             mode='rv',
@@ -2224,7 +2241,11 @@ class TempFit():
             steps = 31
     
         rv = np.linspace(*state.rv_bounds, steps)
-        log_L = self.calculate_log_L(state.spectra, state.templates, rv, rv_prior=state.rv_prior, pp_spec=state.pp_spec)
+        log_L = self.calculate_log_L(
+            state,
+            state.spectra, state.templates,
+            rv, rv_prior=state.rv_prior,
+            pp_spec=state.pp_spec)
 
         # Check if log L around the best guess multimodal
         multimodal = self.test_rv(state, rv=rv, log_L=log_L)
@@ -2342,7 +2363,7 @@ class TempFit():
     def finish_ml(self, state):
 
         def log_L_fun(rv):
-            return self.calculate_log_L(state.spectra, state.templates, rv, rv_prior=state.rv_prior)
+            return self.calculate_log_L(state, state.spectra, state.templates, rv, rv_prior=state.rv_prior)
 
         # Check if log L around the best fit RV is multimodal
         multimodal = self.test_rv(state, log_L_fun=log_L_fun)
@@ -2353,7 +2374,8 @@ class TempFit():
         
         if self.trace is not None:
             # If tracing, evaluate the template at the best fit RV.
-            ss, tt = self.append_corrections_and_templates(state.spectra, state.templates,
+            ss, tt = self.append_corrections_and_templates(state,
+                                                           state.spectra, state.templates,
                                                            state.rv_fit, a_fit=state.a_fit,
                                                            match='spectrum',
                                                            apply_correction=False)
@@ -2398,6 +2420,7 @@ class TempFit():
             # Calculate the error only when the RV is not fixed
             state.cov_params = [0]   # RV is the only parameter
             _, state.cov = self.calculate_F(
+                state,
                 state.spectra, state.templates,
                 state.rv_fit, rv_bounds=state.rv_bounds, rv_prior=state.rv_prior,
                 mode='rv', method='hessian')
@@ -2427,9 +2450,9 @@ class TempFit():
 
         # Calculate log_L in two steps, this requires passing around the flux correction or
         # continuum fit parameters
-        # a_fit, _, _ = self.calculate_coeffs(spectra, templates, rv_0)
+        # a_fit, _, _ = self.calculate_coeffs(state, spectra, templates, rv_0)
         # a_err = np.full_like(a_fit, np.nan)
-        # log_L_fit = self.calculate_log_L(spectra, templates, rv_0, rv_prior=rv_prior, a=a_fit, pp_spec=pp_spec)
+        # log_L_fit = self.calculate_log_L(state, spectra, templates, rv_0, rv_prior=rv_prior, a=a_fit, pp_spec=pp_spec)
         
         # Calculate log_L in a single step, this won't provide the flux correction or
         # continuum fit parameters
@@ -2441,6 +2464,7 @@ class TempFit():
         state.cov = None
         state.cov_params = None
         state.log_L_fit = self.calculate_log_L(
+            state,
             state.spectra, state.templates,
             state.rv_0, rv_prior=state.rv_prior, pp_spec=state.pp_spec)
 
@@ -2495,7 +2519,8 @@ class TempFit():
         # TODO: check if log_L decreased
 
         # Calculate the flux correction or continuum fit coefficients at best fit values
-        state.a_fit, _, _ = self.calculate_coeffs(state.spectra, state.templates,
+        state.a_fit, _, _ = self.calculate_coeffs(state,
+                                                  state.spectra, state.templates,
                                                   state.rv_fit,
                                                   pp_spec=state.pp_spec)
         
@@ -2507,7 +2532,7 @@ class TempFit():
         
         return TempFitResults.from_state(state), state
 
-    def eval_correction(self, spectra, templates, rv, ebv=None, a=None):
+    def eval_correction(self, state, spectra, templates, rv, ebv=None, a=None):
         """
         Evaluate the correction model at the given RV on the wavelength grid
         of the observed spectra.
@@ -2538,15 +2563,16 @@ class TempFit():
             Correction model masks for each arm and exposure
         """
 
-        pp_specs = self.preprocess_spectra(spectra)
-        pp_temps = self.preprocess_templates(spectra, templates, rv, ebv)
+        pp_specs = self.preprocess_spectra(state, spectra)
+        pp_temps = self.preprocess_templates(state, spectra, templates, rv, ebv)
         
-        corrections, correction_masks = self.correction_model.eval_correction(pp_specs, pp_temps, a=a)
+        corrections, correction_masks = self.correction_model.eval_correction(state, pp_specs, pp_temps, a=a)
 
         return pp_specs, pp_temps, corrections, correction_masks
 
     def append_corrections_and_templates(
             self,
+            state,
             spectra,
             templates,
             rv_fit,
@@ -2588,19 +2614,19 @@ class TempFit():
         spectra = safe_deep_copy(spectra)
 
         # Evaluate the correction model at the best fit parameters
-        pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(spectra, templates, rv_fit, ebv=ebv_fit, a=a_fit)
+        pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(state, spectra, templates, rv_fit, ebv=ebv_fit, a=a_fit)
 
         # At this point spectra.flux is in physical, observed units,
         # pp_spec.flux is observed flux scaled to unity and pp_temp.flux is scaled to unity.
 
         # Append the correction model to the original spectra but do not change the flux
         self.correction_model.append_model(spectra, corrections, correction_masks, apply_mask=True,
-                                               normalization=None, apply_normalization=False)
+                                           normalization=None, apply_normalization=False)
         
         # Append the flux correction to the templates so that they match the observed flux but
         # do not actually change the flux
         self.correction_model.append_model(pp_temp, corrections, correction_masks, apply_mask=False,
-                                            normalization=None, apply_normalization=False)
+                                           normalization=None, apply_normalization=False)
 
         if apply_correction:
             if match is None:
@@ -2618,7 +2644,7 @@ class TempFit():
                 raise NotImplementedError()
 
         # Scale the templates to the spectra
-        self.multiply_spectra(pp_temp, self.spec_norm)
+        self.multiply_spectra(pp_temp, state.spec_norm)
 
         # Append the best fit template to the original spectra. If the correction is not applied,
         # the template is just scaled to the observed flux but won't match the observed flux.
@@ -2636,7 +2662,9 @@ class TempFit():
                 if spec is not None:
                     spec.multiply(factor)
 
-    def randomize_init_params(self, spectra,
+    def randomize_init_params(self, 
+                              state,
+                              spectra,
                               rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None, rv_err=None,
                               randomize=False, random_size=()):
         
@@ -2822,13 +2850,16 @@ class TempFit():
 
         return out
 
-    def calculate_rv_bouchy(self, spectra, templates, rv_0):
+    def calculate_rv_bouchy(self, state, spectra, templates, rv_0):
         # Calculate a delta V correction by the method of Bouchy (2001)
 
         # TODO: we might need the flux correction coefficients here
         #       this function depends on a flux correction model
 
-        a_0, _, _ = self.calculate_coeffs(spectra, templates, rv_0)
+        # TODO: review
+        raise NotImplementedError()
+
+        a_0, _, _ = self.calculate_coeffs(state, spectra, templates, rv_0)
 
         nom = 0
         den = 0
@@ -2841,8 +2872,8 @@ class TempFit():
                 specs = spectra[arm]
             
             for ei in range(len(specs)):
-                spec = self.process_spectrum(arm, ei, specs[ei])
-                temp = self.process_template(arm, templates[arm], spec, rv_0)
+                spec = self.process_spectrum(state, arm, ei, specs[ei])
+                temp = self.process_template(state, arm, templates[arm], spec, rv_0)
 
                 if self.use_mask:
                     mask = ~spec.mask if spec.mask is not None else np.s_[:]

@@ -26,10 +26,10 @@ class CorrectionModel():
     def init_models(self, spectra, rv_bounds=None, force=False):
         raise NotImplementedError()
         
-    def calculate_coeffs(self, spectra, templates, a=None):
+    def calculate_coeffs(self, state, spectra, templates, a=None):
         raise NotImplementedError()
     
-    def eval_correction(self, pp_specs, pp_temps, a=None):
+    def eval_correction(self, state, pp_specs, pp_temps, a=None):
         raise NotImplementedError()
 
     def append_model(self, spectra, corrections, correction_masks, normalization,

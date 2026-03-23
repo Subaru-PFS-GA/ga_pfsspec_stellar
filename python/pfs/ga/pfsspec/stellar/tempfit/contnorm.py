@@ -356,7 +356,7 @@ class ContNorm(CorrectionModel):
 
         raise NotImplementedError
 
-    def calculate_coeffs(self, spectra, templates, a=None):
+    def calculate_coeffs(self, state, spectra, templates, a=None):
         """
         Given a set of spectra and preprocessed templates, determine the
         continuum model parameters.
@@ -373,7 +373,7 @@ class ContNorm(CorrectionModel):
         
         return a
 
-    def eval_correction(self, pp_specs, pp_temps, a=None):
+    def eval_correction(self, state, pp_specs, pp_temps, a=None):
         if self.use_cont_norm:
             if a is None:
                 a, continua, masks = self.fit_continuum(pp_specs, pp_temps)
