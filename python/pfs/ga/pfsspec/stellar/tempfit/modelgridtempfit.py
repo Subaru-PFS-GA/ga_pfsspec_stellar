@@ -128,23 +128,23 @@ class ModelGridTempFit(TempFit):
     def create_trace(self):
         return ModelGridTempFitTrace()
 
-    def get_templates(self, spectra, params):
+    def get_templates(self, state, spectra, params):
         # Return the templates corresponding to the parameters.
         # Different grids are used for the different arms
 
         templates = {}
         missing = False
-        for k in spectra:
-            grid = self.template_grids[k]
+        for arm in spectra:
+            grid = self.template_grids[arm]
 
             if self.template_psf is not None:
-                psf = self.template_psf[k]
+                psf = self.template_psf[arm]
             else:
                 psf = None 
 
             # TODO: allow higher order interpolation
-            if self.template_wlim is not None:
-                wlim = self.template_wlim[k]
+            if state.template_wlim is not None:
+                wlim = state.template_wlim[arm]
             else:
                 wlim = None
 
@@ -155,7 +155,7 @@ class ModelGridTempFit(TempFit):
                 missing = True
                 break
 
-            templates[k] = temp
+            templates[arm] = temp
 
         return templates, missing
 
@@ -185,7 +185,7 @@ class ModelGridTempFit(TempFit):
         if templates is not None:
             missing = False
         else:
-            templates, missing = self.get_templates(spectra, params)
+            templates, missing = self.get_templates(state, spectra, params)
             
         if missing:
             raise Exception(f"Template parameters {params} are outside the grid.")
@@ -227,7 +227,7 @@ class ModelGridTempFit(TempFit):
             params = { **params, **params_fixed }
 
         if templates is None:
-            templates, missing = self.get_templates(spectra, params)
+            templates, missing = self.get_templates(state, spectra, params)
         else:
             missing = False
 
@@ -589,7 +589,7 @@ class ModelGridTempFit(TempFit):
             def log_L(a_params_rv):
                 a, params, rv = unpack_params(a_params_rv)
                 params = { **params, **params_fixed }
-                templates, missing = self.get_templates(spectra, params)
+                templates, missing = self.get_templates(state, spectra, params)
 
                 if missing:
                     # Trying to extrapolate outside the grid
@@ -606,7 +606,7 @@ class ModelGridTempFit(TempFit):
             def log_L(params_rv):
                 params, rv = unpack_params(params_rv)
                 params = { **params, **params_fixed }
-                templates, missing = self.get_templates(spectra, params)
+                templates, missing = self.get_templates(state, spectra, params)
 
                 if missing:
                     # Trying to extrapolate outside the grid
@@ -622,7 +622,7 @@ class ModelGridTempFit(TempFit):
             def log_L(params):
                 params = unpack_params(params)
                 params = { **params, **params_fixed }
-                templates, missing = self.get_templates(spectra, params)
+                templates, missing = self.get_templates(state, spectra, params)
 
                 if missing:
                     # Trying to extrapolate outside the grid
@@ -638,7 +638,7 @@ class ModelGridTempFit(TempFit):
             def log_L(rv):
                 rv = unpack_params(rv)
                 params = { **params_0, **params_fixed }
-                templates, missing = self.get_templates(spectra, params)
+                templates, missing = self.get_templates(state, spectra, params)
 
                 if missing:
                     # Trying to extrapolate outside the grid
@@ -733,7 +733,7 @@ class ModelGridTempFit(TempFit):
 
         if mode == 'full' or mode == 'a_params_rv':
             # Calculate a_0
-            templates, missing = self.get_templates(spectra, params_0)
+            templates, missing = self.get_templates(state, spectra, params_0)
             a_0, _, _ = self.calculate_coeffs(state, spectra, templates, rv_0, pp_spec=pp_spec)
             x_0 = pack_params(a_0, params_0, rv_0)[0]
             bounds = pack_bounds(np.size(a_0) * [(-np.inf, np.inf)], params_bounds, rv_bounds)
@@ -825,7 +825,7 @@ class ModelGridTempFit(TempFit):
         # Calculate derivatives by the model params and RV only, compose Fisher
         # matrix according to Eq. 28
         
-        templates, missing = self.get_templates(spectra, params_0)
+        templates, missing = self.get_templates(state, spectra, params_0)
         phi_0, chi_0, ndf_0 = self.eval_phi_chi(spectra, templates, rv_0)
         nu_0 = np.sqrt(self.eval_nu2(phi_0, chi_0))
         chi_0_inv = matinv_safe(chi_0)
@@ -839,7 +839,7 @@ class ModelGridTempFit(TempFit):
         def nu(params_rv):
             params, rv = unpack_params(params_rv)
             params = { **params, **params_fixed }
-            templates, missing = self.get_templates(spectra, params)
+            templates, missing = self.get_templates(state, spectra, params)
             phi, chi, _ = self.eval_phi_chi(spectra, templates, rv)
             nu2 = self.eval_nu2(phi, chi)
             return np.sqrt(nu2)
@@ -851,7 +851,7 @@ class ModelGridTempFit(TempFit):
         def phi(params_rv):
             params, rv = unpack_params(params_rv)
             params = { **params, **params_fixed }
-            templates, missing = self.get_templates(spectra, params)
+            templates, missing = self.get_templates(state, spectra, params)
             phi, _, _ = self.eval_phi_chi(spectra, templates, rv)
             return phi
         
@@ -999,20 +999,21 @@ class ModelGridTempFit(TempFit):
         state.pp_spec = self.preprocess_spectra(state, spectra)
 
         # Initialize flux correction or continuum models for each arm and exposure
-        self.init_correction_models(state.pp_spec, rv_bounds=rv_bounds)
-        self.init_extinction_curves(state.pp_spec)
+        self.init_correction_models(state.pp_spec, rv_bounds=rv_bounds, force=True)
+        self.init_extinction_curves(state.pp_spec, force=True)
 
         # Determine the (buffered) wavelength limit in which the templates will be convolved
         # with the PSF. This should be slightly larger than the observed wavelength range.
-        # TODO: this has side-effect, add template_wlim to the state instead?
         if self.template_wlim is None:
             # Use different template wlim for each arm but same for each exposure
-            self.template_wlim = {}
+            state.template_wlim = {}
             wlim = self.determine_wlim(state.pp_spec, per_arm=True, per_exp=False, rv_bounds=rv_bounds)
-            for ai, arm in enumerate(state.pp_spec):
-                self.template_wlim[arm] = wlim[ai]
-                
-                logger.debug(f"Template wavelength limits for {arm}: {wlim[ai]}")
+        else:
+            state.template_wlim = self.template_wlim
+
+        for ai, arm in enumerate(state.pp_spec):
+            state.template_wlim[arm] = wlim[ai]
+            logger.debug(f"Template wavelength limits for {arm}: {wlim[ai]}")
         
         # Get objective function, etc
         state.log_L_fun, state.pack_params, state.unpack_params, state.pack_bounds = self.get_objective_function(
@@ -1175,7 +1176,7 @@ class ModelGridTempFit(TempFit):
             # Look up the templates from the grid and pass those to the the parent class
             if state.params_fixed is not None:
                 state.params_0.update(state.params_fixed)
-            state.templates, missing = self.get_templates(state.spectra, state.params_0)
+            state.templates, missing = self.get_templates(state, state.spectra, state.params_0)
             if missing:
                 raise Exception('Cannot find an initial matching template to start TempFit.')
 
@@ -1297,7 +1298,7 @@ class ModelGridTempFit(TempFit):
         
     def finish_ml(self, state):
         # Calculate the flux correction or continuum fit coefficients at best fit values
-        templates, missing = self.get_templates(state.spectra, state.params_fit)
+        templates, missing = self.get_templates(state, state.spectra, state.params_fit)
         state.a_fit, _, _ = self.calculate_coeffs(state,
                                                   state.spectra, templates,
                                                   state.rv_fit,
@@ -1415,7 +1416,7 @@ class ModelGridTempFit(TempFit):
                 pp_spec=state.pp_spec)
             
             with np.errstate(invalid='warn'):
-                state.rv_err = np.sqrt(C).item()
+                state.rv_err = np.sqrt(C.item())
 
         # Error of the parameters one by one
         state.params_err = {}
@@ -1731,7 +1732,7 @@ class ModelGridTempFit(TempFit):
             apply_correction=True):
 
         if templates is None:
-            templates, missing = self.get_templates(spectra, params_fit)
+            templates, missing = self.get_templates(state, spectra, params_fit)
 
         if a_fit is None:
             pp_spec = self.preprocess_spectra(state, spectra)

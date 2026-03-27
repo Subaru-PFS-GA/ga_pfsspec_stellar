@@ -619,6 +619,7 @@ class TempFit():
         rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
 
         if self.correction_model is not None:
+            self.correction_model.reset()
             self.correction_model.trace = self.trace
             self.correction_model.tempfit = self
 
@@ -731,6 +732,7 @@ class TempFit():
         """
 
         if self.extinction_model is not None:
+            self.extinction_model.reset()
             self.extinction_model.trace = self.trace
             self.extinction_model.tempfit = self
 
@@ -785,7 +787,7 @@ class TempFit():
             s.append(spec.flux[spec.mask & (spec.flux > 0)])
             
             psf = self.template_psf[arm] if self.template_psf is not None else None
-            wlim = self.template_wlim[arm] if self.template_wlim is not None else None    
+            wlim = state.template_wlim[arm] if state.template_wlim is not None else None    
             temp = self.process_template(state, arm, templates[arm], spec, rv_0, psf=psf, wlim=wlim)
             t.append(temp.flux[temp.mask])
 
@@ -972,7 +974,7 @@ class TempFit():
         """
 
         psf = psf if psf is not None else (self.template_psf[arm] if self.template_psf is not None else None)
-        wlim = wlim if wlim is not None else (self.template_wlim[arm] if self.template_wlim is not None else None)
+        wlim = wlim if wlim is not None else (state.template_wlim[arm] if state.template_wlim is not None else None)
 
         temp = None
 
@@ -2092,16 +2094,17 @@ class TempFit():
 
         # Determine the (buffered) wavelength limit in which the templates will be convolved
         # with the PSF. This should be slightly larger than the observed wavelength range.
-        # TODO: this has side-effect, add template_wlim to the state instead?
         if self.template_wlim is None:
             # Use different template wlim for each arm but same for each exposure
-            self.template_wlim = {}
+            state.template_wlim = {}
             wlim = self.determine_wlim(spectra, per_arm=True, per_exp=False, rv_bounds=state.rv_bounds)
             for mi, arm in enumerate(spectra):
-                self.template_wlim[arm] = wlim[mi]
+                state.template_wlim[arm] = wlim[mi]
+        else:
+            state.template_wlim = self.template_wlim
 
-            for mi, arm in enumerate(spectra):
-                logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
+        for mi, arm in enumerate(spectra):
+            logger.debug(f"Template wavelength limits for {arm}: {wlim[mi]}")
 
         # Preprocess the spectra
         if pp_spec is not None:
@@ -2395,7 +2398,7 @@ class TempFit():
         """
 
         if rv is None and state.rv_fit is not None:
-            if state.rv_err is not None:
+            if state.rv_err is not None and np.isfinite(state.rv_err):
                 rv = np.linspace(state.rv_fit - sigma * state.rv_err, state.rv_fit + sigma * state.rv_err, steps)
             elif state.rv_step is not None:
                 rv = np.linspace(state.rv_fit - state.rv_step, state.rv_fit + state.rv_step, steps)
