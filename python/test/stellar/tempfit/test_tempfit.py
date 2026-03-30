@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core import Spectrum
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.tempfit import TempFit, TempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import TempFit, TempFitState, TempFitTrace
 
 from .tempfittestbase import TempFitTestBase
 
@@ -28,6 +28,9 @@ class TestTempFit(TempFitTestBase):
             tempfit.rv_prior = None
 
         return tempfit
+
+    def init_tempfit_state(self, tempfit, specs, temps):
+        return TempFitState(specs, temps)
     
     def get_dummy_spectrum(self, arm, use_mask=True, all_masked=False):
         # Generate fake spectra for functional testing
@@ -632,32 +635,37 @@ class TestTempFit(TempFitTestBase):
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation(rv=125)
 
-        spec_norm, temp_norm = tempfit.get_normalization({'mr': spec}, {'mr': temp})
+        state = self.init_tempfit_state(tempfit, {'mr': spec}, {'mr': temp})
+        state.spec_norm, state.temp_norm = tempfit.get_normalization(state, {'mr': spec}, {'mr': temp})
 
     def test_process_spectrum(self):
         tempfit = self.get_tempfit()
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
         spec = self.get_observation()
 
-        sp = tempfit.process_spectrum('', 0, spec)
+        state = self.init_tempfit_state(tempfit, {'mr': spec}, {'mr': temp})
+        sp = tempfit.process_spectrum(state, '', 0, spec)
 
-        tempfit.spec_norm, tempfit.temp_norm = tempfit.get_normalization({'mr': spec}, {'mr': temp})
-        sp = tempfit.process_spectrum('', 0, spec)
+        state.spec_norm, state.temp_norm = tempfit.get_normalization(state, {'mr': spec}, {'mr': temp})
+        sp = tempfit.process_spectrum(state, '', 0, spec)
 
     def test_process_template(self):
         spec = self.get_observation(arm='mr')
         
         tempfit = self.get_tempfit()
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
-        tm = tempfit.process_template('mr', temp, spec, 100)
+        state = self.init_tempfit_state(tempfit, {'mr': spec}, {'mr': temp})
+        tm = tempfit.process_template(state, 'mr', temp, spec, 100)
 
         psf = self.get_test_psf(arm='mr')
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
-        tm = tempfit.process_template('mr', temp, spec, 100, psf=psf)
+        state = self.init_tempfit_state(tempfit, {'mr': spec}, {'mr': temp})
+        tm = tempfit.process_template(state, 'mr', temp, spec, 100, psf=psf)
 
-        tempfit.spec_norm, tempfit.temp_norm = tempfit.get_normalization({'mr': spec}, {'mr': temp})
+        state.spec_norm, state.temp_norm = tempfit.get_normalization(state, {'mr': spec}, {'mr': temp})
         temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
-        tm = tempfit.process_template('mr', temp, spec, 100, psf=psf)
+        state = self.init_tempfit_state(tempfit, {'mr': spec}, {'mr': temp})
+        tm = tempfit.process_template(state, 'mr', temp, spec, 100, psf=psf)
 
     def test_diff_template(self):
         tempfit = self.get_tempfit()
@@ -674,7 +682,7 @@ class TestTempFit(TempFitTestBase):
         wave, dfdl = tempfit.log_diff_template(temp, np.linspace(3000, 9000, 6000))
 
     def test_determine_wlim(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 flux_correction=True,
                 normalize=True,

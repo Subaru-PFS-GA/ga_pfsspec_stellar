@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.sampling import Parameter, NormalDistribution, UniformDistribution
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitState, ModelGridTempFitTrace
 
 from .tempfittestbase import TempFitTestBase
 
@@ -25,8 +25,10 @@ class TestModelGridTempFit(TempFitTestBase):
         tempfit.params_0 = kwargs
         tempfit.template_resampler = FluxConservingResampler()
         tempfit.template_grids = {
-            'b': self.get_bosz_grid(),
-            'mr': self.get_bosz_grid()
+            # 'b': self.get_bosz_grid(),
+            # 'mr': self.get_bosz_grid()
+            'b': self.get_gk2025_grid(),
+            'mr': self.get_gk2025_grid()
         }
 
         if use_priors:
@@ -44,17 +46,22 @@ class TestModelGridTempFit(TempFitTestBase):
         }
 
         return tempfit
+
+    def init_tempfit_state(self, tempfit, specs, temps):
+        return ModelGridTempFitState(specs, temps)
     
     def test_get_normalization(self):
-        rvfit = self.get_tempfit()
-        temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+        tempfit = self.get_tempfit()
+        temp = self.get_template(M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C=0, C_M=0)
         spec = self.get_observation(rv=125)
 
+        state = self.init_tempfit_state(tempfit, {'mr': spec}, {'mr': temp})
+
         # Provide the templates
-        spec_norm, temp_norm = rvfit.get_normalization({'mr': spec}, {'mr': temp})
+        spec_norm, temp_norm = tempfit.get_normalization(state, {'mr': spec}, {'mr': temp})
 
         # Provide the template parameters
-        spec_norm, temp_norm = rvfit.get_normalization({'mr': spec}, M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C_M=0)
+        spec_norm, temp_norm = tempfit.get_normalization(state, {'mr': spec}, M_H=-1.5, T_eff=4000, log_g=1, a_M=0, C=0, C_M=0)
     
     def test_get_param_packing_functions_params(self):
         tempfit = self.get_tempfit()

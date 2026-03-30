@@ -3,7 +3,7 @@ import numpy.testing as npt
 import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.tempfit import TempFit, TempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import TempFit, TempFitState, TempFitTrace
 from pfs.ga.pfsspec.stellar.tempfit import ContNorm
 from pfs.ga.pfsspec.stellar.continuum.models import Spline
 
@@ -33,6 +33,9 @@ class TestTempFitContNorm(TempFitTestBase):
 
         return tempfit
 
+    def init_tempfit_state(self, tempfit, specs, temps):
+        return TempFitState(specs, temps)
+
     def tempfit_test_helper(self,
                             ax,
                             continuum_fit,
@@ -49,7 +52,7 @@ class TestTempFitContNorm(TempFitTestBase):
                             fit_rv=False,
                             calculate_error=False):
         
-        (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+        (tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
                 continuum_fit=continuum_fit,
                 normalize=normalize,
@@ -69,23 +72,23 @@ class TestTempFitContNorm(TempFitTestBase):
         if calculate_log_L:
             def calculate_log_L_helper(rv):
                 # Tests specific to ContNorm correction model
-                pp_specs = tempfit.preprocess_spectra(specs)
-                pp_temps = tempfit.preprocess_templates(specs, temps, rv)
+                pp_specs = tempfit.preprocess_spectra(state, specs)
+                pp_temps = tempfit.preprocess_templates(state, specs, temps, rv)
                 log_L = tempfit.correction_model.eval_log_L(pp_specs, pp_temps)
                 
                 ax.plot(rv, log_L, 'o')
         
             # Test with scalar
             calculate_log_L_helper(100)
-            tempfit.calculate_log_L(specs, temps, 100)
+            tempfit.calculate_log_L(state, specs, temps, 100)
             
             # Test with vector
             rv = np.linspace(-300, 300, 31)
-            tempfit.calculate_log_L(specs, temps, rv)
+            tempfit.calculate_log_L(state, specs, temps, rv)
 
         if fit_lorentz or guess_rv or fit_rv or calculate_error:
             rv = np.linspace(-300, 300, 31)
-            log_L = tempfit.calculate_log_L(specs, temps, rv)
+            log_L = tempfit.calculate_log_L(state, specs, temps, rv)
             pp, _ = tempfit.fit_lorentz(rv, log_L)
 
             y1 = tempfit.lorentz(rv, *pp)
@@ -98,7 +101,7 @@ class TestTempFitContNorm(TempFitTestBase):
             ax.axvline(rv0, color='k', label='rv guess')
 
     def test_init_correction_model(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 continuum_fit=True,
                 normalize=True,
@@ -129,7 +132,7 @@ class TestTempFitContNorm(TempFitTestBase):
         self.assertIsInstance(models[0], Spline)
 
     def test_get_coeff_count(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 continuum_fit=True,
                 normalize=True,
@@ -220,7 +223,7 @@ class TestTempFitContNorm(TempFitTestBase):
                                    multiple_arms, multiple_exp,
                                    use_priors):
 
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 continuum_fit=continuum_fit,
                 normalize=normalize,
@@ -245,7 +248,7 @@ class TestTempFitContNorm(TempFitTestBase):
 
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
         rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
-        log_L = tempfit.calculate_log_L(specs, temps, rvv)
+        log_L = tempfit.calculate_log_L(state, specs, temps, rvv)
         if tempfit.rv_prior is not None:
             log_L += tempfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
@@ -262,7 +265,7 @@ class TestTempFitContNorm(TempFitTestBase):
                                    multiple_arms, multiple_exp,
                                    use_priors):
 
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 continuum_fit=continuum_fit,
                 normalize=normalize,
@@ -291,7 +294,7 @@ class TestTempFitContNorm(TempFitTestBase):
 
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
         rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
-        log_L = tempfit.calculate_log_L(specs, temps, rvv)
+        log_L = tempfit.calculate_log_L(state, specs, temps, rvv)
         if tempfit.rv_prior is not None:
             log_L += tempfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
@@ -331,7 +334,7 @@ class TestTempFitContNorm(TempFitTestBase):
 
         f, ax = plt.subplots(1, 1, figsize=(6, 4), squeeze=True)
 
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 flux_correction=True,
                 normalize=True,
@@ -361,7 +364,7 @@ class TestTempFitContNorm(TempFitTestBase):
 
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
         rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
-        log_L = tempfit.calculate_log_L(specs, temps, rvv)
+        log_L = tempfit.calculate_log_L(state, specs, temps, rvv)
         if tempfit.rv_prior is not None:
             log_L += tempfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
@@ -375,7 +378,7 @@ class TestTempFitContNorm(TempFitTestBase):
     def test_fit_rv_rv_fixed(self):
         f, ax = plt.subplots(1, 1, figsize=(6, 4), squeeze=True)
 
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 flux_correction=True,
                 normalize=True,
@@ -406,7 +409,7 @@ class TestTempFitContNorm(TempFitTestBase):
 
         # rvv = np.linspace(rv_real - 10 * rv_err, rv_real + 10 * rv_err, 101)
         rvv = np.linspace(res.rv_fit - 0.001, res.rv_fit + 0.001, 101)
-        log_L = tempfit.calculate_log_L(specs, temps, rvv)
+        log_L = tempfit.calculate_log_L(state, specs, temps, rvv)
         if tempfit.rv_prior is not None:
             log_L += tempfit.rv_prior(rvv)
         ax.plot(rvv, log_L, '.')
@@ -418,7 +421,7 @@ class TestTempFitContNorm(TempFitTestBase):
         self.save_fig(f)
 
     def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(               flux_correction=flux_correction,
                 normalize=normalize,
                 convolve_template=convolve_template,
@@ -469,7 +472,7 @@ class TestTempFitContNorm(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+            tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
                 self.get_initialized_tempfit(**config)
             
             tempfit.correction_model.amplitude_per_arm = True
@@ -489,7 +492,7 @@ class TestTempFitContNorm(TempFitTestBase):
                 ], [
                     'hessian',
                 ]):
-                FF, CC = tempfit.calculate_F(specs, temps, res.rv_fit, mode=mode, method=method)
+                FF, CC = tempfit.calculate_F(state, specs, temps, res.rv_fit, mode=mode, method=method)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])

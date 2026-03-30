@@ -1,7 +1,8 @@
 import os
 
-from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.stellar.grid.kurucz.io import KuruczAtmReader
+
+from .....core.test_base import TestBase
 
 class TestKuruczAtmReader(TestBase):
     def test_read(self):

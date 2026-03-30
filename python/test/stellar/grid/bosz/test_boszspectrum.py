@@ -1,11 +1,12 @@
 import os
 
-from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.core import Filter
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.core.grid import RbfGrid
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
+
+from ....core.test_base import TestBase
 
 class TestBoszSpectrum(TestBase):
     

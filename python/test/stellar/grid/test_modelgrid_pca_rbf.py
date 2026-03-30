@@ -2,10 +2,11 @@ import os
 from tqdm import tqdm
 import numpy as np
 
-from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.core.grid import RbfGrid
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
+
+from ...core.test_base import TestBase
 
 class TestModelGrid_Pca_Rbf(TestBase):
     def get_test_grid(self, args):

@@ -1,11 +1,12 @@
 import os
 import numpy as np
 
-from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.bosz import Bosz
 from pfs.ga.pfsspec.stellar.grid.bosz.io import BoszGridReader, BoszSpectrumReader
+
+from .....core.test_base import TestBase
 
 class TestBoszGridReader(TestBase):
     def create_grid_reader(self):

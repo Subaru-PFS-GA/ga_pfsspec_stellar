@@ -1,4 +1,4 @@
-from test.pfs.ga.pfsspec.core import TestBase
+from ....core.test_base import TestBase
 
 class TestKuruczSpectrum(TestBase):
     pass
