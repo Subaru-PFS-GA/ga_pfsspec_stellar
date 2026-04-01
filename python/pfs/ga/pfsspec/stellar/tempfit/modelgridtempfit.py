@@ -42,6 +42,28 @@ class ModelGridTempFit(TempFit):
         Step sizes for MCMC and numerical differentiation of the template parameters
     """
 
+    PARAM_SCALE_DEFAULT = {
+        'T_eff': 1000.0,
+        'log_g': 1.0,
+        'M_H': 1.0,
+        'Fe_H': 1.0,
+        'a_M': 1.0,
+        'C_M': 1.0,
+        'C': 1.0,
+        'ebv': 0.1
+    }
+
+    PARAM_BIAS_DEFAULT = {
+        'T_eff': 4000.0,
+        'log_g': 2.5,
+        'M_H': 0.0,
+        'Fe_H': 0.0,
+        'a_M': 0.0,
+        'C_M': 0.0,
+        'C': 0.0,
+        'ebv': 0.0
+    }
+
     def __init__(
             self,
             trace=None,
@@ -70,6 +92,8 @@ class ModelGridTempFit(TempFit):
             self.params_bounds = None        # Template parameter bounds
             self.params_priors = None        # Dict of callables for each parameter
             self.params_steps = None         # Spec size for each parameter
+            self.params_scale = None         # Scaling factor for each parameter to improve numerical stability
+            self.params_bias = None          # Bias for each parameter to improve numerical stability
         else:
             self.template_grids = orig.template_grids
             self.synthmag_filters = orig.synthmag_filters
@@ -80,9 +104,19 @@ class ModelGridTempFit(TempFit):
             self.params_bounds = orig.params_bounds
             self.params_priors = orig.params_priors
             self.params_steps = orig.params_steps
-
+            self.params_scale = orig.params_scale
+            self.params_bias = orig.params_bias
+            
     def reset(self):
         super().reset()
+
+    def __enumerate_params(self):
+        grid = self.template_grids[list(self.template_grids.keys())[0]]
+        for i, p, ax in grid.enumerate_axes():
+            yield p, Parameter(p)
+
+        if self.extinction_model is not None:
+            yield 'ebv', Parameter('ebv')
 
     def add_args(self, config, parser):
         super().add_args(config, parser)
@@ -92,15 +126,13 @@ class ModelGridTempFit(TempFit):
     
         # Look up template parameters from the command-line. Figure out the ones that
         # are sampled randomly and ones that are fixed
-        params = {}
+        params = { k: param for k, param in self.__enumerate_params() }
 
         grid = self.template_grids[list(self.template_grids.keys())[0]]
         for i, p, ax in grid.enumerate_axes():
-            params[p] = Parameter(p)
             params[p].init_from_args(args)
 
         if self.extinction_model is not None:
-            params['ebv'] = Parameter('ebv')
             params['ebv'].init_from_args(args)
 
         self.params_0 = {}
@@ -108,7 +140,9 @@ class ModelGridTempFit(TempFit):
         self.params_bounds = {}
         self.params_priors = {}
         self.params_steps = {}
-
+        self.params_scale = {}
+        self.params_bias = {}
+        
         # Add parameters and priors
         for p in params:
             x_0, bounds, fixed = params[p].generate_initial_value()
@@ -116,6 +150,9 @@ class ModelGridTempFit(TempFit):
             self.params_0[p] = x_0
             self.params_bounds[p] = bounds
             self.params_steps[p] = step
+            self.params_scale[p] = self.PARAM_SCALE_DEFAULT[p] if p in self.PARAM_SCALE_DEFAULT else 1.0
+            self.params_bias[p] = self.PARAM_BIAS_DEFAULT[p] if p in self.PARAM_BIAS_DEFAULT else 0.0
+
             if fixed:
                 self.params_fixed[p] = x_0
 
@@ -218,10 +255,10 @@ class ModelGridTempFit(TempFit):
         model parameters are assumed to be fixed.
         """
 
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
-        params = params if params is not None else self.params_0
-        params_fixed = params_fixed if params_fixed is not None else self.params_fixed
-        params_priors = params_priors if params_priors is not None else self.params_priors
+        rv_prior = rv_prior if rv_prior is not None else state.rv_prior
+        params = params if params is not None else state.params_0
+        params_fixed = params_fixed if params_fixed is not None else state.params_fixed
+        params_priors = params_priors if params_priors is not None else state.params_priors
 
         if params is not None and params_fixed is not None:
             params = { **params, **params_fixed }
@@ -664,13 +701,13 @@ class ModelGridTempFit(TempFit):
 
         for p in state.params_free:
             state.params_flags[p], state.flags = self._check_param_bounds_edge(
-                param_name=p,
-                param_fixed=False,
-                param_fit=state.params_fit[p],
-                param_bounds=state.params_bounds[p] if state.params_bounds is not None and p in state.params_bounds else None,
-                param_prior=state.params_priors[p] if state.params_priors is not None and p in state.params_priors else None,
-                params_flags=state.params_flags[p],
-                flags=state.flags,
+                name=p,
+                fixed=False,
+                fit=state.params_fit[p],
+                bounds=state.params_bounds[p] if state.params_bounds is not None and p in state.params_bounds else None,
+                prior=state.params_priors[p] if state.params_priors is not None and p in state.params_priors else None,
+                param_flags=state.params_flags[p],
+                all_flags=state.flags,
                 eps=eps
             )
 
@@ -684,12 +721,12 @@ class ModelGridTempFit(TempFit):
         if state.params_fit is not None and state.params_priors is not None:
             for p in state.params_fit:
                 state.params_flags[p], state.flags = self._check_param_prior_unlikely(
-                    param_name=p,
-                    param_fixed=False,
-                    param_fit=state.params_fit[p],
-                    param_prior=state.params_priors[p] if state.params_priors is not None and p in state.params_priors else None,
+                    name=p,
+                    fixed=False,
+                    fit=state.params_fit[p],
+                    prior=state.params_priors[p] if state.params_priors is not None and p in state.params_priors else None,
                     param_flags=state.params_flags[p] if state.params_flags is not None and p in state.params_flags else TempFitFlag.OK,
-                    flags=state.flags,
+                    all_flags=state.flags,
                     lp_limit=lp_limit)
 
     def calculate_F(self, state,
@@ -910,8 +947,8 @@ class ModelGridTempFit(TempFit):
     
     def init_state(self, spectra, /,
                     fluxes=None,
-                    rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
-                    params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None,
+                    rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None, rv_scale=None, rv_bias=None,
+                    params_0=None, params_bounds=None, params_priors=None, params_steps=None, params_fixed=None, params_scale=None, params_bias=None,
                     pp_spec=None):
         
         """
@@ -933,6 +970,10 @@ class ModelGridTempFit(TempFit):
             Step size for the RV
         rv_fixed : bool
             If True, the RV is fixed to the initial guess
+        rv_scale : float
+            Scale factor for the RV for optimization
+        rv_bias : float
+            Bias value for the RV for optimization
         params_0 : dict
             Dictionary of initial values for the template parameters
         params_bounds : dict
@@ -943,6 +984,10 @@ class ModelGridTempFit(TempFit):
             Dictionary of step sizes for the template parameters
         params_fixed : dict
             Dictionary of fixed parameter values
+        params_scale : dict
+            Dictionary of scale factors for the template parameters
+        params_bias : dict
+            Dictionary of bias values for the template parameters
         pp_spec : dict of list
             Preprocessed spectra
 
@@ -965,11 +1010,37 @@ class ModelGridTempFit(TempFit):
         state.rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         state.rv_step = rv_step if rv_step is not None else self.rv_step
         
+        rv_scale = rv_scale if rv_scale is not None else self.rv_scale
+        rv_bias = rv_bias if rv_bias is not None else self.rv_bias
+
+        if rv_scale is not None and rv_bias is not None:
+            state.rv_scale = rv_scale
+            state.rv_bias = rv_bias
+        else:
+            state.rv_scale = self.RV_SCALE_DEFAULT
+            state.rv_bias = self.RV_BIAS_DEFAULT
+        
         state.params_0 = params_0 if params_0 is not None else self.params_0
         state.params_fixed = params_fixed if params_fixed is not None else self.params_fixed
         state.params_bounds = params_bounds if params_bounds is not None else self.params_bounds
         state.params_priors = params_priors if params_priors is not None else self.params_priors
         state.params_steps = params_steps if params_steps is not None else self.params_steps
+        
+        params_scale = params_scale if params_scale is not None else self.params_scale
+        params_bias = params_bias if params_bias is not None else self.params_bias
+
+        state.params_scale = {}
+        state.params_bias = {}
+        for p, param in self.__enumerate_params():
+            if params_scale is not None and p in params_scale:
+                state.params_scale[p] = params_scale[p]
+            else:
+                state.params_scale[p] = self.PARAM_SCALE_DEFAULT[p] if p in self.PARAM_SCALE_DEFAULT else 1.0
+
+            if params_bias is not None and p in params_bias:
+                state.params_bias[p] = params_bias[p]
+            else:
+                state.params_bias[p] = self.PARAM_BIAS_DEFAULT[p] if p in self.PARAM_BIAS_DEFAULT else 0.0
 
         if state.params_0 is None:
             # TODO
@@ -1024,7 +1095,7 @@ class ModelGridTempFit(TempFit):
             mode='params_rv',
             pp_spec=state.pp_spec)
 
-        self._pack_everything(state)
+        self.__pack_everything(state)
 
         # Set default values of the flags
         state.flags = TempFitFlag.OK
@@ -1033,7 +1104,7 @@ class ModelGridTempFit(TempFit):
 
         return state
 
-    def _pack_everything(self, state):
+    def __pack_everything(self, state):
         # Initial values
         if state.params_0 is not None and state.rv_0 is not None:
             state.x_0 = state.pack_params(state.params_0, state.rv_0)[0]
@@ -1051,15 +1122,18 @@ class ModelGridTempFit(TempFit):
         else:
             state.steps = None
 
+        # Parameter scale and bias for optimization
+        state.scale = state.pack_params(state.params_scale, state.rv_scale)[0]
+        state.bias = state.pack_params(state.params_bias, state.rv_bias)[0]
+
         # Parameter bounds for optimizers, bounds is a list of tuples, convert to an array
-        
         # Make sure all randomly generated parameters are within the grid
         # TODO: this doesn't account for any possible holes
         bounds = self.determine_grid_bounds(state.params_bounds, state.params_free)
         
         # Add the rest of the bounds
         for p in state.params_free:
-            if p not in bounds and p in state.params_bounds:
+            if p not in bounds and state.params_bounds is not None and p in state.params_bounds:
                 bounds[p] = state.params_bounds[p]
 
         bounds = state.pack_bounds(bounds, state.rv_bounds)
@@ -1146,7 +1220,7 @@ class ModelGridTempFit(TempFit):
                 params_priors=params_priors, params_steps=None,
                 params_fixed=params_fixed)
 
-        state, _, _ = self.guess_ml(state, method='max')
+        state, _, _ = self.guess_ml(state, method='max', smooth=True)
         
         res, state = self.run_ml(state)
 
@@ -1160,7 +1234,7 @@ class ModelGridTempFit(TempFit):
 
         return res
 
-    def guess_ml(self, state, steps=None, method='lorentz'):    
+    def guess_ml(self, state, steps=None, method='lorentz', smooth=False):
         """
         Guess an initial state to close best RV, either using the supplied set of templates or
         initial model parameters.
@@ -1182,7 +1256,7 @@ class ModelGridTempFit(TempFit):
 
             logger.info(f"Using template with parameters {state.params_0} to guess RV.")
 
-        state, rv, log_L = super().guess_ml(state, steps=steps, method=method)
+        state, rv, log_L = super().guess_ml(state, steps=steps, method=method, smooth=smooth)
         
         orig_state.rv_guess = state.rv_guess
         orig_state.params_guess = state.params_guess
@@ -1213,20 +1287,22 @@ class ModelGridTempFit(TempFit):
         `params_fixed`, no optimization is performed for that parameter.
         """
                 
-        # TODO: If no free parameters, fall back to superclass implementation
-        if len(state.params_free) == 0:
+        # If no free parameters, fall back to superclass implementation
+        if method == 'rv_only' or len(state.params_free) == 0:
+            # TODO: fall-back is not very simple because we basically have to re-initialize the
+            #       state, etc.
             raise NotImplementedError()
         
         # If rv_0 is not provided, guess it
         if state.rv_0 is None:
-            state, rv, log_L = self.guess_ml(state, method='max')
+            state, rv, log_L = self.guess_ml(state, method='max', smooth=True)
             state.rv_0 = state.rv_guess
             state.params_0 = state.params_guess
             
             if state.rv_fixed:
                 logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
 
-        self._pack_everything(state)
+        self.__pack_everything(state)
 
         if self.trace is not None:
             # When tracing, create a full list of included and excluded wavelengths, independent
@@ -1238,36 +1314,55 @@ class ModelGridTempFit(TempFit):
                                        state.log_L_0, state.log_L_fun,
                                        wave_include=wave_include, wave_exclude=wave_exclude)
 
+        # Optimization is done in the scaled and biased space, so we need to transform
+        # all parameters accordingly.
+
+        x_0 = (state.x_0 - state.bias) / state.scale
+        steps = state.steps
+        bounds = (state.bounds - state.bias[:, None]) / state.scale[:, None]
+        
         # Cost function - here we don't have to distinguish between the two cases of `rv_fixed`
         # because `init_state` already returns the right function.
-        def llh(params_rv):
-            return -state.log_L_fun(params_rv)
+        def llh(x):
+            # Transform the parameters back to the original space
+            x = x * state.scale + state.bias
+            return -state.log_L_fun(x)
         
         # Verify that the starting point is valid
-        log_L_0 = llh(state.x_0)
+        log_L_0 = llh(x_0)
         if np.isinf(log_L_0) or np.isnan(log_L_0):
             all_params = {**state.params_0, **state.params_fixed}
             raise Exception(f"Invalid starting point for template fitting. Are the parameters {all_params} outside the grid?")
         
+        if self.trace is not None:
+            # When tracing, evaluate the log likelihood at each iteration of
+            # the optimization to verify the convergence
+            def callback(x):
+                x = x * state.scale + state.bias
+                log_L = state.log_L_fun(x)
+                params, rv = state.unpack_params(x)
+                self.trace.on_fit_rv_iter(rv, params, log_L, state.log_L_fun)
+        else:
+            callback = None
+
         # Call the optimizer
-        if method == 'Nelder-Mead':
-            if self.trace is not None:
-                # When tracing, evaluate the log likelihood at each iteration of
-                # the optimization to verify the convergence
-                def callback(x):
-                    params, rv = state.unpack_params(x)
-                    log_L = state.log_L_fun(x)
-                    self.trace.on_fit_rv_iter(rv, params, log_L, state.log_L_fun)
-            else:
-                callback = None
-        
-            x_fit, fl = self.optimize_nelder_mead(state.x_0, state.steps, state.bounds,
+        if method == 'Nelder-Mead':        
+            x_fit, flags_fit = self.optimize_nelder_mead(x_0, steps, bounds,
                                                   llh,
                                                   self.max_iter,
                                                   callback=callback)
-            state.flags |= fl
+        elif method == 'gradient':
+            x_fit, flags_fit = self.optimize_gradient(x_0, steps, bounds,
+                                              llh,
+                                              self.max_iter,
+                                              callback=callback)
         else:
             raise NotImplementedError()
+
+        state.flags |= flags_fit
+
+        # Scale back the optimized parameters to the original space
+        x_fit = x_fit * state.scale + state.bias
         
         # Unpack the optimized parameters
         state.params_fit, state.rv_fit = state.unpack_params(x_fit)
@@ -1394,6 +1489,35 @@ class ModelGridTempFit(TempFit):
             flags |= TempFitFlag.NOCONVERGE
 
         return out.x, flags
+
+    def optimize_gradient(self, x_0, steps, bounds,
+                          llh,
+                          max_iter,
+                          callback=None):
+
+        flags = 0
+
+        with Timer(f'Starting optimization with gradient L-BFGS-B and {x_0.size} parameter(s).', logger=logger, level=logging.INFO):
+            out = minimize(llh,
+                           x0=x_0, bounds=bounds, method='L-BFGS-B', callback=callback,
+                           options=dict(maxiter=max_iter))
+            
+        if out.success or out.nit == max_iter:
+            # Even if the number of max iterations reached, we should have a somewhat valid result
+            logger.info(f"Optimize message: {out.message}")
+            logger.info(f"Optimizer number of iterations: {out.nit}, "
+                        f"number of function evaluations: {out.nfev}")
+
+            if max_iter == out.nit:
+                logger.warning("Optimization reached the maximum number of iterations.")
+                flags |= TempFitFlag.MAXITER
+        else:
+            logger.error(f"Optimization failed, optimizer message: {out.message}")
+            flags |= TempFitFlag.NOCONVERGE
+
+        return out.x, flags
+
+
 
     def calculate_error_ml(self, state):
         """

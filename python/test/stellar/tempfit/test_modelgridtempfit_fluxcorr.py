@@ -112,12 +112,10 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                     self.assertEqual(shape + chi_shape, np.shape(chi))
 
                     # Do not specify the templates here
-                    log_L = tempfit.calculate_log_L(state, specs, None, rv)
                     log_L = tempfit.calculate_log_L(state, specs, None, rv, params=params_0)
-                    log_L = tempfit.calculate_log_L(state, specs, None, rv, a=a)
                     log_L = tempfit.calculate_log_L(state, specs, None, rv, a=a, params=params_0)
 
-                tempfit.calculate_log_L(state, specs, temps, rv)
+                tempfit.calculate_log_L(state, specs, temps, rv, params=params_0)
         
             # Test with scalar
             rv = 100

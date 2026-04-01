@@ -16,6 +16,8 @@ class TempFitState():
             self.rv_guess = None
             self.rv_bounds = None
             self.rv_prior = None
+            self.rv_scale = None
+            self.rv_bias = None
             self.rv_step = None
             self.rv_fit = None
             self.rv_err = None
@@ -35,6 +37,8 @@ class TempFitState():
             self.pack_bounds = None
 
             self.x_0 = None
+            self.scale = None
+            self.bias = None
             self.steps = None
             self.bounds = None
             self.flags = None
@@ -51,6 +55,8 @@ class TempFitState():
             self.rv_guess = safe_deep_copy(orig.rv_guess)
             self.rv_bounds = safe_deep_copy(orig.rv_bounds)
             self.rv_prior = orig.rv_prior
+            self.rv_scale = safe_deep_copy(orig.rv_scale)
+            self.rv_bias = safe_deep_copy(orig.rv_bias)
             self.rv_step = safe_deep_copy(orig.rv_step)
             self.rv_fit = safe_deep_copy(orig.rv_fit)
             self.rv_err = safe_deep_copy(orig.rv_err)
@@ -70,6 +76,8 @@ class TempFitState():
             self.pack_bounds = orig.pack_bounds
 
             self.x_0 = safe_deep_copy(orig.x_0)
+            self.scale = safe_deep_copy(orig.scale)
+            self.bias = safe_deep_copy(orig.bias)
             self.steps = safe_deep_copy(orig.steps)
             self.bounds = safe_deep_copy(orig.bounds)
             self.flags = safe_deep_copy(orig.flags)

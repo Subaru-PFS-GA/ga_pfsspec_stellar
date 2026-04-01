@@ -107,15 +107,15 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
         
             # Test with scalar
             calculate_log_L_helper(100)
-            tempfit.calculate_log_L(state, specs, temps, 100)
+            tempfit.calculate_log_L(state, specs, temps, 100, params=params_0)
             
             # Test with vector
             rv = np.linspace(-300, 300, 31)
-            tempfit.calculate_log_L(state, specs, temps, rv)
+            tempfit.calculate_log_L(state, specs, temps, rv, params=params_0)
             
         if fit_lorentz or guess_rv or fit_rv or calculate_error:
             rv = np.linspace(-300, 300, 31)
-            log_L = tempfit.calculate_log_L(state, specs, temps, rv)
+            log_L = tempfit.calculate_log_L(state, specs, temps, rv, params=params_0)
             pp, _ = tempfit.fit_lorentz(rv, log_L)
 
             y1 = tempfit.lorentz(rv, *pp)

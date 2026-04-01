@@ -16,6 +16,8 @@ class ModelGridTempFitState(TempFitState):
             self.params_guess = None
             self.params_bounds = None
             self.params_priors = None
+            self.params_scale = None
+            self.params_bias = None
             self.params_steps = None
             self.params_free = None
             self.params_fit = None
@@ -30,6 +32,8 @@ class ModelGridTempFitState(TempFitState):
             self.params_guess = safe_deep_copy(orig.params_guess)
             self.params_bounds = safe_deep_copy(orig.params_bounds)
             self.params_priors = orig.params_priors
+            self.params_scale = safe_deep_copy(orig.params_scale)
+            self.params_bias = safe_deep_copy(orig.params_bias)
             self.params_steps = safe_deep_copy(orig.params_steps)
             self.params_free = safe_deep_copy(orig.params_free)
             self.params_fit = safe_deep_copy(orig.params_fit)
