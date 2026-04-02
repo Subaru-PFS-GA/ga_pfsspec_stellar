@@ -291,6 +291,8 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                            rv_fixed=rv_fixed,
                            params_0=params_0)
         res, state = rvfit.run_ml(state)
+        if not rv_fixed:
+            res, state = rvfit.polish_rv_ml(state)
         res, state = rvfit.calculate_error_ml(state)
         res, state = rvfit.calculate_cov_ml(state)
         res, state = rvfit.finish_ml(state)
