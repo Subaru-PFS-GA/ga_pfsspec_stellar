@@ -199,7 +199,7 @@ class TempFit():
             self.use_error = True           # Use flux error from spectrum, if available
             self.use_weight = False         # Use weight from template, if available
 
-            self.error_softerning = None    # Soften the flux error to mitigate the effect of underestimated errors and outliers
+            self.error_softening = None     # Soften the flux error to mitigate the effect of underestimated errors and outliers
 
             self.max_iter = 1000            # Maximum number of iterations of the optimization algorithm
 
