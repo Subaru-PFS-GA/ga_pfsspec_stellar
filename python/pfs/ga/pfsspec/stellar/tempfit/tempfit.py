@@ -113,6 +113,8 @@ class TempFit():
     use_weight : bool
         Use weight from template for fitting, if available. Templates can define weights to
         modify the likelihood function.
+    error_softerning : bool
+        Soften the flux error to mitigate the effect of underestimated errors and outliers.
     max_iter : int
         Maximum number of iterations of the optimization algorithm.
     mcmc_walkers : int
@@ -197,6 +199,8 @@ class TempFit():
             self.use_error = True           # Use flux error from spectrum, if available
             self.use_weight = False         # Use weight from template, if available
 
+            self.error_softerning = None    # Soften the flux error to mitigate the effect of underestimated errors and outliers
+
             self.max_iter = 1000            # Maximum number of iterations of the optimization algorithm
 
             self.mcmc_walkers = 10          # Number of parallel walkers
@@ -237,6 +241,8 @@ class TempFit():
             self.mask_bits = orig.mask_bits
             self.use_error = orig.use_error
             self.use_weight = orig.use_weight
+
+            self.error_softerning = orig.error_softerning
 
             self.max_iter = orig.max_iter
 
@@ -286,6 +292,8 @@ class TempFit():
         parser.add_argument('--mask', action='store_true', dest='use_mask', help='Use mask from spectra.\n')
         parser.add_argument('--no-mask', action='store_false', dest='use_mask', help='Do not use mask from spectra.\n')
         parser.add_argument('--mask-bits', type=int, help='Bit mask.\n')
+
+        parser.add_argument('--error-softening', type=float, help='Soften the flux error.\n')
 
         parser.add_argument('--max-iter', type=int, help='Maximum number of iterations of the optimization algorithm.\n')
 
@@ -350,6 +358,8 @@ class TempFit():
         self.mask_bits = get_arg('mask_bits', self.mask_bits, args)
         self.use_error = get_arg('use_error', self.use_error, args)
         self.use_weight = get_arg('use_weight', self.use_weight, args)
+
+        self.error_softerning = get_arg('error_softening', self.error_softening, args)
 
         self.max_iter = get_arg('max_iter', self.max_iter, args)
 
@@ -851,8 +861,13 @@ class TempFit():
         spec.mask = self.get_full_mask(spec)
 
         # Take flux error and calculate its squared
+        # Optionally apply error softening
         if self.use_error and spec.flux_err is not None:
             spec.sigma2 = spec.flux_err ** 2
+
+            if self.error_softerning:
+                spec.sigma2 += (self.error_softerning * np.median(spec.flux_err)) ** 2
+
             spec.mask &= ~np.isnan(spec.sigma2)
         else:
             spec.sigma2 = None
@@ -2290,28 +2305,28 @@ class TempFit():
         """
 
         method = method if method is not None else 'lorentz'
+        bounds = state.rv_bounds
 
-        logger.info(f"Guessing RV with method `{method}` using a fixed template. RV bounds are {state.rv_bounds} km/s, "
-                    f"number of steps is {steps}.")
-
-        if state.rv_bounds is None:
-            state.rv_bounds = (-500, 500)
+        if bounds is None:
+            bounds = (-500, 500)
         else:
-            if state.rv_bounds[0] is None or not np.isfinite(state.rv_bounds[0]):
-                state.rv_bounds = (-500, state.rv_bounds[1])
-            if state.rv_bounds[1] is None or not np.isfinite(state.rv_bounds[1]):
-                state.rv_bounds = (state.rv_bounds[0], 500)
+            if bounds[0] is None or not np.isfinite(bounds[0]):
+                bounds = (-500, bounds[1])
+            if bounds[1] is None or not np.isfinite(bounds[1]):
+                bounds = (bounds[0], 500)
         
         # Calculate the number of steps for the RV grid
-        if steps is None and state.rv_bounds is not None and state.rv_step is not None \
-            and state.rv_bounds[0] is not None and state.rv_bounds[1] is not None \
-            and np.isfinite(state.rv_bounds[0]) and np.isfinite(state.rv_bounds[1]):
+        if steps is None and state.rv_step is not None \
+            and np.isfinite(bounds[0]) and np.isfinite(bounds[1]):
 
-            steps = int((state.rv_bounds[1] - state.rv_bounds[0]) / state.rv_step)
+            steps = int((bounds[1] - bounds[0]) / state.rv_step)
         elif steps is None:
             steps = 31
+
+        logger.info(f"Guessing RV with method `{method}` using a fixed template. "
+                    f"RV bounds are {bounds} km/s, number of steps is {steps}.")
     
-        rv = np.linspace(*state.rv_bounds, steps)
+        rv = np.linspace(*bounds, steps)
         log_L = self.calculate_log_L(
             state,
             state.spectra, state.templates,
@@ -2349,7 +2364,7 @@ class TempFit():
         else:
             raise NotImplementedError()
 
-        # Check if the guess is within the bounds
+        # Check if the guess is within the bounds (which can happen with curve fitting)
         outside = False
         edge = False
 
