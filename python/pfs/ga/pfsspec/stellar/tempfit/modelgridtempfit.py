@@ -1701,6 +1701,8 @@ class ModelGridTempFit(TempFit):
                            options=dict(
                                maxiter=max_iter,
                                ftol=1e-10))
+
+        logger.info(f"Optimizer final Jacobian: {out.jac}")
             
         if out.success or out.nit == max_iter:
             # Even if the number of max iterations reached, we should have a somewhat valid result
