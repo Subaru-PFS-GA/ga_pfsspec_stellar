@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 from numpy.linalg import LinAlgError
 from scipy.optimize import curve_fit, minimize
-from scipy.optimize import minimize_scalar
+from scipy.optimize import minimize_scalar, basinhopping
 from scipy.special import factorial
 import numdifftools as nd
 
@@ -280,6 +280,10 @@ class ModelGridTempFit(TempFit):
             ebv = params_fixed['ebv'] if params_fixed is not None and 'ebv' in params_fixed else ebv
             ebv_prior = params_priors['ebv'] if params_priors is not None and 'ebv' in params_priors else None
 
+            # NOTE: superclass can apply the extinction to the templates but cannot
+            #       optimize it so we pass in the value but the prior is calculated
+            #       after
+
             log_L = super().calculate_log_L(state,
                                             spectra, templates,
                                             rv, rv_prior=rv_prior,
@@ -309,6 +313,8 @@ class ModelGridTempFit(TempFit):
         """
         Calculate the log-likelihood of the observed fluxes
         """
+
+        # TODO: cache the filter / flux pairing
 
         log_L = 0.0
 
@@ -380,7 +386,7 @@ class ModelGridTempFit(TempFit):
                                      (obs_flux_err[band2] / obs_flux[band2]) ** 2)
 
                     # Calculate the contribution to log L
-                    log_L += np.log(0.5 * (obs_ratio - synth_ratio) ** 2 / obs_ratio_err)
+                    log_L += -0.5 * (obs_ratio - synth_ratio) ** 2 / obs_ratio_err
                     
         assert np.isfinite(log_L), "log_L is not finite in eval_synth_flux_log_L"
 
@@ -393,11 +399,11 @@ class ModelGridTempFit(TempFit):
         
         # Evaluate log L on a grid
 
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
-        params_priors = params_priors if params_priors is not None else self.params_priors
-        params_bounds = params_bounds if params_bounds is not None else self.params_bounds
-        params_fixed = params_fixed if params_fixed is not None else self.params_fixed
+        rv_prior = rv_prior if rv_prior is not None else state.rv_prior
+        rv_bounds = rv_bounds if rv_bounds is not None else state.rv_bounds
+        params_priors = params_priors if params_priors is not None else state.params_priors
+        params_bounds = params_bounds if params_bounds is not None else state.params_bounds
+        params_fixed = params_fixed if params_fixed is not None else state.params_fixed
 
         params_free = self.determine_free_params(params_fixed)
 
@@ -684,7 +690,7 @@ class ModelGridTempFit(TempFit):
                     log_L = self.calculate_log_L(state,
                                                  spectra, templates, fluxes=fluxes,
                                                  rv=rv, rv_prior=rv_prior,
-                                                 params=params_0, params_priors=params_priors,
+                                                 params=params, params_priors=params_priors,
                                                  pp_spec=pp_spec)
                     return log_L
         else:
@@ -960,6 +966,8 @@ class ModelGridTempFit(TempFit):
         ----------
         spectra : dict or dict of list
             Dictionary of spectra for each arm and exposure
+        fluxes : dict
+            Dictionary of broadband fluxes for each instrument and filter
         rv_0 : float
             Initial guess for the RV
         rv_bounds : tuple
@@ -1052,6 +1060,24 @@ class ModelGridTempFit(TempFit):
         # Determine the list of free parameters
         state.params_free = self.determine_free_params(state.params_fixed)
 
+        # Update the parameter bounds based on the grid limits
+        
+        params_bounds = state.params_bounds if state.params_bounds is not None else {}
+        
+        # TODO: this doesn't account for any possible holes
+        grid_bounds = self.determine_grid_bounds(state.params_bounds, state.params_free)
+        
+        # Add the rest of the bounds
+        for p in state.params_free:
+            if p in grid_bounds:
+                if p not in params_bounds:
+                    params_bounds[p] = grid_bounds[p] if p in grid_bounds else None
+                else:
+                    params_bounds[p] = (max(params_bounds[p][0], grid_bounds[p][0]),
+                                        min(params_bounds[p][1], grid_bounds[p][1]))
+
+        state.params_bounds = params_bounds
+
         # Calculate the pre-normalization constants. This is only here to make sure that the
         # matrix elements during calculations stay around unity
         # TODO: this has side effect, should add spec_norm and temp_norm to the state instead?
@@ -1126,17 +1152,7 @@ class ModelGridTempFit(TempFit):
         state.scale = state.pack_params(state.params_scale, state.rv_scale)[0]
         state.bias = state.pack_params(state.params_bias, state.rv_bias)[0]
 
-        # Parameter bounds for optimizers, bounds is a list of tuples, convert to an array
-        # Make sure all randomly generated parameters are within the grid
-        # TODO: this doesn't account for any possible holes
-        bounds = self.determine_grid_bounds(state.params_bounds, state.params_free)
-        
-        # Add the rest of the bounds
-        for p in state.params_free:
-            if p not in bounds and state.params_bounds is not None and p in state.params_bounds:
-                bounds[p] = state.params_bounds[p]
-
-        bounds = state.pack_bounds(bounds, state.rv_bounds)
+        bounds = state.pack_bounds(state.params_bounds, state.rv_bounds)
         state.bounds = self.get_bounds_array(bounds)
 
     @deprecated("Use `guess_ml` instead.")
@@ -1235,6 +1251,61 @@ class ModelGridTempFit(TempFit):
         return res
 
     def guess_ml(self, state, steps=None, method='lorentz', smooth=False):
+        return self.guess_rv_ml(state, steps=steps, method=method, smooth=smooth)
+
+    def guess_T_eff_ml(self, state, steps=None, method='max'):
+        """
+        Guess the initial T_eff.
+        """
+
+        method = method if method is not None else 'lorentz'
+
+        if state.fluxes is None:
+            raise Exception("Fluxes are required to guess T_eff.")
+
+        # We should have the bounds defined, either by the user or by the grid limits.
+        bounds = state.params_bounds['T_eff']
+
+        # Calculate the number of steps for the RV grid
+        steps = steps if steps is not None else 31
+
+        logger.info(f"Guessing T_eff with method `{method}`. "
+                    f"T_eff bounds are {bounds} K, number of steps is {steps}.")
+
+        T_eff = np.linspace(bounds[0], bounds[1], steps)
+        log_L = np.zeros_like(T_eff)
+
+        # Calculate the likelihood for each T_eff
+        for i in range(len(T_eff)):
+            params = { **state.params_0, 'T_eff': T_eff[i] }
+
+            log_L[i] = self.eval_synth_flux_log_L(
+                state.fluxes,
+                0.0,
+                params['ebv'] if 'ebv' in params else None,
+                params
+            )
+
+        if method == 'max':
+            pp, pcov = None, None
+            imax = np.argmax(log_L)
+            T_eff_guess = T_eff[imax]
+            log_L_guess = log_L[imax]
+            log_L_curve = None
+        else:
+            raise NotImplementedError()
+
+        logger.info(f"Guess for T_eff using the method `{method}` is {T_eff_guess:0.3f} K.")
+
+        # TODO: add trace hook
+        # if self.trace is not None:
+        #     self.trace.on_guess_rv(rv, log_L, rv_guess, log_L_guess, log_L_curve, method, pp, pcov)
+
+        state.params_guess = { 'T_eff': T_eff_guess }
+
+        return state, T_eff, log_L
+
+    def guess_rv_ml(self, state, steps=None, method='lorentz', smooth=False):
         """
         Guess an initial state to close best RV, either using the supplied set of templates or
         initial model parameters.
@@ -1286,12 +1357,6 @@ class ModelGridTempFit(TempFit):
         `True`, the radial velocity is not fitted. If a template parameter is specified in
         `params_fixed`, no optimization is performed for that parameter.
         """
-                
-        # If no free parameters, fall back to superclass implementation
-        if method == 'rv_only' or len(state.params_free) == 0:
-            # TODO: fall-back is not very simple because we basically have to re-initialize the
-            #       state, etc.
-            raise NotImplementedError()
         
         # If rv_0 is not provided, guess it
         if state.rv_0 is None:
@@ -1356,8 +1421,16 @@ class ModelGridTempFit(TempFit):
                                               llh,
                                               self.max_iter,
                                               callback=callback)
+        elif method == 'global':
+            x_fit, flags_fit = self.optimize_global(x_0, steps, bounds,
+                                            llh,
+                                            self.max_iter,
+                                            callback=callback)
         else:
             raise NotImplementedError()
+        
+        # DEBUG: Calculate the Jacobian at the end of the optimization to check for convergence
+        # jac = nd.Jacobian(llh)(x_fit)
 
         state.flags |= flags_fit
 
@@ -1370,6 +1443,131 @@ class ModelGridTempFit(TempFit):
         state.a_fit = None
 
         # Set the errors to NaN for now
+        state.rv_err = np.nan
+        state.params_err = {}
+        for p in state.params_free:
+            state.params_err[p] = np.nan
+        for p in state.params_fixed:
+            state.params_err[p] = np.nan
+        state.a_err = None
+        state.cov = None
+        state.cov_params = None
+
+        # Check if the fit is not at the edge of the bounds or priors and
+        # that the results are not very unlikely by the priors
+        # Set flags accordingly
+        self.check_bounds_edge(state)
+        self.check_prior_unlikely(state)
+
+        # TODO: check if log_L decreased
+        # TODO: flags for error and covariance
+
+        return ModelGridTempFitResults.from_state(state), state
+
+    def polish_rv_ml(self, state):
+        """
+        Optimize RV only. This method is for polishing the best fit RV after the main optimization.
+
+        We would normally fall back to the superclass implementation but we need
+        different packing functions, etc. here to run the optimization in 1d.
+        """
+
+        # If rv_fit is not provided, raise an error because we don't want to guess it here
+        if state.rv_fit is None:
+            raise Exception("Initial RV is not provided. Cannot guess RV in `polish_rv_ml`.")
+
+        params = { **state.params_fit, **state.params_fixed }
+
+        # Get the single parameter objective function for RV optimization
+        log_L_fun, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            state,
+            state.spectra, state.fluxes,
+            state.rv_fit, state.rv_fixed, state.rv_prior,
+            params, state.params_priors, [], params_fixed=params,
+            mode='rv',
+        )
+
+        # TODO: replace hook function, this is before polish
+        # if self.trace is not None:
+        #     # When tracing, create a full list of included and excluded wavelengths, independent
+        #     # of any masks defines by the spectra. This is for visualization purposes only.
+        #     wave_include, wave_exclude = self.get_wave_include_exclude()
+        #     self.trace.on_fit_rv_start(state.spectra, None,
+        #                                state.rv_0, state.rv_bounds, state.rv_prior, state.rv_step,
+        #                                state.params_fit, state.params_bounds, state.params_priors, state.params_steps,
+        #                                state.log_L_0, state.log_L_fun,
+        #                                wave_include=wave_include, wave_exclude=wave_exclude)
+
+        ####
+
+        x_0 = pack_params(state.rv_fit)[0]
+        bounds = pack_bounds(state.rv_bounds)
+
+        # Cost function
+        def llh(x):
+            return -log_L_fun(x)
+        
+        # Verify that the starting point is valid
+        log_L_0 = llh(x_0)
+        if np.isinf(log_L_0) or np.isnan(log_L_0):
+            all_params = {**state.params_0, **state.params_fixed}
+            raise Exception(f"Invalid starting point for rv polishing. Are the parameters {all_params} outside the grid?")
+
+
+        if self.trace is not None:
+            # When tracing, evaluate the log likelihood at each iteration of
+            # the optimization to verify the convergence
+            def callback(x):
+                log_L = log_L_fun(x)
+                rv = unpack_params(x)
+                params = state.params_fit
+                self.trace.on_fit_rv_iter(rv, params, log_L, state.log_L_fun)
+        else:
+            callback = None
+
+        # Call the optimizer
+        flags = 0
+
+        with Timer(f'Starting polishing RV with L-BFGS-B and {x_0.size} parameter(s).', logger=logger, level=logging.INFO):
+            out = minimize(llh,
+                           x0=x_0,
+                           bounds=bounds,
+                           method='L-BFGS-B',
+                           callback=callback,
+                           options=dict(
+                               maxiter=self.max_iter,
+                               ftol=1e-10,
+                            ))
+
+        # with Timer(f'Starting polishing RV with bounded scalar optimization.', logger=logger, level=logging.INFO):
+        #     out = minimize_scalar(
+        #         llh,
+        #         bounds=[ state.rv_fit - 3, state.rv_fit + 3 ],
+        #         method='Bounded',
+        #         options=dict(maxiter=self.max_iter)
+        #     )
+            
+        if out.success or out.nit == self.max_iter:
+            # Even if the number of max iterations reached, we should have a somewhat valid result
+            logger.info(f"Optimize message: {out.message}")
+            logger.info(f"Optimizer number of iterations: {out.nit}, "
+                        f"number of function evaluations: {out.nfev}")
+
+            if self.max_iter == out.nit:
+                logger.warning("Optimization reached the maximum number of iterations.")
+                flags |= TempFitFlag.MAXITER
+        else:
+            logger.error(f"Optimization failed, optimizer message: {out.message}")
+            flags |= TempFitFlag.NOCONVERGE
+
+        x_fit = out.x
+        state.flags |= flags
+        
+        # Unpack the optimized parameters, leave everything else the same
+        state.rv_fit = unpack_params(x_fit)
+        state.a_fit = None
+
+        # Reset the errors to NaN for now
         state.rv_err = np.nan
         state.params_err = {}
         for p in state.params_free:
@@ -1500,7 +1698,9 @@ class ModelGridTempFit(TempFit):
         with Timer(f'Starting optimization with gradient L-BFGS-B and {x_0.size} parameter(s).', logger=logger, level=logging.INFO):
             out = minimize(llh,
                            x0=x_0, bounds=bounds, method='L-BFGS-B', callback=callback,
-                           options=dict(maxiter=max_iter))
+                           options=dict(
+                               maxiter=max_iter,
+                               ftol=1e-10))
             
         if out.success or out.nit == max_iter:
             # Even if the number of max iterations reached, we should have a somewhat valid result
@@ -1517,7 +1717,41 @@ class ModelGridTempFit(TempFit):
 
         return out.x, flags
 
+    def optimize_global(self, x_0, steps, bounds,
+                          llh,
+                          max_iter,
+                          callback=None):
 
+        flags = 0
+
+        with Timer(f'Starting optimization with gradient L-BFGS-B and {x_0.size} parameter(s).', logger=logger, level=logging.INFO):
+            out = basinhopping(
+                llh,
+                x0=x_0,
+                # callback=callback,
+                minimizer_kwargs={
+                    "method": "L-BFGS-B",
+                    "bounds": bounds,
+                    "options": {
+                        "maxiter": max_iter,
+                        "ftol": 1e-2
+                    }
+                })
+            
+        if out.success or out.nit == max_iter:
+            # Even if the number of max iterations reached, we should have a somewhat valid result
+            logger.info(f"Optimize message: {out.message}")
+            logger.info(f"Optimizer number of iterations: {out.nit}, "
+                        f"number of function evaluations: {out.nfev}")
+
+            if max_iter == out.nit:
+                logger.warning("Optimization reached the maximum number of iterations.")
+                flags |= TempFitFlag.MAXITER
+        else:
+            logger.error(f"Optimization failed, optimizer message: {out.message}")
+            flags |= TempFitFlag.NOCONVERGE
+
+        return out.x, flags
 
     def calculate_error_ml(self, state):
         """
@@ -1557,7 +1791,6 @@ class ModelGridTempFit(TempFit):
             pf = { s: state.params_fit[s] for j, s in enumerate(state.params_free) if j != i }
             pf.update({ s: state.params_fixed[s] for j, s in enumerate(state.params_fixed) })
 
-            # TODO: pass in state
             F, C = self.calculate_F(
                 state,
                 state.spectra, state.fluxes,
