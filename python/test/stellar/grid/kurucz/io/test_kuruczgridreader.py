@@ -1,9 +1,10 @@
 import os
 
-from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.stellar.grid.kurucz.io import KuruczSpectrumReader
 from pfs.ga.pfsspec.stellar.grid.kurucz.io import KuruczGridReader
 from pfs.ga.pfsspec.stellar.grid.kurucz import KuruczGrid
+
+from .....core.test_base import TestBase
 
 class TestKuruczGridReader(TestBase):
     def test_read_grid_kurucz(self):

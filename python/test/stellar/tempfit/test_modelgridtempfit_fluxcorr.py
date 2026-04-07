@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from pfs.ga.pfsspec.core.sampling import Parameter, NormalDistribution, UniformDistribution
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitState, ModelGridTempFitTrace
 from pfs.ga.pfsspec.stellar.tempfit import FluxCorr
 from pfs.ga.pfsspec.stellar.fluxcorr import PolynomialFluxCorrection
 
@@ -40,8 +40,10 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         tempfit.params_0 = kwargs
         tempfit.template_resampler = FluxConservingResampler()
         tempfit.template_grids = {
-            'b': self.get_bosz_grid(),
-            'mr': self.get_bosz_grid()
+            # 'b': self.get_bosz_grid(),
+            # 'mr': self.get_bosz_grid()
+            'b': self.get_gk2025_grid(),
+            'mr': self.get_gk2025_grid()
         }
 
         if flux_correction:
@@ -58,11 +60,15 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             tempfit.params_priors = None
 
         tempfit.params_fixed = {
+            'C': 0,
             'C_M': 0,
             'a_M': 0
         }
 
         return tempfit
+
+    def init_tempfit_state(self, tempfit, specs, temps):
+        return ModelGridTempFitState(specs, temps)
 
     def tempfit_test_helper(self,
                             ax,
@@ -78,7 +84,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                             fit_rv=False,
                             calculate_error=False):
 
-        (tempfit, rv_real, specs, temps, psfs,
+        (tempfit, state, rv_real, specs, temps, psfs,
          phi_shape, chi_shape, params_0) = self.get_initialized_tempfit(
             flux_correction=flux_correction,
             normalize=normalize,
@@ -96,8 +102,8 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             def calculate_log_L_helper(rv, shape):
                 if np.shape(rv) == ():
                     # Tests specific to FluxCorr correction model
-                    pp_specs = tempfit.preprocess_spectra(specs)
-                    pp_temps = tempfit.preprocess_templates(specs, temps, rv)
+                    pp_specs = tempfit.preprocess_spectra(state, specs)
+                    pp_temps = tempfit.preprocess_templates(state, specs, temps, rv)
                     log_L, phi, chi, ndf = tempfit.correction_model.eval_log_L(pp_specs, pp_temps, return_phi_chi=True)
                     a = tempfit.correction_model.eval_a(phi, chi)
 
@@ -106,12 +112,10 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                     self.assertEqual(shape + chi_shape, np.shape(chi))
 
                     # Do not specify the templates here
-                    log_L = tempfit.calculate_log_L(specs, None, rv)
-                    log_L = tempfit.calculate_log_L(specs, None, rv, params=params_0)
-                    log_L = tempfit.calculate_log_L(specs, None, rv, a=a)
-                    log_L = tempfit.calculate_log_L(specs, None, rv, a=a, params=params_0)
+                    log_L = tempfit.calculate_log_L(state, specs, None, rv, params=params_0)
+                    log_L = tempfit.calculate_log_L(state, specs, None, rv, a=a, params=params_0)
 
-                tempfit.calculate_log_L(specs, temps, rv)
+                tempfit.calculate_log_L(state, specs, temps, rv, params=params_0)
         
             # Test with scalar
             rv = 100
@@ -123,7 +127,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             
         if fit_lorentz or guess_rv or fit_rv or calculate_error:
             rv = np.linspace(-300, 300, 31)
-            log_L, phi, chi, ndf = tempfit.calculate_log_L(specs, temps, rv)
+            log_L, phi, chi, ndf = tempfit.calculate_log_L(state, specs, temps, rv)
             pp, _ = tempfit.fit_lorentz(rv, log_L)
 
             y1 = tempfit.lorentz(rv, *pp)
@@ -136,7 +140,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
             ax.axvline(rv0, color='k', label='rv guess')
 
     def test_init_correction_model(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 flux_correction=True,
                 normalize=True,
@@ -167,7 +171,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         self.assertIsInstance(model[0], PolynomialFluxCorrection)
 
     def test_get_coeff_count(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 flux_correction=True,
                 normalize=True,
@@ -231,7 +235,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                                  multiple_arms, multiple_exp,
                                  use_priors, rv_fixed=False):
         
-        (rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+        (rvfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
                 flux_correction=flux_correction,
                 normalize=normalize,
@@ -269,7 +273,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                                  multiple_arms, multiple_exp,
                                  use_priors, rv_fixed=False):
         
-        (rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+        (rvfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
                 flux_correction=flux_correction,
                 normalize=normalize,
@@ -287,6 +291,8 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                            rv_fixed=rv_fixed,
                            params_0=params_0)
         res, state = rvfit.run_ml(state)
+        if not rv_fixed:
+            res, state = rvfit.polish_rv_ml(state)
         res, state = rvfit.calculate_error_ml(state)
         res, state = rvfit.calculate_cov_ml(state)
         res, state = rvfit.finish_ml(state)
@@ -349,7 +355,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
 
     def rvfit_run_mcmc_test_helper(self, ax, flux_correction, normalize, convolve_template, multiple_arms, multiple_exp, use_priors):
         
-        (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+        (tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
                 flux_correction=flux_correction,
                 normalize=normalize,
@@ -399,11 +405,11 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+            tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
                 self.get_initialized_tempfit(**config)
             
-            state = rvfit.init_state(specs, rv_0=rv_real)
-            res, state = rvfit.run_ml(state)
+            state = tempfit.init_state(specs, rv_0=rv_real)
+            res, state = tempfit.run_ml(state)
 
             F = {}
             C = {}
@@ -423,7 +429,7 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
                     # 'emcee',
                     # 'sampling',
                 ]):
-                FF, CC = rvfit.calculate_F(specs, None, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
+                FF, CC = tempfit.calculate_F(state, specs, None, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])
@@ -440,10 +446,11 @@ class TestModelGridTempFitFluxCorr(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, figsize=(4, 4 * len(configs)), squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            rvfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+            rvfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
                 self.get_initialized_tempfit(**config)
             
             log_L, axes, labels = rvfit.map_log_L(
+                state,
                 specs, 
                 templates=None,        # Pass in no templates
                 rv=rv_real, 

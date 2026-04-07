@@ -14,7 +14,7 @@ from pfs.ga.pfsspec.sim.obsmod.observations import PfsObservation
 from pfs.ga.pfsspec.sim.obsmod.pipelines import StellarModelPipeline
 from pfs.ga.pfsspec.sim.obsmod.calibration import FluxCalibrationBias
 
-from test.pfs.ga.pfsspec.stellar.stellartestbase import StellarTestBase
+from ..stellartestbase import StellarTestBase
 
 class TempFitTestBase(StellarTestBase):
     def __init__(self, methodName):
@@ -23,11 +23,12 @@ class TempFitTestBase(StellarTestBase):
         self.rv_real = 100
 
     def get_test_grid(self):
-        return self.get_bosz_grid()
+        return self.get_gk2025_grid()
+        # return self.get_bosz_grid()
 
-    def get_test_spectrum(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
+    def get_test_spectrum(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, C=0, a_M=0):
         grid = self.get_test_grid()
-        spec = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
+        spec = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, C=C, a_M=a_M)
         return grid, spec
 
     def get_test_psf(self, arm):
@@ -41,20 +42,22 @@ class TempFitTestBase(StellarTestBase):
 
         return psf
 
-    def get_template(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
-        grid = self.get_bosz_grid()
-        temp = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
+    def get_template(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, C=0, a_M=0):
+        # grid = self.get_bosz_grid()
+        grid = self.get_test_grid()
+        temp = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, C=C, a_M=a_M)
         return temp
     
-    def get_normalized_template(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
-        grid = self.get_bosz_grid()
-        temp = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
+    def get_normalized_template(self, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, C=0, a_M=0):
+        # grid = self.get_bosz_grid()
+        grid = self.get_test_grid()
+        temp = grid.get_nearest_model(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, C=C, a_M=a_M)
         temp.flux /= temp.cont
         temp.cont = None
         return temp
 
-    def get_observation(self, arm='mr', noise_level=1.0, rv=0.0, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, a_M=0):
-        grid, spec = self.get_test_spectrum(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, a_M=a_M)
+    def get_observation(self, arm='mr', noise_level=1.0, rv=0.0, M_H=-2.0, T_eff=4500, log_g=1.5, C_M=0, C=0, a_M=0):
+        grid, spec = self.get_test_spectrum(M_H=M_H, T_eff=T_eff, log_g=log_g, C_M=C_M, C=C, a_M=a_M)
 
         fn = os.path.join(self.PFSSPEC_DATA_PATH, f'subaru/hsc/filters/HSC-g.txt')
         filter = Filter()
@@ -113,6 +116,9 @@ class TempFitTestBase(StellarTestBase):
                     **kwargs):
         raise NotImplementedError()
     
+    def init_tempfit_state(self, tempfit, specs, temps):
+        raise NotImplementedError()
+    
     def get_initialized_tempfit(self, /, 
                                 flux_correction=False,
                                 continuum_fit=False,
@@ -124,7 +130,7 @@ class TempFitTestBase(StellarTestBase):
                                 **kwargs):
         
         if kwargs is None or len(kwargs) == 0:
-            params_0 = dict(M_H=-1.5, T_eff=4000, log_g=2.5, a_M=0, C_M=0)
+            params_0 = dict(M_H=-1.5, T_eff=4000, log_g=2.5, a_M=0, C=0, C_M=0)
         else:
             params_0 = kwargs
         
@@ -163,11 +169,11 @@ class TempFitTestBase(StellarTestBase):
         else:
             tempfit.psf = None
 
+        state = self.init_tempfit_state(tempfit, specs, temps)
+
         if normalize:
-            tempfit.spec_norm, tempfit.temp_norm = tempfit.get_normalization(specs, temps)
+            state.spec_norm, state.temp_norm = tempfit.get_normalization(state, specs, temps)
 
-        pass
-
-        return tempfit, self.rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0
+        return tempfit, state, self.rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0
 
 

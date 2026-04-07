@@ -1,11 +1,12 @@
 import os
 import numpy as np
 
-from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.core.grid import ArrayGrid
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.stellar.grid.grid7 import Grid7
 from pfs.ga.pfsspec.stellar.grid.grid7.io import Grid7GridReader, Grid7SpectrumReader
+
+from .....core.test_base import TestBase
 
 class TestGrid7GridReader(TestBase):
     def create_grid_reader(self):

@@ -3,9 +3,10 @@ import numpy as np
 import numpy.testing as npt
 import matplotlib.pyplot as plt
 
+from modules.stellar.python.pfs.ga.pfsspec.stellar.tempfit.modelgridtempfitstate import ModelGridTempFitState
 from pfs.ga.pfsspec.core.sampling import Parameter, NormalDistribution, UniformDistribution
 from pfs.ga.pfsspec.core.obsmod.resampling import FluxConservingResampler
-from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitTrace
+from pfs.ga.pfsspec.stellar.tempfit import ModelGridTempFit, ModelGridTempFitState, ModelGridTempFitTrace
 from pfs.ga.pfsspec.stellar.tempfit import ContNorm
 from pfs.ga.pfsspec.stellar.continuum.models import Spline
 
@@ -51,11 +52,15 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
             tempfit.params_priors = None
 
         tempfit.params_fixed = {
+            'C': kwargs['C'] if 'C' in kwargs else 0.0,
             'C_M': kwargs['C_M'] if 'C_M' in kwargs else 0.0,
             'a_M': kwargs['a_M'] if 'a_M' in kwargs else 0.0,
         }
 
         return tempfit
+
+    def init_tempfit_state(self, tempfit, specs, temps):
+        return ModelGridTempFitState(specs, temps)
 
     def tempfit_test_helper(self,
                             ax,
@@ -73,7 +78,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
                             fit_rv=False,
                             calculate_error=False):
 
-        (tempfit, rv_real, specs, temps, psfs,
+        (tempfit, state, rv_real, specs, temps, psfs,
          phi_shape, chi_shape, params_0) = self.get_initialized_tempfit(
             continuum_fit=continuum_fit,
             normalize=normalize,
@@ -94,23 +99,23 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
         if calculate_log_L:
             def calculate_log_L_helper(rv):
                 # Tests specific to ContNorm correction model
-                pp_specs = tempfit.preprocess_spectra(specs)
-                pp_temps = tempfit.preprocess_templates(specs, temps, rv)
+                pp_specs = tempfit.preprocess_spectra(state, specs)
+                pp_temps = tempfit.preprocess_templates(state, specs, temps, rv)
                 log_L = tempfit.correction_model.eval_log_L(pp_specs, pp_temps)
                 
                 ax.plot(rv, log_L, 'o')
         
             # Test with scalar
             calculate_log_L_helper(100)
-            tempfit.calculate_log_L(specs, temps, 100)
+            tempfit.calculate_log_L(state, specs, temps, 100, params=params_0)
             
             # Test with vector
             rv = np.linspace(-300, 300, 31)
-            tempfit.calculate_log_L(specs, temps, rv)
+            tempfit.calculate_log_L(state, specs, temps, rv, params=params_0)
             
         if fit_lorentz or guess_rv or fit_rv or calculate_error:
             rv = np.linspace(-300, 300, 31)
-            log_L = tempfit.calculate_log_L(specs, temps, rv)
+            log_L = tempfit.calculate_log_L(state, specs, temps, rv, params=params_0)
             pp, _ = tempfit.fit_lorentz(rv, log_L)
 
             y1 = tempfit.lorentz(rv, *pp)
@@ -123,7 +128,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
             ax.axvline(rv0, color='k', label='rv guess')
 
     def test_init_correction_model(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 continuum_fit=True,
                 normalize=True,
@@ -154,7 +159,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
         self.assertIsInstance(model[0], Spline)
 
     def test_get_coeff_count(self):
-        tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+        tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
             self.get_initialized_tempfit(
                 continuum_fit=True,
                 normalize=True,
@@ -246,7 +251,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
                                    use_priors,
                                    rv_fixed=False):
         
-        (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+        (tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
                 continuum_fit=continuum_fit,
                 normalize=normalize,
@@ -297,7 +302,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
                                    use_priors,
                                    rv_fixed=False):
         
-        (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+        (tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
                 continuum_fit=continuum_fit,
                 normalize=normalize,
@@ -391,7 +396,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
                                    multiple_arms,
                                    multiple_exp, use_priors):
         
-        (tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
+        (tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0) = \
             self.get_initialized_tempfit(
                 continuum_fit=continuum_fit,
                 normalize=normalize,
@@ -449,7 +454,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
         f, axs = plt.subplots(len(configs), 1, squeeze=False)
 
         for ax, config in zip(axs[:, 0], configs):
-            tempfit, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
+            tempfit, state, rv_real, specs, temps, psfs, phi_shape, chi_shape, params_0 = \
                 self.get_initialized_tempfit(
                     # Override to allow working with Roman's current grid
                     # TODO: remove this
@@ -485,7 +490,7 @@ class TestModelGridTempFitContNorm(TempFitTestBase):
                     # 'emcee',
                     # 'sampling',
                 ]):
-                FF, CC = tempfit.calculate_F(specs, None, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
+                FF, CC = tempfit.calculate_F(state, specs, None, res.rv_fit, res.params_fit, mode=mode, method=method, step=0.01)
                 F[f'{mode}_{method}'] = FF
                 C[f'{mode}_{method}'] = CC
                 err[f'{mode}_{method}'] = np.sqrt(CC[-1, -1])

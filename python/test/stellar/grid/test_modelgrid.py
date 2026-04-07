@@ -2,6 +2,7 @@ import os
 
 from pfs.ga.pfsspec.stellar.grid import ModelGrid
 from pfs.ga.pfsspec.core.obsmod.psf import PcaPsf
+
 from ..stellartestbase import StellarTestBase
 
 class TestModelGrid(StellarTestBase):

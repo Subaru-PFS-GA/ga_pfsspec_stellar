@@ -5,7 +5,7 @@ from scipy.optimize import curve_fit, minimize
 from scipy.optimize import minimize_scalar
 from scipy.ndimage import binary_dilation
 from scipy.interpolate import interp1d
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, medfilt
 from sklearn.preprocessing import PolynomialFeatures
 import numdifftools as nd
 
@@ -86,6 +86,10 @@ class TempFit():
     rv_step : float
         Initial step size for the MCMC sampling of the RV and estimating the uncertainty from
         the Hessian numerically.
+    rv_scale : float
+        Scale for the RV parameter, used during optimization to mitigate numeric errors.
+    rv_bias : float
+        Bias for the RV parameter, used during optimization to mitigate numeric errors.
     amplitude_per_arm : bool
         Estimate flux multiplier for each arm independently.
     amplitude_per_fiber : bool
@@ -109,6 +113,8 @@ class TempFit():
     use_weight : bool
         Use weight from template for fitting, if available. Templates can define weights to
         modify the likelihood function.
+    error_softerning : bool
+        Soften the flux error to mitigate the effect of underestimated errors and outliers.
     max_iter : int
         Maximum number of iterations of the optimization algorithm.
     mcmc_walkers : int
@@ -121,7 +127,17 @@ class TempFit():
         MCMC chain thinning interval.
     mcmc_gamma : float
         Adaptive MCMC proposal memory.
+
+    Remarks
+    -------
+
+    Optimizers work on vectors of parameters. We implement functions to pack and unpack named paramers,
+    as well as amplitude and flux correction or continuum coefficients into a single vectors. These vector
+    are then scaled and biased to be close to unity to mitigate numeric errors during optimization.
     """
+
+    RV_SCALE_DEFAULT = 10.0
+    RV_BIAS_DEFAULT = 0.0
 
     def __init__(
             self,
@@ -162,6 +178,8 @@ class TempFit():
             self.rv_bounds = None           # Find RV between these bounds
             self.rv_prior = None
             self.rv_step = None             # RV step size for MCMC sampling
+            self.rv_scale = None            # Scale for the RV parameter
+            self.rv_bias = None             # Bias for the RV parameter
 
             # Variables controlling flux correction
 
@@ -180,6 +198,8 @@ class TempFit():
             self.mask_bits = None           # Mask bits (None means any)
             self.use_error = True           # Use flux error from spectrum, if available
             self.use_weight = False         # Use weight from template, if available
+
+            self.error_softening = None     # Soften the flux error to mitigate the effect of underestimated errors and outliers
 
             self.max_iter = 1000            # Maximum number of iterations of the optimization algorithm
 
@@ -205,6 +225,8 @@ class TempFit():
             self.rv_bounds = orig.rv_bounds
             self.rv_prior = orig.rv_prior
             self.rv_step = orig.rv_step
+            self.rv_scale = orig.rv_scale
+            self.rv_bias = orig.rv_bias
 
             self.amplitude_per_arm = orig.amplitude_per_arm
             self.amplitude_per_fiber = orig.amplitude_per_fiber
@@ -219,6 +241,8 @@ class TempFit():
             self.mask_bits = orig.mask_bits
             self.use_error = orig.use_error
             self.use_weight = orig.use_weight
+
+            self.error_softerning = orig.error_softerning
 
             self.max_iter = orig.max_iter
 
@@ -269,6 +293,8 @@ class TempFit():
         parser.add_argument('--no-mask', action='store_false', dest='use_mask', help='Do not use mask from spectra.\n')
         parser.add_argument('--mask-bits', type=int, help='Bit mask.\n')
 
+        parser.add_argument('--error-softening', type=float, help='Soften the flux error.\n')
+
         parser.add_argument('--max-iter', type=int, help='Maximum number of iterations of the optimization algorithm.\n')
 
         parser.add_argument('--mcmc-walkers', type=int, help='Number of MCMC walkers (min number of params + 1).\n')
@@ -307,6 +333,8 @@ class TempFit():
         self.rv_bounds = [rv.min, rv.max]           # Find RV between these bounds
         self.rv_prior = rv.get_dist()
         self.rv_step = rv.generate_step_size(step_size_factor=0.1)     # RV step size for RV guess, MCMC sampling, etc.
+        self.rv_scale = self.RV_SCALE_DEFAULT        
+        self.rv_bias = self.RV_BIAS_DEFAULT
 
         self.amplitude_per_arm = get_arg('amplitude_per_arm', self.amplitude_per_arm, args)
         self.amplitude_per_fiber = get_arg('amplitude_per_fiber', self.amplitude_per_fiber, args)
@@ -330,6 +358,8 @@ class TempFit():
         self.mask_bits = get_arg('mask_bits', self.mask_bits, args)
         self.use_error = get_arg('use_error', self.use_error, args)
         self.use_weight = get_arg('use_weight', self.use_weight, args)
+
+        self.error_softerning = get_arg('error_softening', self.error_softening, args)
 
         self.max_iter = get_arg('max_iter', self.max_iter, args)
 
@@ -831,8 +861,13 @@ class TempFit():
         spec.mask = self.get_full_mask(spec)
 
         # Take flux error and calculate its squared
+        # Optionally apply error softening
         if self.use_error and spec.flux_err is not None:
             spec.sigma2 = spec.flux_err ** 2
+
+            if self.error_softerning:
+                spec.sigma2 += (self.error_softerning * np.median(spec.flux_err)) ** 2
+
             spec.mask &= ~np.isnan(spec.sigma2)
         else:
             spec.sigma2 = None
@@ -1292,6 +1327,7 @@ class TempFit():
                         prior.min = bounds[0]
                 (prior.min, prior.max) = bounds[0]
 
+            # TODO: review
             raise NotImplementedError()
             
             # x = prior.sample(size)
@@ -1601,34 +1637,34 @@ class TempFit():
 
     def _check_param_bounds_edge(
         self,
-        param_name,
-        param_fixed,
-        param_fit,
-        param_bounds,
-        param_prior,
-        params_flags,
-        flags,
+        name,
+        fixed,
+        fit,
+        bounds,
+        prior,
+        param_flags,
+        all_flags,
         eps=1e-3
     ):
         
-        if not param_fixed and param_fit is not None and param_bounds is not None:
-            if param_bounds[0] is not None and np.abs(param_fit - param_bounds[0]) < eps:
-                logger.warning(f"{param_name} {param_fit} is at the lower bound {param_bounds[0]}.")
-                params_flags |= TempFitFlag.PARAMEDGE
-            if param_bounds[1] is not None and np.abs(param_fit - param_bounds[1]) < eps:
-                logger.warning(f"{param_name} {param_fit} is at the upper bound {param_bounds[1]}.")
-                params_flags |= TempFitFlag.PARAMEDGE
+        if not fixed and fit is not None and bounds is not None:
+            if bounds[0] is not None and np.abs(fit - bounds[0]) < eps:
+                logger.warning(f"{name} {fit} is at the lower bound {bounds[0]}.")
+                param_flags |= TempFitFlag.PARAMEDGE
+            if bounds[1] is not None and np.abs(fit - bounds[1]) < eps:
+                logger.warning(f"{name} {fit} is at the upper bound {bounds[1]}.")
+                param_flags |= TempFitFlag.PARAMEDGE
 
         # Check if the param is at the edge of the prior distribution
-        if not param_fixed and param_fit is not None and isinstance(param_prior, Distribution):
-            if param_prior.is_at_edge(param_fit):
-                logger.warning(f"{param_name} {param_fit} is at the edge of the prior distribution.")
-                params_flags |= TempFitFlag.PARAMEDGE
+        if not fixed and fit is not None and isinstance(prior, Distribution):
+            if prior.is_at_edge(fit):
+                logger.warning(f"{name} {fit} is at the edge of the prior distribution.")
+                param_flags |= TempFitFlag.PARAMEDGE
 
-        if params_flags != 0:
-            flags |= TempFitFlag.BADCONVERGE
+        if param_flags != 0:
+            all_flags |= TempFitFlag.BADCONVERGE
 
-        return params_flags, flags
+        return param_flags, all_flags
 
     def check_bounds_edge(self, state, eps=1e-3):
         """
@@ -1643,22 +1679,22 @@ class TempFit():
 
     def _check_param_prior_unlikely(
         self,
-        param_name,
-        param_fixed,
-        param_fit,
-        param_prior,
+        name,
+        fixed,
+        fit,
+        prior,
         param_flags,
-        flags,
+        all_flags,
         lp_limit=-5
     ):
         
-        if not param_fixed and param_fit is not None and param_prior is not None:
-            lp = self.eval_prior(param_prior, param_fit)
+        if not fixed and fit is not None and prior is not None:
+            lp = self.eval_prior(prior, fit)
             if lp is not None and lp / np.log(10) < lp_limit:
-                logger.warning(f"Prior for {param_name} {param_fit} is very unlikely with lp {lp}.")
+                logger.warning(f"Prior for {name} {fit} is very unlikely with lp {lp}.")
                 param_flags |= TempFitFlag.UNLIKELYPRIOR
 
-        return param_flags, flags
+        return param_flags, all_flags
 
     def check_prior_unlikely(self, state, lp_limit=-5):
         
@@ -1711,13 +1747,13 @@ class TempFit():
         Alternatively, the covariance matrix will be determined using MCMC.
         """
 
-        rv_0 = rv_0 if rv_0 is not None else self.rv_0
-        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
+        rv_0 = rv_0 if rv_0 is not None else state.rv_0
+        rv_fixed = rv_fixed if rv_fixed is not None else state.rv_fixed
+        rv_bounds = rv_bounds if rv_bounds is not None else state.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else state.rv_prior
 
         # Get objective function
-        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+        log_L_func, pack_params, unpack_params, pack_bounds = self.get_objective_function(
             state,
             spectra, templates,
             rv_prior,
@@ -1738,23 +1774,37 @@ class TempFit():
         
         bounds = self.get_bounds_array(bounds)
 
-        F, C = self.eval_F_dispatch(x_0, log_L, step, method, bounds)
+        if False:
+            # Apply scaling and bias to x_0 and the bounds
+            x_0 = (x_0 - state.bias) / state.scale
+            bounds = (bounds - state.bias) / state.scale
+
+        F, C = self.eval_F_dispatch(x_0, log_L_func, step, method, bounds)
 
         if F.ndim > 2:
             F = F.squeeze(0)
             C = C.squeeze(0)
+
+        if False:
+            # Scale back the Fisher matrix and covariance matrix
+            # TODO: verify scale shapes in multi-param case
+
+            scale = state.scale[:, None]
+            F = scale @ F @ scale.T
+            if C is not None:
+                C = (1.0 / scale) @ C @ (1.0 / scale.T)
                 
         return F, C
 
-    def eval_F_dispatch(self, x_0, log_L_fun, step, method, bounds):
+    def eval_F_dispatch(self, x_0, log_L_func, step, method, bounds):
         if method == 'hessian':
-            return self.eval_F_hessian(x_0, log_L_fun, step)
+            return self.eval_F_hessian(x_0, log_L_func, step)
         elif method == 'sampling':
-            return self.eval_F_sampling(x_0, log_L_fun, step, bounds)
+            return self.eval_F_sampling(x_0, log_L_func, step, bounds)
         else:
             raise NotImplementedError()
 
-    def eval_F_hessian(self, x_0, log_L_fun, step, inverse=True):
+    def eval_F_hessian(self, x_0, log_L_func, step, inverse=True):
         """
         Evaluate the Fisher matrix by calculating the Hessian numerically
 
@@ -1762,7 +1812,7 @@ class TempFit():
         ----------
         x_0 : ndarray
             Initial parameters
-        log_L_fun : callable
+        log_L_func : callable
             Log likelihood function
         step : float or ndarray
             Step size for numerical differentiation
@@ -1781,7 +1831,7 @@ class TempFit():
         if step is None:
             step = 0.01 * x_0
 
-        dd_log_L = nd.Hessian(log_L_fun, step=step)
+        dd_log_L = nd.Hessian(log_L_func, step=step)
         dd_log_L_0 = dd_log_L(x_0)
 
         if inverse:
@@ -1795,7 +1845,7 @@ class TempFit():
 
         return dd_log_L_0, inv
         
-    def eval_F_sampling(self, x_0, log_L_fun, step, bounds, inverse=True):
+    def eval_F_sampling(self, x_0, log_L_func, step, bounds, inverse=True):
         """
         Sample a bunch of RVs around the optimum and fit a parabola
         to obtain the error of RV.
@@ -1804,7 +1854,7 @@ class TempFit():
         ----------
         x_0 : ndarray
             Initial parameters
-        log_L_fun : callable
+        log_L_func : callable
             Log likelihood function
         step : float or ndarray
             Step size for numerical differentiation
@@ -1831,7 +1881,7 @@ class TempFit():
         x = np.random.uniform(nbounds[..., 0], nbounds[..., 1], size=(500,) + x_0.shape)
         log_L = np.empty(x.shape[:-1])
         for ix in range(x.shape[0]):
-            log_L[ix] = log_L_fun(np.atleast_1d(x[ix]))
+            log_L[ix] = log_L_func(np.atleast_1d(x[ix]))
 
         n = x_0.size
         if n == 1:
@@ -2033,7 +2083,7 @@ class TempFit():
         return a, pp_spec, pp_temp
     
     def init_state(self, spectra, templates, /, fluxes=None,
-                    rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_fixed=None,
+                    rv_0=None, rv_bounds=None, rv_prior=None, rv_step=None, rv_scale=None, rv_bias=None, rv_fixed=None,
                     pp_spec=None):
         """
         This function is called before template fitting to normalize all parameters and
@@ -2054,6 +2104,10 @@ class TempFit():
             Prior distribution for the RV
         rv_step : float
             Step size for MCMC or numerical differentiation
+        rv_scale : float
+            Scale for the RV, used during optimization.
+        rv_bias : float
+            Bias for the RV, used during optimization.
         rv_fixed : bool
             If True, the RV is fixed and no optimization is performed.
         pp_spec : dict of Spectrum or dict of list of Spectrum
@@ -2079,6 +2133,16 @@ class TempFit():
         state.rv_bounds = rv_bounds if rv_bounds is not None else (self.rv_bounds if self.rv_bounds is not None else (-500, 500))
         state.rv_prior = rv_prior if rv_prior is not None else self.rv_prior
         state.rv_step = rv_step if rv_step is not None else self.rv_step
+        
+        rv_scale = rv_scale if rv_scale is not None else self.rv_scale
+        rv_bias = rv_bias if rv_bias is not None else self.rv_bias
+
+        if rv_scale is not None and rv_bias is not None:
+            state.rv_scale = rv_scale
+            state.rv_bias = rv_bias
+        else:
+            state.rv_scale = self.RV_SCALE_DEFAULT
+            state.rv_bias = self.RV_BIAS_DEFAULT
 
         # Initialize flux correction or continuum models for each arm and exposure
         self.init_correction_models(spectra, rv_bounds=rv_bounds)
@@ -2120,7 +2184,7 @@ class TempFit():
             mode='rv',
             pp_spec=state.pp_spec)
         
-        self._pack_everything(state)
+        self.__pack_everything(state)
 
         # Set default values of the flags
         state.flags = TempFitFlag.OK
@@ -2128,16 +2192,25 @@ class TempFit():
 
         return state
 
-    def _pack_everything(self, state):
+    def __pack_everything(self, state):
         """
         Pack all parameters from the state into a single array for optimization.
         """
 
+        # NOTE: pack_params will return a 2d array to allow for packing multiple values of rv
+        #       for x_0, scale, bias, etc. we only want a single vector
+
         # Initial values
+        # TODO: these are only used for MCMC now?
         if state.rv_0 is not None:
             state.x_0 = state.pack_params(state.rv_0)[0]
         else:
             state.x_0 = None
+
+        if state.x_0 is not None:
+            state.log_L_0 = state.log_L_fun(state.x_0)
+        else:
+            state.log_L_0 = None
 
         # Step size for MCMC
         if state.rv_step is not None:
@@ -2145,34 +2218,42 @@ class TempFit():
         else:
             state.steps = None
 
+        # Parameter scale and bias for optimization
+        state.scale = state.pack_params(state.rv_scale)[0]
+        state.bias = state.pack_params(state.rv_bias)[0]
+
         # Parameter bounds for optimizers, bounds is a list of tuples, convert to an array
         bounds = state.pack_bounds(state.rv_bounds)
         state.bounds = self.get_bounds_array(bounds)
 
     @deprecated("Use `guess_ml` instead.")
     def guess_rv(self, spectra, templates, /,
-                 rv_bounds=None, rv_prior=None, rv_step=None,
+                 rv_bounds=None, rv_prior=None, rv_step=None, rv_bias=None, rv_scale=None,
                  steps=None,
                  method='lorentz',
+                 smooth=False,
                  pp_spec=None):
 
         state = self.init_state(spectra, templates,
                                 rv_bounds=rv_bounds,
                                 rv_prior=rv_prior,
                                 rv_step=rv_step,
+                                rv_bias=rv_bias,
+                                rv_scale=rv_scale,
                                 pp_spec=pp_spec)
 
         state, rv, log_L, = self.guess_ml(
             state,
             steps=steps,
-            method=method)
+            method=method,
+            smooth=smooth)
 
         return rv, log_L, state.rv_guess, state.log_L_guess
         
     @deprecated("Use `run_ml` instead.")
     def fit_rv(self, spectra, templates,
                fluxes=None,
-               rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None,
+               rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None, rv_bias=None, rv_scale=None,
                method='bounded',
                calculate_error=True,
                calculate_cov=True):
@@ -2189,7 +2270,9 @@ class TempFit():
                 rv_0=rv_0,
                 rv_fixed=rv_fixed,
                 rv_bounds=rv_bounds,
-                rv_prior=rv_prior)
+                rv_prior=rv_prior,
+                rv_bias=rv_bias,
+                rv_scale=rv_scale)
 
         res, state = self.run_ml(state)
 
@@ -2203,7 +2286,7 @@ class TempFit():
 
         return res
 
-    def guess_ml(self, state, steps=None, method='lorentz'):
+    def guess_ml(self, state, steps=None, method='lorentz', smooth=False):
         """
         Given a spectrum and a template, make a good initial guess for RV where a minimization
         algorithm can be started from.
@@ -2222,33 +2305,38 @@ class TempFit():
         """
 
         method = method if method is not None else 'lorentz'
+        bounds = state.rv_bounds
 
-        logger.info(f"Guessing RV with method `{method}` using a fixed template. RV bounds are {state.rv_bounds} km/s, "
-                    f"number of steps is {steps}.")
-
-        if state.rv_bounds is None:
-            state.rv_bounds = (-500, 500)
+        if bounds is None:
+            bounds = (-500, 500)
         else:
-            if state.rv_bounds[0] is None or not np.isfinite(state.rv_bounds[0]):
-                state.rv_bounds = (-500, state.rv_bounds[1])
-            if state.rv_bounds[1] is None or not np.isfinite(state.rv_bounds[1]):
-                state.rv_bounds = (state.rv_bounds[0], 500)
+            if bounds[0] is None or not np.isfinite(bounds[0]):
+                bounds = (-500, bounds[1])
+            if bounds[1] is None or not np.isfinite(bounds[1]):
+                bounds = (bounds[0], 500)
         
         # Calculate the number of steps for the RV grid
-        if steps is None and state.rv_bounds is not None and state.rv_step is not None \
-            and state.rv_bounds[0] is not None and state.rv_bounds[1] is not None \
-            and np.isfinite(state.rv_bounds[0]) and np.isfinite(state.rv_bounds[1]):
+        if steps is None and state.rv_step is not None \
+            and np.isfinite(bounds[0]) and np.isfinite(bounds[1]):
 
-            steps = int((state.rv_bounds[1] - state.rv_bounds[0]) / state.rv_step)
-        else:
+            steps = int((bounds[1] - bounds[0]) / state.rv_step)
+        elif steps is None:
             steps = 31
+
+        logger.info(f"Guessing RV with method `{method}` using a fixed template. "
+                    f"RV bounds are {bounds} km/s, number of steps is {steps}.")
     
-        rv = np.linspace(*state.rv_bounds, steps)
+        rv = np.linspace(*bounds, steps)
         log_L = self.calculate_log_L(
             state,
             state.spectra, state.templates,
             rv, rv_prior=state.rv_prior,
             pp_spec=state.pp_spec)
+
+        # Smooth the log likelihood curve with a median filter to remove any outliers.
+        if smooth:
+            log_L = medfilt(log_L, kernel_size=5)
+            logger.info("Smoothed the log likelihood curve with a median filter before guessing RV.")
 
         # Check if log L around the best guess multimodal
         multimodal = self.test_rv(state, rv=rv, log_L=log_L)
@@ -2276,7 +2364,7 @@ class TempFit():
         else:
             raise NotImplementedError()
 
-        # Check if the guess is within the bounds
+        # Check if the guess is within the bounds (which can happen with curve fitting)
         outside = False
         edge = False
 
@@ -2338,13 +2426,13 @@ class TempFit():
         """
                             
         if state.rv_0 is None:
-            state, rv, log_L = self.guess_ml(state, method='max')
+            state, rv, log_L = self.guess_ml(state, method='max', smooth=True)
             state.rv_0 = state.rv_guess
 
             if state.rv_fixed:
                 logger.warning("No value of RV is provided, yet not fitting RV. The guessed value will be used.")
 
-        self._pack_everything(state)
+        self.__pack_everything(state)
             
         if self.trace is not None:
             wave_include, wave_exclude = self.get_wave_include_exclude()
@@ -2411,6 +2499,10 @@ class TempFit():
             log_L = log_L_fun(rv)
 
         peaks, properties = find_peaks(log_L)
+
+        # TODO: only consider peaks that are within a certain interval of the maximum
+        #       and that are significant compared to the maximum.
+
         multimodal = peaks.size > 1
 
         if self.trace is not None:
@@ -2485,15 +2577,17 @@ class TempFit():
         method : str
             Optimization method to use: 'grid', otherwise scalar
         """
-                
-        # Cost function
-        def llh(rv):
-            return -state.log_L_fun(state.pack_params(rv))
         
-        # Univariate method
+        # Optimization is done in the scaled and biased space, so we need to transform the bounds accordingly.
         # NOTE: scipy.optimize is sensitive to type of args
-        rv_bounds = tuple(float(b) for b in state.rv_bounds)
+        rv_bounds = tuple(float((b - state.rv_bias) / state.rv_scale) for b in state.rv_bounds)
         bracket = None
+
+        # Cost function, it already takes the scaled and biased RV as input and returns the negative log likelihood
+        def llh(x):
+            # Transform the parameters back to the original space
+            x = x * state.scale + state.bias
+            return -state.log_L_fun(x)
             
         try:
             if method == 'grid':
@@ -2504,7 +2598,9 @@ class TempFit():
             raise ex
 
         if out.success:
-            state.rv_fit = state.unpack_params(out.x)
+            # Transform the optimized parameters back to the original space
+            x = out.x * state.scale + state.bias
+            state.rv_fit = state.unpack_params(x)
             state.log_L_fit = -out.fun
         
             if method == 'grid':
@@ -2519,7 +2615,7 @@ class TempFit():
         self.check_bounds_edge(state)
         self.check_prior_unlikely(state)
 
-        # TODO: check if log_L decreased
+        # TODO: check if log_L decreased during optimization
 
         # Calculate the flux correction or continuum fit coefficients at best fit values
         state.a_fit, _, _ = self.calculate_coeffs(state,
@@ -2704,10 +2800,10 @@ class TempFit():
             Initial sigma for adaptive parameter sampling
         """
         
-        rv_fixed = rv_fixed if rv_fixed is not None else self.rv_fixed
-        rv_bounds = rv_bounds if rv_bounds is not None else self.rv_bounds
-        rv_prior = rv_prior if rv_prior is not None else self.rv_prior
-        rv_step = rv_step if rv_step is not None else self.rv_step
+        rv_fixed = rv_fixed if rv_fixed is not None else state.rv_fixed
+        rv_bounds = rv_bounds if rv_bounds is not None else state.rv_bounds
+        rv_prior = rv_prior if rv_prior is not None else state.rv_prior
+        rv_step = rv_step if rv_step is not None else state.rv_step
 
         # Generate an initial state for MCMC by sampling the prior randomly
 
@@ -2715,8 +2811,8 @@ class TempFit():
             if rv_prior is not None:
                 rv = self.sample_prior(rv_prior, bounds=rv_bounds)
             else:
-                if self.rv_0 is not None:
-                    rv = self.rv_0
+                if state.rv_0 is not None:
+                    rv = state.rv_0
                 else:
                     raise NotImplementedError()
         else:

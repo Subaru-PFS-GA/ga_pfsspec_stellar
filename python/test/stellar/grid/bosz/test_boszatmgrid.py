@@ -1,7 +1,8 @@
 import os
 
-from test.pfs.ga.pfsspec.core import TestBase
 from pfs.ga.pfsspec.stellar.grid.bosz import BoszAtmGrid
+
+from ....core.test_base import TestBase
 
 class TestBoszAtmGrid(TestBase):
     def test_load(self):
