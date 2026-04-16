@@ -113,7 +113,7 @@ class TempFit():
     use_weight : bool
         Use weight from template for fitting, if available. Templates can define weights to
         modify the likelihood function.
-    error_softerning : bool
+    error_softening : bool
         Soften the flux error to mitigate the effect of underestimated errors and outliers.
     max_iter : int
         Maximum number of iterations of the optimization algorithm.
@@ -242,7 +242,7 @@ class TempFit():
             self.use_error = orig.use_error
             self.use_weight = orig.use_weight
 
-            self.error_softerning = orig.error_softerning
+            self.error_softening = orig.error_softening
 
             self.max_iter = orig.max_iter
 
@@ -359,7 +359,7 @@ class TempFit():
         self.use_error = get_arg('use_error', self.use_error, args)
         self.use_weight = get_arg('use_weight', self.use_weight, args)
 
-        self.error_softerning = get_arg('error_softening', self.error_softening, args)
+        self.error_softening = get_arg('error_softening', self.error_softening, args)
 
         self.max_iter = get_arg('max_iter', self.max_iter, args)
 
@@ -865,8 +865,8 @@ class TempFit():
         if self.use_error and spec.flux_err is not None:
             spec.sigma2 = spec.flux_err ** 2
 
-            if self.error_softerning:
-                spec.sigma2 += (self.error_softerning * np.median(spec.flux_err)) ** 2
+            if self.error_softening:
+                spec.sigma2 += (self.error_softening * np.median(spec.flux_err)) ** 2
 
             spec.mask &= ~np.isnan(spec.sigma2)
         else:
