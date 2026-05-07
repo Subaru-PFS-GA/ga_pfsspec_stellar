@@ -1532,7 +1532,7 @@ class ModelGridTempFit(TempFit):
             out = minimize(llh,
                            x0=x_0,
                            bounds=bounds,
-                           method='L-BFGS-B',
+                           method='Powell',
                            callback=callback,
                            options=dict(
                                maxiter=self.max_iter,
@@ -1558,7 +1558,7 @@ class ModelGridTempFit(TempFit):
                 flags |= TempFitFlag.MAXITER
         else:
             logger.error(f"Optimization failed, optimizer message: {out.message}")
-            flags |= TempFitFlag.NOCONVERGE
+            flags |= TempFitFlag.NORVPOLISH
 
         x_fit = out.x
         state.flags |= flags
@@ -1732,7 +1732,7 @@ class ModelGridTempFit(TempFit):
                 x0=x_0,
                 # callback=callback,
                 minimizer_kwargs={
-                    "method": "L-BFGS-B",
+                    "method": "Powell",
                     "bounds": bounds,
                     "options": {
                         "maxiter": max_iter,
