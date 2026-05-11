@@ -21,6 +21,7 @@ class FluxCorr(CorrectionModel):
             self.use_flux_corr = True           # Use flux correction. Scalar if no basis is provided, otherwise linear combination of basis functions
             self.flux_corr_type = PolynomialFluxCorrection
             self.flux_corr_degree = 5           # Flux correction degree
+            self.flux_corr_rcond = 1e-8         # Regularization parameter for least squares solution
             self.flux_corr_per_arm = False      # Do flux correction independently for each arm
             self.flux_corr_per_fiber = False    # Do flux correction independently for each fiber
             self.flux_corr_per_exp = False      # Do flux correction independently for each exposure
@@ -30,6 +31,7 @@ class FluxCorr(CorrectionModel):
             self.use_flux_corr = orig.use_flux_corr
             self.flux_corr_type = orig.flux_corr_type
             self.flux_corr_degree = orig.flux_corr_degree
+            self.flux_corr_rcond = orig.flux_corr_rcond
             self.flux_corr_per_arm = orig.flux_corr_per_arm
             self.flux_corr_per_fiber = orig.flux_corr_per_fiber
             self.flux_corr_per_exp = orig.flux_corr_per_exp
@@ -56,12 +58,14 @@ class FluxCorr(CorrectionModel):
         parser.add_argument('--flux-corr-per-arm', action='store_true', dest='flux_corr_per_arm', help='Flux correction per arm.\n')
         parser.add_argument('--flux-corr-per-fiber', action='store_true', dest='flux_corr_per_fiber', help='Flux correction per fiber.\n')
         parser.add_argument('--flux-corr-per-exp', action='store_true', dest='flux_corr_per_exp', help='Flux correction per exposure.\n')
+        parser.add_argument('--flux-corr-rcond', type=float, help='Regularization parameter for least squares solution.\n')
 
     def init_from_args(self, script, config, args):
         super().init_from_args(script, config, args)
 
         self.use_flux_corr = get_arg('flux_corr', self.use_flux_corr, args)
         self.flux_corr_degree = get_arg('flux_corr_degree', self.flux_corr_degree, args)
+        self.flux_corr_rcond = get_arg('flux_corr_rcond', self.flux_corr_rcond, args)
         self.flux_corr_per_arm = get_arg('flux_corr_per_arm', self.flux_corr_per_arm, args)
         self.flux_corr_per_fiber = get_arg('flux_corr_per_fiber', self.flux_corr_per_fiber, args)
         self.flux_corr_per_exp = get_arg('flux_corr_per_exp', self.flux_corr_per_exp, args)
@@ -436,7 +440,7 @@ class FluxCorr(CorrectionModel):
         if not self.use_flux_corr:
             a = phi / chi
         else:
-            a = np.linalg.solve(chi, phi)
+            a, _, _, _ = np.linalg.lstsq(chi, phi, rcond=self.flux_corr_rcond)
         return a
 
     def eval_nu2(self, phi, chi):
@@ -446,7 +450,8 @@ class FluxCorr(CorrectionModel):
         else:
             nu2 = np.empty(phi.shape[:-1])
             for i in np.ndindex(nu2.shape):
-                nu2[i] = np.dot(phi[i], np.linalg.solve(chi[i], phi[i]))
+                a, _, _, _ = np.linalg.lstsq(chi[i], phi[i], rcond=self.flux_corr_rcond)
+                nu2[i] = np.dot(phi[i], a)
         
         if self.trace is not None:
             self.trace.on_eval_nu2(phi, chi, nu2)
