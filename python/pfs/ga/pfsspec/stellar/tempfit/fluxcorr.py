@@ -79,7 +79,7 @@ class FluxCorr(CorrectionModel):
 
     def init_models(
             self,
-            pp_spec,
+            spectra,
             rv_bounds=None,
             force=False):
         """
@@ -87,7 +87,7 @@ class FluxCorr(CorrectionModel):
         """
 
         if self.use_flux_corr and (self.flux_corr is None or force):
-            self.flux_corr = self.tempfit.init_correction_model(pp_spec,
+            self.flux_corr = self.tempfit.init_correction_model(spectra,
                                                                 per_arm=self.flux_corr_per_arm,
                                                                 per_exp=self.flux_corr_per_exp,
                                                                 rv_bounds=rv_bounds,

@@ -629,7 +629,7 @@ class TempFit():
 
     def init_correction_models(
             self,
-            pp_spec,
+            spectra,
             rv_bounds=None,
             force=False):
         
@@ -654,13 +654,13 @@ class TempFit():
             self.correction_model.tempfit = self
 
             self.correction_model.init_models(
-                pp_spec,
+                spectra,
                 rv_bounds=rv_bounds,
                 force=force)
 
     def init_correction_model(
             self,
-            pp_spec, /,
+            spectra, /,
             per_arm=True, per_exp=True,
             rv_bounds=None,
             wlim_buffer=None,
@@ -701,12 +701,12 @@ class TempFit():
         """
 
         # Determine the wavelength limits for each model
-        wlim = self.determine_wlim(pp_spec, per_arm=per_arm, per_exp=per_exp,
+        wlim = self.determine_wlim(spectra, per_arm=per_arm, per_exp=per_exp,
                                    rv_bounds=rv_bounds, wlim_buffer=wlim_buffer, round_to=round_to)
         
         # Initialize the correction models
         models = {}
-        for arm, ei, mi, spec in self.enumerate_spectra(pp_spec,
+        for arm, ei, mi, spec in self.enumerate_spectra(spectra,
                                                         per_arm=per_arm,
                                                         per_exp=per_exp,
                                                         include_none=False,
