@@ -62,7 +62,13 @@ class CorrectionModel():
         """
 
         for arm in spectra:
-            for ei, (spec, corr, mask) in enumerate(zip(spectra[arm], corrections[arm], correction_masks[arm])):
+            for ei, (spec, corr, mask) in enumerate(zip
+                (
+                    spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]],
+                    corrections[arm],
+                    correction_masks[arm]
+                )):
+
                 if spec is not None and corr is not None:
                     self._append_model_impl(spec, corr, normalization, apply_normalization=apply_normalization)
                     

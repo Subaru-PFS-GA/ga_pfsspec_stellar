@@ -475,7 +475,7 @@ class ModelGrid(PfsObject):
                 else:
                     self.wave_edges_air = None
             else:
-                # Wavelength is already in air
+                # Wavelength is in air
                 self.wave_air = self.wave
                 self.wave_edges_air = self.wave_edges
                 self.wave_vacuum = Physics.air_to_vac(self.wave)

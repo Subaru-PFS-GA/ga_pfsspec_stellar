@@ -73,6 +73,7 @@ class ModelGridReader(GridReader):
 
         self.grid.init_from_args(args)
 
+    @staticmethod
     def process_item(self, i):
         # Called when processing the grid point by point
         index, params = i
@@ -100,6 +101,7 @@ class ModelGridReader(GridReader):
             logger.debug('Cannot find file {}'.format(fn))
             return None
         
+    @staticmethod
     def process_item_error(self, ex, i):
         raise NotImplementedError()
 
