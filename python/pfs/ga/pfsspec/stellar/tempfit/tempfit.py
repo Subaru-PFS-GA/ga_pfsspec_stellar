@@ -162,8 +162,11 @@ class TempFit():
         
         if not isinstance(orig, TempFit):
             self.trace = trace                              # Collect debug info
+
+            # TODO: to be stateless, move these to tempfit_state that's passed around
+            #       instead of instantiating them in this class
             self.correction_model = correction_model        # Flux correction or continuum fitting model
-            self.extinction_model = extinction_model    # Extinction model
+            self.extinction_model = extinction_model        # Extinction model
 
             self.template_psf = None                                # Dict of psf to downgrade templates with
             self.template_resampler = RESAMPLERS['fluxcons']()      # Resample template to instrument pixels
@@ -911,7 +914,7 @@ class TempFit():
         num_not_none = sum(s is not None for a in pp_spec for s in pp_spec[a])
         num_not_masked = sum(s is not None and s.mask_as_bool().sum() != 0 for a in pp_spec for s in pp_spec[a])
 
-        logger.info(f'Preprocessed {num_total} spectra, {num_not_none} are not None, {num_not_masked} are not fully masked.')
+        logger.debug(f'Preprocessed {num_total} spectra, {num_not_none} are not None, {num_not_masked} are not fully masked.')
 
         return pp_spec
     
@@ -2256,6 +2259,7 @@ class TempFit():
                rv_0=None, rv_bounds=None, rv_prior=None, rv_fixed=None, rv_bias=None, rv_scale=None,
                method='bounded',
                calculate_error=True,
+               calculate_jac=False,
                calculate_cov=True):
 
         """
@@ -2278,6 +2282,9 @@ class TempFit():
 
         if calculate_error:
             res, state = self.calculate_error_ml(state)
+
+        if calculate_jac:
+            res, state = self.calculate_jac_ml(state)
 
         if calculate_cov:
             res, state = self.calculate_cov_ml(state)
@@ -2526,7 +2533,64 @@ class TempFit():
 
         return TempFitResults.from_state(state), state
 
+    def calculate_jac_ml(self, state, normalize_continuum=False):
+        """
+        Calculate the Jacobian of the model at each independent variable with respect
+        to the single model parameter (RV).
+
+        The jacobian takes the shape of [wave, 1] where wave accounts for all non-masked
+        pixels used in fitting. This can be used to calculate the parameter errors using
+        propagation of error instead of from the Hessian.
+        """
+
+        if not state.rv_fixed:
+
+            def f(rv):
+                # TODO: might need to pass in ebv if fitting it is implemented in this
+                #       class and not only in ModelGridTempFit
+
+                ss, tt = self.append_corrections_and_templates(
+                    state,
+                    state.spectra, state.templates,
+                    rv, a_fit=state.a_fit,
+                    match='spectrum',
+                    apply_correction=True)
+
+                mask = self.correction_model.get_fit_mask(state, state.pp_spec, state.pp_temp)
+
+                # Concatenate all non-masked pixels from all spectra into a single array
+                flux = []
+                for arm, ei, mi, spec in self.enumerate_spectra(tt,
+                                       per_arm=False, per_exp=False,
+                                       include_none=False,
+                                       include_masked=False,
+                                       mask_bits=self.mask_bits):
+
+                    if normalize_continuum and spec.line is not None:
+                        flux.append(spec.line[mask[arm][ei]])
+                    elif normalize_continuum and spec.cont is not None:
+                        flux.append(((spec.flux / spec.cont))[mask[arm][ei]])
+                    elif normalize_continuum:
+                        raise ValueError("Cannot normalize continuum: both line and cont are None.")
+                    else:
+                        flux.append(spec.flux[mask[arm][ei]])  # Append non-masked pixels only
+
+                return np.concatenate(flux)
+
+            # if state.rv_step is None:
+            #     step = 0.01 * state.rv_fit
+            # else:
+            #     step = state.rv_step
+
+            d_f = nd.Jacobian(f)
+            state.jac = d_f(state.rv_fit)
+            state.jac_params = [ 'v_los' ]  # RV is the only parameter in the Jacobian
+
+        return TempFitResults.from_state(state), state
+
     def calculate_cov_ml(self, state):
+        # This is a no-op, we're fitting one parameter only and its error is
+        # already calculated in calculate_error_ml() for the single parameter (RV)
         return TempFitResults.from_state(state), state
 
     def _fit_rv_fixed(self, state):
@@ -2713,7 +2777,7 @@ class TempFit():
         spectra = safe_deep_copy(spectra)
 
         # Evaluate the correction model at the best fit parameters
-        pp_spec, pp_temp, corrections, correction_masks = self.eval_correction(state, spectra, templates, rv_fit, ebv=ebv_fit, a=a_fit)
+        state.pp_spec, state.pp_temp, corrections, correction_masks = self.eval_correction(state, spectra, templates, rv_fit, ebv=ebv_fit, a=a_fit)
 
         # At this point spectra.flux is in physical, observed units,
         # pp_spec.flux is observed flux scaled to unity and pp_temp.flux is scaled to unity.
@@ -2724,7 +2788,7 @@ class TempFit():
         
         # Append the flux correction to the templates so that they match the observed flux but
         # do not actually change the flux
-        self.correction_model.append_model(pp_temp, corrections, correction_masks, apply_mask=False,
+        self.correction_model.append_model(state.pp_temp, corrections, correction_masks, apply_mask=False,
                                            normalization=None, apply_normalization=False)
 
         if apply_correction:
@@ -2734,7 +2798,7 @@ class TempFit():
             elif match == 'spectrum':           
                 # The correction is applied to the templates
                 # TODO: why don't we have an `if apply_correction` here?
-                self.correction_model.apply_correction(pp_temp, template=True)
+                self.correction_model.apply_correction(state.pp_temp, template=True)
             elif match == 'template':
                 # If requested, apply the flux correction to the observed spectra
                 # so that they match the template
@@ -2743,23 +2807,28 @@ class TempFit():
                 raise NotImplementedError()
 
         # Scale the templates to the spectra
-        self.multiply_spectra(pp_temp, state.spec_norm)
+        self.multiply_spectra(state.pp_temp, state.spec_norm)
 
         # Append the best fit template to the original spectra. If the correction is not applied,
         # the template is just scaled to the observed flux but won't match the observed flux.
         for arm in spectra:
             for ei, spec in enumerate(spectra[arm] if isinstance(spectra[arm], list) else [spectra[arm]]):
                 if spec is not None:
-                    spec.flux_model = pp_temp[arm][ei].flux
-                    spec.cont = pp_temp[arm][ei].cont
+                    spec.flux_model = state.pp_temp[arm][ei].flux
+                    spec.cont = state.pp_temp[arm][ei].cont
 
-        return spectra, pp_temp
+                    if state.pp_temp[arm][ei].line is not None:
+                        spec.line_model = state.pp_temp[arm][ei].line
+                    elif state.pp_temp[arm][ei].cont is not None:
+                        spec.line_model = state.pp_temp[arm][ei].flux / state.pp_temp[arm][ei].cont
+
+        return spectra, state.pp_temp
     
-    def multiply_spectra(self, spectra, factor):
+    def multiply_spectra(self, spectra, factor, observed_only=False, model_only=False):
         for arm in spectra:
             for spec in spectra[arm]:
                 if spec is not None:
-                    spec.multiply(factor)
+                    spec.multiply(factor, observed_only=observed_only, model_only=model_only)
 
     def randomize_init_params(self, 
                               state,

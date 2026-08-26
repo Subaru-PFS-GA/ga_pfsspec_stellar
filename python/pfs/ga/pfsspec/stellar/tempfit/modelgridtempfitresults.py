@@ -27,5 +27,6 @@ class ModelGridTempFitResults(TempFitResults):
             rv_fit=state.rv_fit, rv_err=state.rv_err, rv_flags=state.rv_flags,
             params_free=state.params_free, params_fit=state.params_fit, params_err=state.params_err, params_flags=state.params_flags,
             a_fit=state.a_fit, a_err=state.a_err,
+            jac=state.jac, jac_params=state.jac_params,
             cov=state.cov, cov_params=state.cov_params,
             flags=state.flags)

@@ -315,6 +315,7 @@ class TestTempFitFluxCorr(TempFitTestBase):
         state = tempfit.init_state(specs, temps)
         res, state = tempfit.run_ml(state)
         res, state = tempfit.calculate_error_ml(state)
+        res, state = tempfit.calculate_jac_ml(state)
         res, state = tempfit.calculate_cov_ml(state)
         res, state = tempfit.finish_ml(state)
 

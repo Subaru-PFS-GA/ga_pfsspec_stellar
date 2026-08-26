@@ -63,17 +63,17 @@ class StellarSpectrum(Spectrum):
         self.apply_redshift(z)
         self.rv = rv
 
-    def normalize_by_T_eff(self, T_eff=None):
+    def normalize_by_T_eff(self, T_eff=None, observed_only=False, model_only=False):
         T_eff = T_eff or self.T_eff
         logger.debug('Normalizing spectrum with black-body of T_eff={}'.format(T_eff))
         n = 1e-7 * Physics.planck(self.wave*1e-10, T_eff)
-        self.multiply(1 / n)
+        self.multiply(1 / n, observed_only=observed_only, model_only=model_only)
 
-    def denormalize_by_T_eff(self, T_eff=None):
+    def denormalize_by_T_eff(self, T_eff=None, observed_only=False, model_only=False):
         T_eff = T_eff or self.T_eff
         logger.debug('Denormalizing spectrum with black-body of T_eff={}'.format(T_eff))
         n = 1e-7 * Physics.planck(self.wave*1e-10, T_eff)
-        self.multiply(n)
+        self.multiply(n, observed_only=observed_only, model_only=model_only)
 
     def get_radius(self, log_L, log_T_eff):
         return Physics.stellar_radius(log_L, log_T_eff)

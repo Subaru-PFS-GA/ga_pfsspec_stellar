@@ -45,6 +45,9 @@ class TempFitState():
 
             self.log_L_0 = None
             self.log_L_guess = None
+
+            self.jac = None
+            self.jac_params = None
         else:
             self.spectra = spectra if spectra is not None else orig.spectra
             self.templates = templates if templates is not None else orig.templates
@@ -84,3 +87,6 @@ class TempFitState():
 
             self.log_L_0 = safe_deep_copy(orig.log_L_0)
             self.log_L_guess = safe_deep_copy(orig.log_L_guess)
+
+            self.jac = safe_deep_copy(orig.jac)
+            self.jac_params = safe_deep_copy(orig.jac_params)

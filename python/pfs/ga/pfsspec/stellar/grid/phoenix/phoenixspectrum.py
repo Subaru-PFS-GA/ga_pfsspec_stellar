@@ -41,7 +41,7 @@ class PhoenixSpectrum(ModelSpectrum):
 
         return a + b + 18.6921
 
-    def normalize_to_mag(self, filt, mag):
+    def normalize_to_mag(self, filt, mag, observed_only=False, model_only=False):
         try:
             m = self.synth_mag(filt)
             # if m <= -10:
@@ -56,5 +56,5 @@ class PhoenixSpectrum(ModelSpectrum):
         DM = mag - m
         D = 10 ** (DM / 5)
 
-        self.multiply(1 / D**2)
+        self.multiply(1 / D**2, observed_only=observed_only, model_only=model_only)
         self.mag = mag

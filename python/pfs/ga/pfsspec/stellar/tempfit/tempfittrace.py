@@ -138,7 +138,7 @@ class TempFitTrace(Trace, SpectrumTrace):
                 rv_guess=rv_guess, rv_fit=rv_fit, rv_err=rv_err,
                 title='TempFit results - {id}')
             
-        # Plot a zoom-in of the likelihood function
+            # Plot a zoom-in of the likelihood function
             if log_L_fun is not None and rv_fit is not None and rv_err is not None:
 
                 rv = np.linspace(rv_fit - 3 * rv_err, rv_fit + 3 * rv_err, 100)

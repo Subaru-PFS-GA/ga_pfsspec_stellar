@@ -32,6 +32,9 @@ class CorrectionModel():
     def eval_correction(self, state, pp_specs, pp_temps, a=None):
         raise NotImplementedError()
 
+    def get_fit_masks(self, state, pp_spec, pp_temp):
+        raise NotImplementedError()
+
     def append_model(self, spectra, corrections, correction_masks, normalization,
                      apply_mask=False, apply_normalization=False,
                      mask_bit=1):

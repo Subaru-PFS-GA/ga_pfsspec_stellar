@@ -83,7 +83,8 @@ class FluxCorr(CorrectionModel):
             rv_bounds=None,
             force=False):
         """
-        Initialize the flux correction model for each arm and exposure.
+        Initialize the flux correction model for each arm and exposure. This consits of
+        calculating the basis functions at the wavelength grid of each exposure.
         """
 
         if self.use_flux_corr and (self.flux_corr is None or force):
@@ -256,46 +257,29 @@ class FluxCorr(CorrectionModel):
         amp_count, param_count, coeff_count = self.param_count_cache
         return amp_count, param_count, coeff_count
 
-    def get_masked_spectra(self, pp_spec, bases, basis_mask=None):
-        if self.masked_spectrum_cache is None:
-            masked_wave = { arm: [] for arm in pp_spec }
-            masked_flux = { arm: [] for arm in pp_spec }
-            masked_sigma2 = { arm: [] for arm in pp_spec }
-            masked_bases = { arm: [] for arm in pp_spec }
+    def get_fit_mask(self, state, pp_spec, pp_temp):
 
-            for arm in pp_spec:
-                for ei in range(len(pp_spec[arm])):
-                    spec = pp_spec[arm][ei]
-                    basis = bases[arm][ei]
-                    
-                    if spec is None:
-                        masked_wave[arm].append(None)
-                        masked_flux[arm].append(None)
-                        masked_sigma2[arm].append(None)
-                        masked_bases[arm].append(None)
-                    else:
-                        if basis_mask is None:
-                            mask = spec.mask
-                        elif spec.mask is not None:
-                            mask = basis_mask[arm][ei] & spec.mask
-                        else:
-                            mask = ()
+        # NOTE: this should be consistent with eval_phi_chi
 
-                        if mask.sum() > 0:
-                            masked_wave[arm].append(spec.wave[mask])
-                            masked_flux[arm].append(spec.flux[mask])
-                            masked_sigma2[arm].append(spec.sigma2[mask])
-                            masked_bases[arm].append(basis[mask])
-                        else:
-                            masked_wave[arm].append(None)
-                            masked_flux[arm].append(None)
-                            masked_sigma2[arm].append(None)
-                            masked_bases[arm].append(None)
+        # Evaluate the basis functions or look them up in the cache
+        bases, basis_size, model_masks, basis_masks = self.get_flux_corr_basis(pp_spec)
 
-            self.masked_spectrum_cache = masked_wave, masked_flux, masked_sigma2, masked_bases
+        mask = {arm: [] for arm in pp_spec}
+        for arm, ei, mi, spec in self.tempfit.enumerate_spectra(pp_spec,
+                                                                per_arm=False, per_exp=False,
+                                                                include_none=False,
+                                                                include_masked=False,
+                                                                mask_bits=self.tempfit.mask_bits):
 
-        masked_wave, masked_flux, masked_sigma2, masked_bases = self.masked_spectrum_cache
-        return masked_wave, masked_flux, masked_sigma2, masked_bases
+            temp = pp_temp[arm][ei]
+            basis = bases[arm][ei]
+            model_mask = model_masks[arm][ei]
+            basis_mask = basis_masks[arm][ei]
+
+            # Combine masks
+            mask[arm].append(spec.mask & temp.mask & basis_mask)
+
+        return mask
 
     def calculate_phi_chi(self, state, spectra, templates, rv):
         """
@@ -320,9 +304,6 @@ class FluxCorr(CorrectionModel):
 
         # Evaluate the basis functions or look them up in the cache
         bases, basis_size, model_masks, basis_masks = self.get_flux_corr_basis(pp_spec)
-
-        # Get the masked data vectors
-        # masked_wave, masked_flux, masked_sigma2, masked_bases = self.get_masked_spectra(pp_spec, bases, basis_mask)
 
         # Sum up log_L contributions from spectrum - template pairs
         phi = np.zeros((coeff_count,))
@@ -728,6 +709,6 @@ class FluxCorr(CorrectionModel):
     def _apply_correction_impl(self, spec, template=False):
         if spec.flux_corr is not None:
             if not template:
-                spec.multiply(1.0 / spec.flux_corr)
+                spec.multiply(1.0 / spec.flux_corr, observed_only=True)
             else:
-                spec.multiply(spec.flux_corr)
+                spec.multiply(spec.flux_corr, observed_only=True)

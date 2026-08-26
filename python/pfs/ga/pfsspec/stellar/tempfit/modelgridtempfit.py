@@ -159,9 +159,6 @@ class ModelGridTempFit(TempFit):
             if params[p].has_dist():
                 self.params_priors[p] = params[p].get_dist()
 
-    def reset(self):
-        super().reset()
-
     def create_trace(self):
         return ModelGridTempFitTrace()
 
@@ -1621,7 +1618,7 @@ class ModelGridTempFit(TempFit):
                                                            params_fit=state.params_fit,
                                                            a_fit=state.a_fit,
                                                            match='template',
-                                                           apply_correction=True)
+                                                           apply_correction=False)
 
             self.trace.on_fit_rv_finish(ss, tt,
                                         state.rv_0, state.rv_fit, state.rv_err, state.rv_bounds, state.rv_prior, state.rv_step, state.rv_fixed,
@@ -1817,29 +1814,38 @@ class ModelGridTempFit(TempFit):
 
         return ModelGridTempFitResults.from_state(state), state
 
-    def calculate_cov_ml(self, state):
+    def get_params_for_diff(self, state):
         """
-        Given the best fit parameters, calculate the covariance matrix of the RV and
-        template parameters using the Fisher matrix.
+        Collect the parameters for which the derivatives can be calculated,
+        i.e. not fixed and not at the edge of the parameter range.
+
+        The derivatives should be centered around the union of params_0 and params_free
+
+        Returns:
+        --------
+        params_0 : dict
+            Dictionary of initial values for the free parameters not at the edge of the bounds.
+        params_fixed : dict
+            Dictionary of fixed parameters and parameters at the edge of the bounds.
+        params_free : list
+            List of non-rv parameters that are free.
+        diff_params : list
+            List of free parameters that are not at the edge of the bounds.
         """
-        
-        # Calculate the correlated errors from the Fisher matrix
-        # Collect the parameters that aren't on the edge or have very unlikely priors
-        # as it they would make the Hessian singular or Nan
 
-        # Index of the parameter within the covariance matrix
-        state.cov_params = []
-
-        # Only include the other parameters if they are not fixed and not on the edge
         params_0 = {}
+        params_free = []
+        diff_params = []
         params_fixed = { p: state.params_fixed[p] for p in state.params_fixed }
+        
         for i, p in enumerate(state.params_free):
             if (state.params_flags[p] & (TempFitFlag.PARAMEDGE | TempFitFlag.UNLIKELYPRIOR)) != 0:
                 params_fixed[p] = state.params_fit[p]
                 logger.info(f"Excluding parameter {p} from the covariance matrix because it's at the edge of the bounds or with very unlikely prior.")
             else:
                 params_0[p] = state.params_fit[p]
-                state.cov_params.append(p)
+                params_free.append(p)
+                diff_params.append(p)
 
         # Only include rv if it's not fixed and not on the edge or very unlikely
         if state.rv_fixed:
@@ -1854,13 +1860,128 @@ class ModelGridTempFit(TempFit):
             rv_fixed = False
             rv_0 = state.rv_fit
             mode = 'params_rv'
-            state.cov_params.append('v_los')
+            diff_params.append('v_los')
 
-        keys = list(params_0.keys())
-        if not rv_fixed:
-            keys = keys + ['RV']
+        # TODO: rv only?
 
-        logger.info(f"Calculating the covariance matrix for parameters {keys} with mode `{mode}`.")
+        if state.rv_step is None:
+            rv_step = 0.01 * state.rv_fit
+        else:
+            rv_step = state.rv_step
+
+        if state.params_steps is None:
+            params_steps = {p: 0.01 * state.params_fit[p] for p in state.params_fit}
+        else:
+            params_steps = state.params_steps
+
+        return rv_0, rv_fixed, rv_step, params_0, params_fixed, params_steps, params_free, diff_params, mode
+
+    def calculate_jac_ml(self, state, normalize_continuum=False):
+        """
+        Calculate the Jacobian of the flux for each independent variable.
+
+        The jacobian takes the shape of [wave, n_params] where wave accounts for all non-masked
+        pixels used in fitting. This can be used to calculate the parameter errors using
+        propagation of error instead of from the Hessian.
+        """
+
+        # TODO: It works for multiple exposures but it doesn't make too much sense
+
+        # TODO: This function is only used to interface with chemfit so its return value
+        #       is formatted accordinly. Rewrite it to return a dict of arrays instead,
+        #       keyed with the name of the arms and match the shape of the spectra
+
+        rv_0, rv_fixed, rv_step, params_0, params_fixed, params_steps, params_free, state.jac_params, mode = self.get_params_for_diff(state)
+        
+        logger.info(f"Calculating the Jacobian of the flux for parameters {state.jac_params} with mode `{mode}`.")
+
+        # Get the parameter pack and unpack functions
+        log_L, pack_params, unpack_params, pack_bounds = self.get_objective_function(
+            state,
+            state.spectra, state.fluxes,
+            rv_0, rv_fixed, state.rv_prior,
+            params_0, state.params_priors, params_fixed=params_fixed, params_free=params_free,
+            mode=mode)
+
+        def get_model_flux(rv, params):
+            ss, tt = self.append_corrections_and_templates(
+                state,
+                state.spectra,
+                templates=None,
+                rv_fit=rv,
+                params_fit=params,
+                a_fit=None,
+                match='spectrum',
+                apply_correction=True)
+
+            mask = self.correction_model.get_fit_mask(state, state.pp_spec, state.pp_temp)
+
+            # Concatenate all non-masked pixels from all spectra into a single array
+            flux = []
+            for arm, ei, mi, spec in self.enumerate_spectra(tt,
+                                    per_arm=False, per_exp=False,
+                                    include_none=False,
+                                    include_masked=False,
+                                    mask_bits=self.mask_bits):
+
+                if normalize_continuum and spec.line is not None:
+                    flux.append(spec.line[mask[arm][ei]])
+                elif normalize_continuum and spec.cont is not None:
+                    flux.append((spec.flux / spec.cont)[mask[arm][ei]])
+                elif normalize_continuum:
+                    raise ValueError("Cannot normalize continuum: both line and cont are None.")
+                else:
+                    flux.append(spec.flux[mask[arm][ei]])  # Append non-masked pixels only
+
+            return np.concatenate(flux)
+
+        if mode == 'params_rv':
+            def f(params_rv):
+                params, rv = unpack_params(params_rv)
+                params.update(params_fixed)
+                return get_model_flux(rv, params)
+
+            steps = pack_params(
+                { p: params_steps[p] for p in params_steps if p in state.jac_params},
+                rv_step
+            )
+        elif mode == 'params':
+            def f(params):
+                params = unpack_params(params)
+                params.update(params_fixed)
+                return get_model_flux(rv_0, params)
+
+            steps = pack_params(
+                { p: params_steps[p] for p in params_steps if p in state.jac_params},
+            )
+        elif mode == 'rv':
+            def f(rv):
+                return get_model_flux(rv, params_fixed)
+
+            steps = pack_params(
+                rv_step
+            )
+        else:
+            raise ValueError(f"Unknown mode `{mode}` for Jacobian calculation.")
+
+        d_f = nd.Jacobian(f, method='central', order=2, step=steps[0])
+        state.jac = d_f(pack_params(state.params_fit, state.rv_fit)[0])
+
+        return ModelGridTempFitResults.from_state(state), state
+
+    def calculate_cov_ml(self, state):
+        """
+        Given the best fit parameters, calculate the covariance matrix of the RV and
+        template parameters using the Fisher matrix.
+        """
+        
+        # Calculate the correlated errors from the Fisher matrix
+        # Collect the parameters that aren't on the edge or have very unlikely priors
+        # as it they would make the Hessian singular or Nan
+
+        rv_0, rv_fixed, rv_step, params_0, params_fixed, params_steps, params_free, state.cov_params, mode = self.get_params_for_diff(state)
+        
+        logger.info(f"Calculating the covariance matrix for parameters {state.cov_params} with mode `{mode}`.")
 
         state.F, state.cov = self.calculate_F(
             state,
@@ -1875,7 +1996,7 @@ class ModelGridTempFit(TempFit):
         # Check if the covariance matrix is positive definite
         if state.cov is None or np.any(np.isnan(state.cov)):
             state.cov = np.full_like(state.F, np.nan)
-            logger.warning(f"Could not calculate the covariance of the parameters {keys}, possibly singular Hessian.")
+            logger.warning(f"Could not calculate the covariance of the parameters {state.cov_params}, possibly singular Hessian.")
         else:
             with np.errstate(all='raise'):
                 try:
@@ -1883,7 +2004,7 @@ class ModelGridTempFit(TempFit):
                 except LinAlgError as ex:
                     # Matrix is not positive definite
                     state.cov = np.full_like(state.F, np.nan)
-                    logger.warning(f"Covariance matrix for parameters {keys} is not positive definite.")
+                    logger.warning(f"Covariance matrix for parameters {state.cov_params} is not positive definite.")
 
         return ModelGridTempFitResults.from_state(state), state
 
@@ -2092,6 +2213,9 @@ class ModelGridTempFit(TempFit):
 
         if templates is None:
             templates, missing = self.get_templates(state, spectra, params_fit)
+
+            if missing:
+                raise ValueError(f"Missing templates for parameters: {missing}")
 
         if a_fit is None:
             pp_spec = self.preprocess_spectra(state, spectra)

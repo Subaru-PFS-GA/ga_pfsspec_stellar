@@ -394,9 +394,9 @@ class ContNorm(CorrectionModel):
 
     def _apply_correction_impl(self, spec, template=False):
         if not template:
-            spec.multiply(1.0 / spec.cont)
+            spec.multiply(1.0 / spec.cont, observed_only=True)
         else:
-            spec.multiply(spec.cont)
+            spec.multiply(spec.cont, observed_only=True)
                             
     def get_wave_include(self):
         return self.cont_wave_include
