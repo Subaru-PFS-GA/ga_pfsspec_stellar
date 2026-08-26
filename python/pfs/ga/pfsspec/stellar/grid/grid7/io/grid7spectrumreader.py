@@ -129,7 +129,7 @@ class Grid7SpectrumReader(SpectrumReader):
         if filename.lower().endswith('.bin.gz'):
             # bin/t5000/g_10/t5000g_10f_00a_00.bin.gz
 
-            parts = list(re.findall('t([0-9]{4})g([_-][0-9]{2})f([_-][0-9]{2})a([_-][0-9]{2})\.', filename.replace('a_00a', 'a'))[0])
+            parts = list(re.findall(r't([0-9]{4})g([_-][0-9]{2})f([_-][0-9]{2})a([_-][0-9]{2})\.', filename.replace('a_00a', 'a'))[0])
             parts[0] = float(parts[0])
             for i in range(1, len(parts)):
                 parts[i] = np.round(float(parts[i].replace('_', '')) / 10.0, 1)
