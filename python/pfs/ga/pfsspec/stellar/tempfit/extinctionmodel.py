@@ -97,6 +97,13 @@ class ExtinctionModel():
                     ext_curve[arm].append(None)
 
         return ext_curve
+
+    def append_model(self, spectra, ebv):
+        for arm in spectra:
+            for i in range(len(spectra[arm])):
+                if spectra[arm][i] is not None:
+                    spectra[arm][i].ext = ebv
+                    spectra[arm][i].flux_ext = self.curves[arm][i]
     
     def apply_extinction(self, templates, ebv):
         for arm in templates:

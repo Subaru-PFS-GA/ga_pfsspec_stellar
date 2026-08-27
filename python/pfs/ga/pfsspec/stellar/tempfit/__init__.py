@@ -1,8 +1,10 @@
 from .tempfit import TempFit
+from .tempfitresults import TempFitResults
 from .tempfitflag import TempFitFlag
 from .tempfittrace import TempFitTrace
 from .tempfitstate import TempFitState
 from .modelgridtempfit import ModelGridTempFit
+from .modelgridtempfitresults import ModelGridTempFitResults
 from .modelgridtempfittrace import ModelGridTempFitTrace
 from .modelgridtempfitstate import ModelGridTempFitState
 

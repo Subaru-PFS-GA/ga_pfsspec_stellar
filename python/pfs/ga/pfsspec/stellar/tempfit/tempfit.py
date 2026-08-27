@@ -2791,6 +2791,9 @@ class TempFit():
         self.correction_model.append_model(state.pp_temp, corrections, correction_masks, apply_mask=False,
                                            normalization=None, apply_normalization=False)
 
+        if self.extinction_model is not None:
+            self.extinction_model.append_model(spectra, ebv_fit)
+
         if apply_correction:
             if match is None:
                 # Only append the correction model, do not scale or correct the flux
