@@ -1891,7 +1891,9 @@ class ModelGridTempFit(TempFit):
         #       is formatted accordinly. Rewrite it to return a dict of arrays instead,
         #       keyed with the name of the arms and match the shape of the spectra
 
-        rv_0, rv_fixed, rv_step, params_0, params_fixed, params_steps, params_free, state.jac_params, mode = self.get_params_for_diff(state)
+        (rv_0, rv_fixed, rv_step,
+         params_0, params_fixed, params_steps, params_free,
+         state.jac_params, mode) = self.get_params_for_diff(state)
         
         logger.info(f"Calculating the Jacobian of the flux for parameters {state.jac_params} with mode `{mode}`.")
 
@@ -1903,36 +1905,58 @@ class ModelGridTempFit(TempFit):
             params_0, state.params_priors, params_fixed=params_fixed, params_free=params_free,
             mode=mode)
 
+        # Get the model at the center, this should set pp_spec and pp_temp
+        ss_0, tt_0 = self.append_corrections_and_templates(
+                    state,
+                    state.spectra,
+                    templates=None,
+                    rv_fit=state.rv_fit,
+                    params_fit=state.params_fit,
+                    a_fit=None,
+                    match='spectrum',
+                    apply_correction=True)
+
+        mask = self.correction_model.get_fit_mask(state, state.pp_spec, state.pp_temp)
+
         def get_model_flux(rv, params):
-            ss, tt = self.append_corrections_and_templates(
-                state,
-                state.spectra,
-                templates=None,
-                rv_fit=rv,
-                params_fit=params,
-                a_fit=None,
-                match='spectrum',
-                apply_correction=True)
-
-            mask = self.correction_model.get_fit_mask(state, state.pp_spec, state.pp_temp)
-
-            # Concatenate all non-masked pixels from all spectra into a single array
             flux = []
-            for arm, ei, mi, spec in self.enumerate_spectra(tt,
-                                    per_arm=False, per_exp=False,
-                                    include_none=False,
-                                    include_masked=False,
-                                    mask_bits=self.mask_bits):
+            try:
+                ss, tt = self.append_corrections_and_templates(
+                    state,
+                    state.spectra,
+                    templates=None,
+                    rv_fit=rv,
+                    params_fit=params,
+                    a_fit=None,
+                    match='spectrum',
+                    apply_correction=True)
 
-                if normalize_continuum and spec.line is not None:
-                    flux.append(spec.line[mask[arm][ei]])
-                elif normalize_continuum and spec.cont is not None:
-                    flux.append((spec.flux / spec.cont)[mask[arm][ei]])
-                elif normalize_continuum:
-                    raise ValueError("Cannot normalize continuum: both line and cont are None.")
-                else:
-                    flux.append(spec.flux[mask[arm][ei]])  # Append non-masked pixels only
+                # Concatenate all non-masked pixels from all spectra into a single array
+                for arm, ei, mi, spec in self.enumerate_spectra(tt,
+                                        per_arm=False, per_exp=False,
+                                        include_none=False,
+                                        include_masked=False,
+                                        mask_bits=self.mask_bits):
 
+                    if normalize_continuum and spec.line is not None:
+                        flux.append(spec.line[mask[arm][ei]])
+                    elif normalize_continuum and spec.cont is not None:
+                        flux.append((spec.flux / spec.cont)[mask[arm][ei]])
+                    elif normalize_continuum:
+                        raise ValueError("Cannot normalize continuum: both line and cont are None.")
+                    else:
+                        flux.append(spec.flux[mask[arm][ei]])  # Append non-masked pixels only
+            except ValueError:
+                # Missing template, return all nans
+                flux = []
+                for arm, ei, mi, spec in self.enumerate_spectra(state.spectra,
+                                        per_arm=False, per_exp=False,
+                                        include_none=False,
+                                        include_masked=False,
+                                        mask_bits=self.mask_bits):
+
+                    flux.append(np.full_like(spec.flux[mask[arm][ei]], np.nan))
+            
             return np.concatenate(flux)
 
         if mode == 'params_rv':
@@ -1963,7 +1987,7 @@ class ModelGridTempFit(TempFit):
             )
         else:
             raise ValueError(f"Unknown mode `{mode}` for Jacobian calculation.")
-
+    
         d_f = nd.Jacobian(f, method='central', order=2, step=steps[0])
         state.jac = d_f(pack_params(state.params_fit, state.rv_fit)[0])
 
@@ -1979,7 +2003,9 @@ class ModelGridTempFit(TempFit):
         # Collect the parameters that aren't on the edge or have very unlikely priors
         # as it they would make the Hessian singular or Nan
 
-        rv_0, rv_fixed, rv_step, params_0, params_fixed, params_steps, params_free, state.cov_params, mode = self.get_params_for_diff(state)
+        (rv_0, rv_fixed, rv_step,
+         params_0, params_fixed, params_steps, params_free,
+         state.cov_params, mode) = self.get_params_for_diff(state)
         
         logger.info(f"Calculating the covariance matrix for parameters {state.cov_params} with mode `{mode}`.")
 
@@ -2215,7 +2241,7 @@ class ModelGridTempFit(TempFit):
             templates, missing = self.get_templates(state, spectra, params_fit)
 
             if missing:
-                raise ValueError(f"Missing templates for parameters: {missing}")
+                raise ValueError(f"Missing templates for parameters: {params_fit}")
 
         if a_fit is None:
             pp_spec = self.preprocess_spectra(state, spectra)
