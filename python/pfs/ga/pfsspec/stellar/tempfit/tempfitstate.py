@@ -90,3 +90,11 @@ class TempFitState():
 
             self.jac = safe_deep_copy(orig.jac)
             self.jac_params = safe_deep_copy(orig.jac_params)
+
+    def copy_from_results(self, tempfit_results):
+        self.rv_fit = tempfit_results.rv_fit
+        self.rv_err = tempfit_results.rv_err
+        self.rv_flags = tempfit_results.rv_flags
+        
+        self.a_fit = tempfit_results.a_fit
+        self.a_err = tempfit_results.a_err

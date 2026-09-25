@@ -42,3 +42,13 @@ class ModelGridTempFitState(TempFitState):
 
             self.cov = safe_deep_copy(orig.cov)
             self.cov_params = safe_deep_copy(orig.cov_params)
+
+    def copy_from_results(self, tempfit_results):
+        super().copy_from_results(tempfit_results)
+        
+        self.params_fit = tempfit_results.params_fit.copy()
+        self.params_err = tempfit_results.params_err.copy()
+        self.params_flags = tempfit_results.params_flags.copy()
+
+        self.cov = tempfit_results.cov.copy() if tempfit_results.cov is not None else None
+        self.cov_params = tempfit_results.cov_params.copy() if tempfit_results.cov_params is not None else None
