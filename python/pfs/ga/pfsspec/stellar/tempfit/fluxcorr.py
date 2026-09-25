@@ -371,11 +371,9 @@ class FluxCorr(CorrectionModel):
             # Although wave_mask might depend on the template, it currently does not
             # We cache the bb matrix here because it's expensive to calculate.
             key = (arm, ei, 'bb')
-            if key in self.tensor_cache:
-                bb = self.tensor_cache[key]
-            else:
-                bb = basis[np.ix_(wave_mask, mm)]
-                self.tensor_cache[key] = bb
+            if key not in self.tensor_cache:
+                self.tensor_cache[key] = basis[:, mm]
+            bb = self.tensor_cache[key][wave_mask]
             
             # When we have a different basis for each arm or exposure, most of the
             # bb matrix would be 0 because the coefficients of the rest of the arms
