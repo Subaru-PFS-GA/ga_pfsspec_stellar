@@ -2545,10 +2545,34 @@ class TempFit():
 
         if not state.rv_fixed:
 
-            def f(rv):
-                # TODO: might need to pass in ebv if fitting it is implemented in this
-                #       class and not only in ModelGridTempFit
+            # Evaluate the model once to initialize pp_temp and expose arm/exposure layout.
+            ss_0, tt_0 = self.append_corrections_and_templates(
+                state,
+                state.spectra, state.templates,
+                state.rv_fit, a_fit=state.a_fit,
+                match='spectrum',
+                apply_correction=True)
 
+            fit_mask = self.correction_model.get_fit_mask(state, state.pp_spec, state.pp_temp)
+
+            # Build an exposure index mask aligned with the flattened model vector so the
+            # Jacobian can be unpacked back into arm/exposure arrays.
+            exp_mask = []
+            ii = 0
+            for arm, ei, mi, spec in self.enumerate_spectra(
+                tt_0,
+                per_arm=False, per_exp=False,
+                include_none=False,
+                include_masked=False,
+                mask_bits=self.mask_bits):
+
+                exp_mask.append(np.full(np.count_nonzero(fit_mask[arm][ei]), ii))
+                ii += 1
+
+            wave_mask = np.concatenate(wave_mask)
+            exp_mask = np.concatenate(exp_mask)
+
+            def get_model_flux(rv):
                 ss, tt = self.append_corrections_and_templates(
                     state,
                     state.spectra, state.templates,
@@ -2556,26 +2580,28 @@ class TempFit():
                     match='spectrum',
                     apply_correction=True)
 
-                mask = self.correction_model.get_fit_mask(state, state.pp_spec, state.pp_temp)
-
-                # Concatenate all non-masked pixels from all spectra into a single array
                 flux = []
-                for arm, ei, mi, spec in self.enumerate_spectra(tt,
-                                       per_arm=False, per_exp=False,
-                                       include_none=False,
-                                       include_masked=False,
-                                       mask_bits=self.mask_bits):
+                for arm, ei, mi, spec in self.enumerate_spectra(
+                    tt,
+                    per_arm=False, per_exp=False,
+                    include_none=False,
+                    include_masked=False,
+                    mask_bits=self.mask_bits
+                ):
 
                     if normalize_continuum and spec.line is not None:
-                        flux.append(spec.line[mask[arm][ei]])
+                        flux.append(spec.line)
                     elif normalize_continuum and spec.cont is not None:
-                        flux.append(((spec.flux / spec.cont))[mask[arm][ei]])
+                        flux.append(((spec.flux / spec.cont)))
                     elif normalize_continuum:
                         raise ValueError("Cannot normalize continuum: both line and cont are None.")
                     else:
-                        flux.append(spec.flux[mask[arm][ei]])  # Append non-masked pixels only
+                        flux.append(spec.flux)  # Append all pixels
 
                 return np.concatenate(flux)
+
+            def f(rv):
+                return get_model_flux(rv)
 
             # if state.rv_step is None:
             #     step = 0.01 * state.rv_fit
@@ -2583,8 +2609,25 @@ class TempFit():
             #     step = state.rv_step
 
             d_f = nd.Jacobian(f)
-            state.jac = d_f(state.rv_fit)
+            jac = d_f(state.rv_fit)
             state.jac_params = [ 'v_los' ]  # RV is the only parameter in the Jacobian
+
+            # Unpack the Jacobian into a dict of list of arrays per arm and exposure,
+            # matching ModelGridTempFit output format.
+            state.jac = {}
+            ii = 0
+            for arm, ei, mi, spec in self.enumerate_spectra(
+                state.spectra,
+                per_arm=False, per_exp=False,
+                include_none=False,
+                include_masked=False,
+                mask_bits=self.mask_bits):
+
+                if arm not in state.jac:
+                    state.jac[arm] = []
+
+                state.jac[arm].append(jac[exp_mask == ii])
+                ii += 1
 
         return TempFitResults.from_state(state), state
 

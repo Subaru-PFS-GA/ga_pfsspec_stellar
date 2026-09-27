@@ -1880,16 +1880,15 @@ class ModelGridTempFit(TempFit):
         """
         Calculate the Jacobian of the flux for each independent variable.
 
-        The jacobian takes the shape of [wave, n_params] where wave accounts for all non-masked
-        pixels used in fitting. This can be used to calculate the parameter errors using
-        propagation of error instead of from the Hessian.
+        To conform with the rest of the class, we return the jacobian as a dict of
+        list of arrays that correspond to the independent arms and exposures.
+        The relevant masks are also returned.
         """
 
         # TODO: It works for multiple exposures but it doesn't make too much sense
 
-        # TODO: This function is only used to interface with chemfit so its return value
-        #       is formatted accordinly. Rewrite it to return a dict of arrays instead,
-        #       keyed with the name of the arms and match the shape of the spectra
+        # TODO: check if not using the wave mask in the jacobian actually works,
+        #       otherwise mask the jacobian and then fill the holes with nans
 
         (rv_0, rv_fixed, rv_step,
          params_0, params_fixed, params_steps, params_free,
@@ -1916,10 +1915,33 @@ class ModelGridTempFit(TempFit):
                     match='spectrum',
                     apply_correction=True)
 
-        mask = self.correction_model.get_fit_mask(state, state.pp_spec, state.pp_temp)
+        # Compute the mask for each arm and exposure
+        fit_mask = self.correction_model.get_fit_mask(state, state.pp_spec, state.pp_temp)
+
+        # Combine the mask and create an exposure mask to extract the individual
+        # pixels into exposures again
+        wave_mask = []
+        exp_mask = []
+        ii = 0
+        for arm, ei, mi, spec in self.enumerate_spectra(
+            tt_0,
+            per_arm=False, per_exp=False,
+            include_none=False,
+            include_masked=False,
+            mask_bits=self.mask_bits):
+
+            wave_mask.append(fit_mask[arm][ei])
+            exp_mask.append(np.full(fit_mask[arm][ei].shape, ii))
+            ii += 1
+
+        wave_mask = np.concatenate(wave_mask)
+        exp_mask = np.concatenate(exp_mask)
 
         def get_model_flux(rv, params):
             flux = []
+
+            # Catch the case when the model is not available (outside the grid)
+            # TODO: try to handle this by limiting the list of parameters
             try:
                 ss, tt = self.append_corrections_and_templates(
                     state,
@@ -1932,30 +1954,31 @@ class ModelGridTempFit(TempFit):
                     apply_correction=True)
 
                 # Concatenate all non-masked pixels from all spectra into a single array
-                for arm, ei, mi, spec in self.enumerate_spectra(tt,
-                                        per_arm=False, per_exp=False,
-                                        include_none=False,
-                                        include_masked=False,
-                                        mask_bits=self.mask_bits):
+                for arm, ei, mi, spec in self.enumerate_spectra(
+                    tt,
+                    per_arm=False, per_exp=False,
+                    include_none=False,
+                    include_masked=False,
+                    mask_bits=self.mask_bits
+                ):
 
                     if normalize_continuum and spec.line is not None:
-                        flux.append(spec.line[mask[arm][ei]])
+                        flux.append(spec.line)
                     elif normalize_continuum and spec.cont is not None:
-                        flux.append((spec.flux / spec.cont)[mask[arm][ei]])
+                        flux.append((spec.flux / spec.cont))
                     elif normalize_continuum:
                         raise ValueError("Cannot normalize continuum: both line and cont are None.")
                     else:
-                        flux.append(spec.flux[mask[arm][ei]])  # Append non-masked pixels only
+                        flux.append(spec.flux)  # Append all pixels
             except ValueError:
                 # Missing template, return all nans
-                flux = []
                 for arm, ei, mi, spec in self.enumerate_spectra(state.spectra,
                                         per_arm=False, per_exp=False,
                                         include_none=False,
                                         include_masked=False,
                                         mask_bits=self.mask_bits):
 
-                    flux.append(np.full_like(spec.flux[mask[arm][ei]], np.nan))
+                    flux.append(np.full_like(spec.flux, np.nan))
             
             return np.concatenate(flux)
 
@@ -1974,7 +1997,7 @@ class ModelGridTempFit(TempFit):
                 params = unpack_params(params)
                 params.update(params_fixed)
                 return get_model_flux(rv_0, params)
-
+        
             steps = pack_params(
                 { p: params_steps[p] for p in params_steps if p in state.jac_params},
             )
@@ -1989,7 +2012,24 @@ class ModelGridTempFit(TempFit):
             raise ValueError(f"Unknown mode `{mode}` for Jacobian calculation.")
     
         d_f = nd.Jacobian(f, method='central', order=2, step=steps[0])
-        state.jac = d_f(pack_params(state.params_fit, state.rv_fit)[0])
+        jac = d_f(pack_params(state.params_fit, state.rv_fit)[0])
+
+        # Unpack the Jacobian into a dict of list of arrays 
+        state.jac = {}
+        ii = 0
+        for arm, ei, mi, spec in self.enumerate_spectra(
+            state.spectra,
+            per_arm=False, per_exp=False,
+            include_none=False,
+            include_masked=False,
+            mask_bits=self.mask_bits):
+
+            if arm not in state.jac:
+                state.jac[arm] = []
+
+            state.jac[arm].append(jac[exp_mask == ii])
+
+            ii += 1
 
         return ModelGridTempFitResults.from_state(state), state
 
