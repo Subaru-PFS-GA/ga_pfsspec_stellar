@@ -117,6 +117,8 @@ class TempFit():
         Soften the flux error to mitigate the effect of underestimated errors and outliers.
     max_iter : int
         Maximum number of iterations of the optimization algorithm.
+    ftol : float
+        Tolerance for convergence of the optimization algorithm.
     mcmc_walkers : int
         Number of parallel walkers for the MCMC sampling.
     mcmc_burnin : int
@@ -205,6 +207,7 @@ class TempFit():
             self.error_softening = None     # Soften the flux error to mitigate the effect of underestimated errors and outliers
 
             self.max_iter = 1000            # Maximum number of iterations of the optimization algorithm
+            self.ftol = 1e-12
 
             self.mcmc_walkers = 10          # Number of parallel walkers
             self.mcmc_burnin = 100          # Number of burn-in iterations
@@ -248,12 +251,13 @@ class TempFit():
             self.error_softening = orig.error_softening
 
             self.max_iter = orig.max_iter
+            self.ftol = orig.ftol
 
             self.mcmc_walkers = orig.mcmc_walkers
             self.mcmc_burnin = orig.mcmc_burnin
             self.mcmc_samples = orig.mcmc_samples
             self.mcmc_thin = orig.mcmc_thin
-            self.mcmc_thin = orig.mcmc_gamma
+            self.mcmc_gamma = orig.mcmc_gamma
 
         self.reset()
 
@@ -299,6 +303,7 @@ class TempFit():
         parser.add_argument('--error-softening', type=float, help='Soften the flux error.\n')
 
         parser.add_argument('--max-iter', type=int, help='Maximum number of iterations of the optimization algorithm.\n')
+        parser.add_argument('--ftol', type=float, help='Tolerance for convergence of the optimization algorithm.\n')
 
         parser.add_argument('--mcmc-walkers', type=int, help='Number of MCMC walkers (min number of params + 1).\n')
         parser.add_argument('--mcmc-burnin', type=int, help='Number of MCMC burn-in samples.\n')
@@ -365,6 +370,7 @@ class TempFit():
         self.error_softening = get_arg('error_softening', self.error_softening, args)
 
         self.max_iter = get_arg('max_iter', self.max_iter, args)
+        self.ftol = get_arg('ftol', self.ftol, args)
 
         self.mcmc_walkers = get_arg('mcmc_walkers', self.mcmc_walkers, args)
         self.mcmc_burnin = get_arg('mcmc_burnin', self.mcmc_burnin, args)

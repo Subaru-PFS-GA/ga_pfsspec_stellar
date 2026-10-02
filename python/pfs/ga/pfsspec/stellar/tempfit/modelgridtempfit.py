@@ -1110,12 +1110,21 @@ class ModelGridTempFit(TempFit):
             logger.debug(f"Template wavelength limits for {arm}: {wlim[ai]}")
         
         # Get objective function, etc
+        if not state.rv_fixed and len(state.params_free) > 0:
+            mode = 'params_rv'
+        elif state.rv_fixed:
+            mode = 'params'
+        elif len(state.params_fixed) == 0:
+            mode = 'rv'
+        else:
+            raise NotImplementedError("Unsupported combination of RV and parameter settings.")
+        
         state.log_L_fun, state.pack_params, state.unpack_params, state.pack_bounds = self.get_objective_function(
             state,
             spectra, fluxes,
             state.rv_0, state.rv_fixed, state.rv_prior,
             state.params_0, state.params_priors, state.params_free, params_fixed=state.params_fixed,
-            mode='params_rv',
+            mode=mode,
             pp_spec=state.pp_spec)
 
         self.__pack_everything(state)
@@ -1129,7 +1138,9 @@ class ModelGridTempFit(TempFit):
 
     def __pack_everything(self, state):
         # Initial values
-        if state.params_0 is not None and state.rv_0 is not None:
+        if state.rv_fixed and state.params_0 is not None:
+            state.x_0 = state.pack_params(state.params_0)[0]
+        elif state.params_0 is not None and state.rv_0 is not None:
             state.x_0 = state.pack_params(state.params_0, state.rv_0)[0]
         else:
             state.x_0 = None
@@ -1140,16 +1151,27 @@ class ModelGridTempFit(TempFit):
             state.log_L_0 = None
 
         # Step size for MCMC
-        if state.params_steps is not None and state.rv_step is not None:
+        if state.rv_fixed and state.params_steps is not None:
+            state.steps = state.pack_params(state.params_steps)[0]
+        elif state.params_steps is not None and state.rv_step is not None:
             state.steps = state.pack_params(state.params_steps, state.rv_step)[0]
         else:
             state.steps = None
 
         # Parameter scale and bias for optimization
-        state.scale = state.pack_params(state.params_scale, state.rv_scale)[0]
-        state.bias = state.pack_params(state.params_bias, state.rv_bias)[0]
+        if state.rv_fixed:
+            state.scale = state.pack_params(state.params_scale)[0]
+            state.bias = state.pack_params(state.params_bias)[0]
+        else:
+            state.scale = state.pack_params(state.params_scale, state.rv_scale)[0]
+            state.bias = state.pack_params(state.params_bias, state.rv_bias)[0]
 
-        bounds = state.pack_bounds(state.params_bounds, state.rv_bounds)
+        # Parameter bounds
+        if state.rv_fixed:
+            bounds = state.pack_bounds(state.params_bounds)
+        else:
+            bounds = state.pack_bounds(state.params_bounds, state.rv_bounds)
+        
         state.bounds = self.get_bounds_array(bounds)
 
     @deprecated("Use `guess_ml` instead.")
@@ -1380,7 +1402,7 @@ class ModelGridTempFit(TempFit):
         # all parameters accordingly.
 
         x_0 = (state.x_0 - state.bias) / state.scale
-        steps = state.steps
+        steps = state.steps / state.scale
         bounds = (state.bounds - state.bias[:, None]) / state.scale[:, None]
         
         # Cost function - here we don't have to distinguish between the two cases of `rv_fixed`
@@ -1417,6 +1439,7 @@ class ModelGridTempFit(TempFit):
             x_fit, flags_fit = self.optimize_gradient(x_0, steps, bounds,
                                               llh,
                                               self.max_iter,
+                                              self.ftol,
                                               callback=callback)
         elif method == 'global':
             x_fit, flags_fit = self.optimize_global(x_0, steps, bounds,
@@ -1435,7 +1458,11 @@ class ModelGridTempFit(TempFit):
         x_fit = x_fit * state.scale + state.bias
         
         # Unpack the optimized parameters
-        state.params_fit, state.rv_fit = state.unpack_params(x_fit)
+        if state.rv_fixed:
+            state.params_fit = state.unpack_params(x_fit)
+            state.rv_fit = state.rv_0
+        else:
+            state.params_fit, state.rv_fit = state.unpack_params(x_fit)
         state.params_fit = { **state.params_fit, **state.params_fixed }
         state.a_fit = None
 
@@ -1688,6 +1715,7 @@ class ModelGridTempFit(TempFit):
     def optimize_gradient(self, x_0, steps, bounds,
                           llh,
                           max_iter,
+                          ftol=1e-10,
                           callback=None):
 
         flags = 0
@@ -1697,7 +1725,7 @@ class ModelGridTempFit(TempFit):
                            x0=x_0, bounds=bounds, method='L-BFGS-B', callback=callback,
                            options=dict(
                                maxiter=max_iter,
-                               ftol=1e-10))
+                               ftol=ftol))
 
         logger.info(f"Optimizer final Jacobian: {out.jac}")
             
